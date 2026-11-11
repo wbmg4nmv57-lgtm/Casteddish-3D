@@ -16,6 +16,7 @@ function settleBlastFx(dt) {
   if (flashEl && flashA > 0) { flashA = Math.max(0, flashA - dt * 1.6); flashEl.style.opacity = flashA.toFixed(3); }
 }
 function update(dt) {
+  if (typeof world1Update === 'function') world1Update(dt);   // trappole e botole del piano 1
   tNow += dt;
   updateAudio(dt);
   settleBlastFx(dt);

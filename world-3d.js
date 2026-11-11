@@ -418,19 +418,28 @@ function t3Sync() {
   }
   // lampadari appesi al soffitto
   for (const c of chands) {
-    const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(), fl = new THREE.MeshBasicMaterial({ color: 0xffb040, fog: false }); g.add(Object.assign(new THREE.Mesh(t3Box(0.015, 0.2, 0.015), t3Mat('#222')), { position: new THREE.Vector3(0, 0.9, 0) })); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.015, 6, 14), t3Mat('#3a3a3a')); ring.rotation.x = Math.PI / 2; ring.position.y = 0.78; g.add(ring); for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), fl); f.position.set(Math.cos(i * 1.57) * 0.16, 0.82, Math.sin(i * 1.57) * 0.16); g.add(f); } g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
+    const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(), fl = new THREE.MeshBasicMaterial({ color: 0xffb040, fog: false }); const stem = new THREE.Mesh(t3Box(0.015, 0.2, 0.015), t3Mat('#222')); stem.position.set(0, 0.9, 0); g.add(stem); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.015, 6, 14), t3Mat('#3a3a3a')); ring.rotation.x = Math.PI / 2; ring.position.y = 0.78; g.add(ring); for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), fl); f.position.set(Math.cos(i * 1.57) * 0.16, 0.82, Math.sin(i * 1.57) * 0.16); g.add(f); } g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
   }
   t3Stale(T3.prop);
   world1Sync3D();
 }
 
+function t3Tag(s) {   // scritta in alto: versione e motore usato
+  const el = document.querySelector('#hudInfo span'); if (!el) return;
+  const t = 'CASTEDDISH v4' + (s ? ' [' + s + ']' : ''); if (el.textContent !== t) el.textContent = t;
+}
+
 // Chiamata da render(): restituisce true se il fotogramma e stato disegnato in 3D
 function render3D() {
-  if (T3.failed || typeof THREE === 'undefined' || curFloor !== 0 || !gameStarted) { if (T3.cv) T3.cv.style.display = 'none'; return false; }
+  if (T3.failed || typeof THREE === 'undefined' || curFloor !== 0 || !gameStarted) {
+    if (T3.cv) T3.cv.style.display = 'none';
+    t3Tag(gameStarted && curFloor === 0 ? (T3.failed ? '2D, errore 3D: ' + T3.err : 'Three.js non caricato') : '');
+    return false;
+  }
   try {
     if (!T3.on) t3Init();
     world1Ensure();
-    T3.cv.style.display = '';
+    T3.cv.style.display = ''; t3Tag(W1.dead ? '3D, trappole ferme' : '3D');
     const sig = curFloor + '|' + torches.length + '|' + (torches[0] ? torches[0].x + ',' + torches[0].y : '') + '|' + map[doorCell] + '|' + (doorAnim ? doorAnim.s : '') + '|' + W1.ver;
     if (sig !== T3.sig) { T3.sig = sig; t3Build(); }
     flick = (0.9 + 0.1 * Math.sin(tNow * 17) * Math.sin(tNow * 5.3) + (Math.random() - 0.5) * 0.06) * powerK;
@@ -439,5 +448,5 @@ function render3D() {
     renderGun();
     if (mm.t > 0 || mm.goal || (frameCount & 3) === 0) renderMinimap();
     return true;
-  } catch (err) { console.error('3D disattivato, torno al 2D:', err); T3.failed = true; if (T3.cv) T3.cv.style.display = 'none'; return false; }
+  } catch (err) { console.error('3D disattivato, torno al 2D:', err); T3.failed = true; T3.err = String((err && err.message) || err).slice(0, 60); if (T3.cv) T3.cv.style.display = 'none'; return false; }
 }

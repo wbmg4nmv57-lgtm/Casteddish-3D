@@ -304,7 +304,7 @@ function world1Sync3D() {
    ====================================================================== */
 const T3 = { on: false, failed: false, sig: '', stamp: 0, mobs: new Map(), prj: new Map(), eprj: new Map(), pick: new Map(), prop: new Map(), icons: new Map(), bars: new Map(), chd: [] };
 
-const T3CFG = { ambient: 1.0, hand: 1.2, torch: 2.4, fog: 0.075 };   // luminosita: alza o abbassa questi numeri
+const T3CFG = { ambient: 0.16, hand: 1.5, handDist: 6.5, torch: 1.4, torchDist: 8, fog: 0.2 };   // luminosita: alza o abbassa questi numeri
 function t3Tex(cv) { const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
 function t3Mat(c, r) { return new THREE.MeshStandardMaterial({ color: c, roughness: r || 0.85 }); }
 const t3Box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
@@ -317,8 +317,8 @@ function t3Init() {
   T3.gl = gl; T3.cv = gl.domElement; T3.scene = new THREE.Scene();
   T3.cam = new THREE.PerspectiveCamera(50, 2, 0.05, 40);
   T3.amb = new THREE.AmbientLight(0xfff0e0, T3CFG.ambient); T3.scene.add(T3.amb);
-  T3.hand = new THREE.PointLight(0xffe2b0, T3CFG.hand, 11, 1.2); T3.scene.add(T3.hand);
-  T3.lights = []; for (let i = 0; i < 7; i++) { const l = new THREE.PointLight(0xffaa44, 1, 12, 1.2); T3.scene.add(l); T3.lights.push(l); }
+  T3.hand = new THREE.PointLight(0xffd7a0, T3CFG.hand, T3CFG.handDist, 1.6); T3.scene.add(T3.hand);
+  T3.lights = []; for (let i = 0; i < 7; i++) { const l = new THREE.PointLight(0xffaa44, 1, T3CFG.torchDist, 1.6); T3.scene.add(l); T3.lights.push(l); }
   T3.on = true;
 }
 
@@ -329,7 +329,7 @@ function t3Build() {
   const root = T3.root = new THREE.Group(); sc.add(root);
   for (const m of [T3.mobs, T3.prj, T3.eprj, T3.pick, T3.prop, T3.bars]) m.clear();
   T3.chd = [];
-  const fog = new THREE.Color(fogC[0] / 255, fogC[1] / 255, fogC[2] / 255);
+  const fog = new THREE.Color(fogC[0] / 255, fogC[1] / 255, fogC[2] / 255).multiplyScalar(0.4);
   sc.fog = new THREE.FogExp2(fog, T3CFG.fog); T3.gl.setClearColor(fog);
   const tile = (buf, rep) => {
     const c = document.createElement('canvas'); c.width = c.height = TS;
@@ -391,76 +391,138 @@ function t3SkinTex() {
 }
 
 // Demone: curvo in avanti, torace enorme con costole, cranio allungato con corna, occhi infuocati,
-// mascella con zanne, braccia lunghe con artigli, gambe all'indietro, coda e spuntoni sulla schiena
+// mascella con lingua e zanne, braccia lunghe con artigli, gambe all'indietro, coda e spuntoni sulla schiena.
+// Scheletro a catena: bacino > torace > collo > testa, spalla > gomito, anca > ginocchio > caviglia, coda a 4 segmenti.
 function t3Mob(e) {
   t3SkinTex();
   const gc = T3.gc = T3.gc || {}, G = (k, f) => gc[k] || (gc[k] = f());
   const S = STY[e.type] || STY.demon, T = TYPES[e.type] || TYPES.demon, mo = (VARS[e.type] && VARS[e.type][e.v | 0] && VARS[e.type][e.v | 0][2]) || {};
   const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, mc = T3.mc = T3.mc || {};
   if (!mc[e.type]) {
-    const std = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+    const std = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r }), ec = S.eye || '#ff3b1a';
     mc[e.type] = {
-      skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, color: new THREE.Color(S.c2 || '#7a2a20').lerp(new THREE.Color(0xffffff), 0.55), emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.9, roughness: 0.8 }),
-      dark: std(new THREE.Color(S.c1 || '#2a0c0a'), 0.9), horn: std(new THREE.Color(S.horn || '#2a1c18'), 0.5), bone: std(0xe8dcc0, 0.6),
+      skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, color: new THREE.Color(S.c2 || '#7a2a20').lerp(new THREE.Color(0xffffff), 0.55), emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.5, roughness: 0.8 }),
+      dark: std(new THREE.Color(S.c1 || '#2a0c0a'), 0.9), horn: std(new THREE.Color(S.horn || '#2a1c18'), 0.5), bone: std(0xe8dcc0, 0.6), tongue: std(0x8a1020, 0.45),
       steel: new THREE.MeshStandardMaterial({ color: 0x59606a, roughness: 0.35, metalness: 0.5 }),
-      eye: new THREE.MeshBasicMaterial({ color: S.eye || '#ff3b1a', fog: false })
+      eye: new THREE.MeshBasicMaterial({ color: ec, fog: false }),
+      halo: new THREE.MeshBasicMaterial({ color: ec, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
     };
-    if (S.alpha) Object.values(mc[e.type]).forEach(m => { m.transparent = true; m.opacity = S.alpha; });
+    if (S.alpha) for (const k in mc[e.type]) if (k !== 'eye' && k !== 'halo') { mc[e.type][k].transparent = true; mc[e.type][k].opacity = S.alpha; }
   }
-  const M = mc[e.type], g = new THREE.Group(), det = [];
+  const M = mc[e.type], g = new THREE.Group(), det = [], all = [], eyes = [];
   const sph = G('sph', () => new THREE.SphereGeometry(0.5, 12, 9)), cyl = G('cyl', () => new THREE.CylinderGeometry(0.5, 0.36, 1, 8)), cone = G('cone', () => new THREE.ConeGeometry(0.5, 1, 6)), box = G('box', () => new THREE.BoxGeometry(1, 1, 1));
-  const part = (geo, mat, x, y, z, p, s, rot, isDet) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); if (s) o.scale.set(s[0], s[1], s[2]); if (rot) o.rotation.set(rot[0], rot[1], rot[2]); (p || g).add(o); if (isDet) det.push(o); return o; };
-  const body = new THREE.Group(); body.position.set(0, 0.45, 0); body.rotation.x = 0.32; g.add(body);
-  part(sph, M.skin, 0, 0.12, 0, body, [0.46 * wsc, 0.5, 0.3]); part(sph, M.dark, 0, -0.1, 0, body, [0.3, 0.24, 0.24]);        // torace, bacino
-  for (let i = 0; i < 3; i++) part(box, M.bone, 0, 0.2 - i * 0.08, 0.13, body, [0.26 * wsc, 0.018, 0.04], null, true);        // costole
-  for (let i = 0; i < 4; i++) part(cone, M.horn, 0, 0.28 - i * 0.1, -0.15, body, [0.06, 0.16, 0.06], [-2.0, 0, 0], true);     // spuntoni sulla schiena
-  const head = new THREE.Group(); head.position.set(0, 0.38, 0.07); body.add(head);
-  part(sph, M.skin, 0, 0, 0.02, head, [0.24, 0.26, 0.3]); part(sph, M.dark, 0, -0.02, 0.1, head, [0.16, 0.12, 0.14]);          // cranio, muso
-  part(box, M.dark, 0, 0.085, 0.16, head, [0.22, 0.03, 0.06]);                                                                  // sopracciglia cattive
-  const jaw = new THREE.Group(); jaw.position.set(0, -0.08, 0.04); head.add(jaw); part(box, M.dark, 0, -0.02, 0.07, jaw, [0.15, 0.04, 0.2]);
-  for (let i = 0; i < 5; i++) { part(cone, M.bone, -0.056 + i * 0.028, 0.02, 0.15, jaw, [0.018, 0.055, 0.018], null, true); part(cone, M.bone, -0.056 + i * 0.028, -0.075, 0.17, head, [0.018, 0.055, 0.018], [Math.PI, 0, 0], true); }   // zanne
+  const part = (geo, mat, x, y, z, p, s, rot, isDet, keep) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); if (s) o.scale.set(s[0], s[1], s[2]); if (rot) o.rotation.set(rot[0], rot[1], rot[2]); (p || g).add(o); if (!keep) all.push(o); if (isDet) det.push(o); return o; };
+  const grp = (p, x, y, z) => { const o = new THREE.Group(); o.position.set(x, y, z); p.add(o); return o; };
+  const body = grp(g, 0, 0.45, 0); part(sph, M.dark, 0, -0.04, 0, body, [0.3, 0.24, 0.24]);                               // bacino
+  const chest = grp(body, 0, 0.1, 0); part(sph, M.skin, 0, 0.06, 0, chest, [0.46 * wsc, 0.5, 0.3]);                        // torace
+  for (let i = 0; i < 3; i++) part(box, M.bone, 0, 0.14 - i * 0.08, 0.13, chest, [0.26 * wsc, 0.018, 0.04], null, true);   // costole
+  for (let i = 0; i < 4; i++) part(cone, M.horn, 0, 0.2 - i * 0.1, -0.15, chest, [0.06, 0.16, 0.06], [-2.0, 0, 0], true);  // spuntoni sulla schiena
+  const neck = grp(chest, 0, 0.2, 0.04); part(cyl, M.skin, 0, 0.02, 0, neck, [0.1, 0.14, 0.1]);
+  const head = grp(neck, 0, 0.08, 0.03);
+  part(sph, M.skin, 0, 0, 0.02, head, [0.24, 0.26, 0.3]); part(sph, M.dark, 0, -0.02, 0.1, head, [0.16, 0.12, 0.14]);       // cranio, muso
+  part(box, M.dark, 0, 0.085, 0.16, head, [0.22, 0.03, 0.06]);                                                              // sopracciglia
+  const jaw = grp(head, 0, -0.08, 0.04); part(box, M.dark, 0, -0.02, 0.07, jaw, [0.15, 0.04, 0.2]);
+  const tongue = part(box, M.tongue, 0, -0.005, 0.1, jaw, [0.05, 0.015, 0.12], null, true);
+  for (let i = 0; i < 5; i++) { part(cone, M.bone, -0.056 + i * 0.028, 0.02, 0.15, jaw, [0.018, 0.055, 0.018], null, true); part(cone, M.bone, -0.056 + i * 0.028, -0.075, 0.17, head, [0.018, 0.055, 0.018], [Math.PI, 0, 0], true); }
   for (const s of [-1, 1]) {
-    part(sph, M.eye, s * 0.07, 0.04, 0.17, head, [0.055, 0.035, 0.03], [0, 0, s * 0.4]);                                        // occhi che brillano
-    part(cone, M.horn, s * 0.1, 0.17, -0.02, head, [0.075, 0.26, 0.075], [-0.5, 0, -s * 0.55]); part(cone, M.horn, s * 0.2, 0.33, -0.1, head, [0.05, 0.2, 0.05], [-1.0, 0, -s * 0.25]);   // corna
-    part(cone, M.skin, s * 0.14, 0.02, -0.02, head, [0.04, 0.14, 0.02], [0, 0, -s * 1.3]);                                       // orecchie a punta
+    eyes.push([part(sph, M.eye, s * 0.07, 0.04, 0.17, head, [0.055, 0.035, 0.03], [0, 0, s * 0.4], false, true), part(sph, M.halo, s * 0.07, 0.04, 0.17, head, [0.14, 0.1, 0.07], null, false, true)]);   // occhi + alone
+    part(cone, M.horn, s * 0.1, 0.17, -0.02, head, [0.075, 0.26, 0.075], [-0.5, 0, -s * 0.55]); part(cone, M.horn, s * 0.2, 0.33, -0.1, head, [0.05, 0.2, 0.05], [-1.0, 0, -s * 0.25]);
+    part(cone, M.skin, s * 0.14, 0.02, -0.02, head, [0.04, 0.14, 0.02], [0, 0, -s * 1.3]);
   }
-  const arms = [-1, 1].map(s => {
-    const a = new THREE.Group(); a.position.set(s * 0.25 * wsc, 0.26, 0); body.add(a);
+  const elbows = [], arms = [-1, 1].map(s => {
+    const a = grp(chest, s * 0.25 * wsc, 0.16, 0);
     part(sph, M.skin, 0, 0, 0, a, [0.14, 0.14, 0.14]); part(cone, M.horn, s * 0.04, 0.08, 0, a, [0.05, 0.16, 0.05], [0, 0, -s * 0.5]); part(cyl, M.skin, 0, -0.14, 0, a, [0.09, 0.28, 0.09]);
-    const el = new THREE.Group(); el.position.set(0, -0.29, 0); el.rotation.x = -0.35; a.add(el);
+    const el = grp(a, 0, -0.29, 0); el.rotation.x = -0.35; elbows.push(el);
     part(cyl, M.skin, 0, -0.13, 0, el, [0.075, 0.26, 0.075]); part(sph, M.dark, 0, -0.27, 0, el, [0.1, 0.1, 0.1]);
-    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.35, 0.01, el, [0.02, 0.1, 0.02], [Math.PI, 0, 0], true);        // artigli
+    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.35, 0.01, el, [0.02, 0.1, 0.02], [Math.PI, 0, 0], true);   // artigli
     if (s === 1) { part(box, M.dark, 0, -0.27, 0.16, el, [0.03, 0.03, 0.34]); part(box, M.steel, 0, -0.27, 0.36, el, [0.03, 0.2, 0.14]); }   // mannaia
     return a;
   });
-  const legs = [-1, 1].map(s => {
-    const l = new THREE.Group(); l.position.set(s * 0.1, 0.44, 0); g.add(l);
-    part(cyl, M.skin, 0, -0.1, 0.04, l, [0.12, 0.26, 0.12], [-0.45, 0, 0]);                                                      // coscia
-    const kn = new THREE.Group(); kn.position.set(0, -0.2, 0.12); l.add(kn);
-    part(cyl, M.dark, 0, -0.1, -0.03, kn, [0.075, 0.26, 0.075], [0.7, 0, 0]); part(box, M.dark, 0, -0.23, 0, kn, [0.09, 0.04, 0.16]);   // stinco e piede
-    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.23, 0.1, kn, [0.02, 0.07, 0.02], [Math.PI / 2, 0, 0], true);
-    return l;
+  const knees = [], ankles = [], legs = [-1, 1].map(s => {
+    const l = grp(g, s * 0.1, 0.44, 0); part(cyl, M.skin, 0, -0.1, 0.04, l, [0.12, 0.26, 0.12], [-0.45, 0, 0]);               // coscia
+    const kn = grp(l, 0, -0.2, 0.12); part(cyl, M.dark, 0, -0.1, -0.03, kn, [0.075, 0.26, 0.075], [0.7, 0, 0]);               // stinco
+    const an = grp(kn, 0, -0.22, -0.07); part(box, M.dark, 0, -0.01, 0.04, an, [0.09, 0.04, 0.16]);                           // piede
+    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.01, 0.12, an, [0.02, 0.07, 0.02], [Math.PI / 2, 0, 0], true);
+    knees.push(kn); ankles.push(an); return l;
   });
   const tail = []; let par = body;
-  for (let i = 0; i < 4; i++) { const sg = new THREE.Group(); sg.position.set(0, i ? 0 : -0.14, i ? -0.16 : -0.14); par.add(sg); part(cone, M.skin, 0, 0, -0.08, sg, [0.09 - i * 0.018, 0.2, 0.09 - i * 0.018], [-Math.PI / 2, 0, 0]); tail.push(sg); par = sg; }
+  for (let i = 0; i < 4; i++) { const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); part(cone, M.skin, 0, 0, -0.08, sg, [0.09 - i * 0.018, 0.2, 0.09 - i * 0.018], [-Math.PI / 2, 0, 0]); tail.push(sg); par = sg; }
   g.rotation.order = 'YXZ'; g.scale.setScalar(sc);
-  g.userData = { arms, legs, body, head, jaw, tail, det, px: e.x, py: e.y, ph: 0, hd: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28 };
+  g.userData = { arms, elbows, legs, knees, ankles, body, chest, neck, head, jaw, tongue, tail, eyes, det, all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
   return g;
 }
 
-function t3Anim(m, e, mv) {   // movimento del demone: camminata, respiro, mascella, coda, morte
-  const u = m.userData, sw = Math.sin(u.ph) * Math.min(1, mv * 40), t = tNow + u.seed;
-  if (!e.alive) { m.rotation.x = -Math.min(1, e.deathTimer / 0.5) * 1.45; m.position.y += 0.05; u.jaw.rotation.x = 0.7; return; }
-  const atk = e.state === 'attack' || e.state === 'summon', cow = e.state === 'cower';
-  m.rotation.x = 0; u.legs[0].rotation.x = sw * 0.8; u.legs[1].rotation.x = -sw * 0.8;
-  u.arms.forEach((a, i) => { a.rotation.x = atk ? -1.6 + Math.sin(t * 14) * 0.4 : cow ? -2.6 : (i ? sw : -sw) * 0.7 - 0.15; });
-  u.body.rotation.x = 0.32 + Math.sin(t * 2.2) * 0.03 + (atk ? 0.25 : 0);
-  u.head.rotation.x = atk ? -0.2 : 0.1 + Math.sin(t * 1.3) * 0.05; u.head.rotation.z = Math.sin(t * 0.9) * 0.08;
-  u.jaw.rotation.x = atk ? 0.55 + Math.sin(t * 16) * 0.15 : 0.12 + Math.sin(t * 3) * 0.05;
-  u.tail.forEach((s, i) => { s.rotation.y = Math.sin(t * 2.4 - i * 0.7) * 0.35; });
-  m.scale.y = u.sc * (cow ? 0.6 : 1);
-  const near = (m.position.x - T3.cam.position.x) ** 2 + (m.position.z - T3.cam.position.z) ** 2 < 64;   // i dettagli piccoli solo da vicino
-  if (u.near !== near) { u.near = near; u.det.forEach(o => { o.visible = near; }); }
+// Movimento: molle e inerzia. Ogni arto e un sistema molla-smorzatore che insegue un obiettivo, quindi
+// ha ritardo, rimbalzo e oscillazione residua. Passo guidato dalla distanza percorsa (i piedi non scivolano).
+function t3Anim(m, e, mv, d2) {
+  const u = m.userData, dt = Math.min(0.05, T3.dt || 0.016), t = tNow + u.seed, cl = (v, a, b) => Math.max(a, Math.min(b, v));
+  if (!e.alive && !u.deadEyes) { u.deadEyes = true; u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
+  const near = d2 < 169;
+  if (u.lod !== near) { u.lod = near; u.close = null; u.all.forEach(o => { o.visible = near; }); }   // da lontano restano solo gli occhi
+  if (!near) { u.yaw = u.hd; m.rotation.y = u.yaw; u.spd = 0; return; }
+  const close = d2 < 64; if (u.close !== close) { u.close = close; u.det.forEach(o => { o.visible = close; }); }
+  const sp = (n, tg, k, c) => { const s = u.s[n] || (u.s[n] = { x: 0, v: 0 }); s.v += (k * (tg - s.x) - c * s.v) * dt; s.x += s.v * dt; return s.x; };
+  const kick = (n, v) => { (u.s[n] || (u.s[n] = { x: 0, v: 0 })).v += v; };
+  if (u.yaw === null) u.yaw = u.hd;
+  // ---- MORTE: cade all'indietro con rimbalzo, ginocchia che cedono, braccia e mascella molli
+  if (!e.alive) {
+    if (!u.dead) { u.dead = true; kick('fall', -3); u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
+    m.rotation.y = u.yaw; m.rotation.x = -sp('fall', 1.45, 38, 5); m.position.y += 0.05 * Math.min(1, e.deathTimer / 0.5);
+    u.body.rotation.set(sp('dB', 0.1, 30, 5), 0, 0); u.chest.rotation.set(0.1, 0, 0);
+    u.legs.forEach((l, i) => { l.rotation.x = sp('dl' + i, 0.9 + i * 0.35, 40, 5); u.knees[i].rotation.x = sp('dk' + i, 1.1, 40, 5); });
+    u.arms.forEach((a, i) => { a.rotation.x = sp('arm' + i, i ? -0.2 : 0.5, 18, 3); u.elbows[i].rotation.x = sp('elb' + i, -0.5, 18, 3); });
+    u.jaw.rotation.x = sp('jaw', 0.9, 40, 5); u.neck.rotation.x = sp('head', -0.5, 30, 4) * 0.5; u.head.rotation.x = u.neck.rotation.x; return;
+  }
+  const atk = e.state === 'attack', sum = e.state === 'summon', cow = e.state === 'cower';
+  // ---- girata progressiva: il mostro non scatta, ruota; la testa anticipa e il corpo si inclina in curva
+  let dy = u.hd - u.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const st = cl(dy, -(atk ? 9 : 6) * dt, (atk ? 9 : 6) * dt); u.yaw += st; u.yawRate += (st / dt - u.yawRate) * Math.min(1, dt * 10); m.rotation.y = u.yaw; m.rotation.x = 0;
+  // ---- velocita liscia e accelerazione: guidano inclinazione, passo e rimbalzi
+  u.spd += (mv / dt - u.spd) * Math.min(1, dt * 8); const acc = (u.spd - u.spdPrev) / dt; u.spdPrev = u.spd;
+  const sf = cl(u.spd / 1.8, 0, 1); u.ph += mv * 5.2; const ph = u.ph, sw = Math.sin(ph);
+  const stepIdx = Math.floor(ph / Math.PI);
+  if (stepIdx !== u.stepIdx) { u.stepIdx = stepIdx; kick('bounce', -1.3 * sf); kick('jaw', 2.4 * sf); kick('head', (Math.random() - 0.5) * 3 * sf); kick('tX0', 1.5 * sf); }   // ogni passo: scossone
+  // ---- attacco: carica, affondo, morso, recupero (1,1 s)
+  u.atkT = atk ? u.atkT + dt : 0;
+  const p = (u.atkT % 1.1) / 1.1, wind = atk && p < 0.38, strike = atk && p >= 0.38 && p < 0.52, lunge = strike ? Math.sin((p - 0.38) / 0.14 * Math.PI) : 0;
+  if (e.hp < u.hp) { kick('pitch', -5); kick('head', -9); kick('jaw', 7); kick('twist', 3 * (Math.random() < 0.5 ? 1 : -1)); u.hurt = 0.5; }   // colpito: rinculo e urlo
+  u.hp = e.hp; u.hurt = Math.max(0, u.hurt - dt);
+  // ---- busto
+  const pitch = sp('pitch', 0.3 + sf * 0.18 + cl(acc * 0.05, -0.25, 0.3) + (wind ? -0.45 : 0) + (strike ? 0.55 : 0) + (sum ? -0.4 : 0) + (cow ? 0.5 : 0), 70, 9);
+  const bounce = sp('bounce', 0, 80, 6), roll = sp('roll', -u.yawRate * 0.05 + sw * 0.07 * sf, 60, 8);
+  const twist = sp('twist', Math.cos(ph) * 0.22 * sf + (wind ? 0.5 : 0) + (strike ? -0.7 : 0), 55, 7);          // il torace ruota contro il bacino
+  const chestP = sp('chestP', 0.1 + (wind ? -0.25 : 0) + (strike ? 0.35 : 0) + Math.sin(t * 2.3) * 0.03 * (1 - sf), 60, 8), br = Math.sin(t * 2.6 + sf * 3) * 0.5 + 0.5;
+  u.body.position.y = 0.45 - 0.04 * (1 - sf) - (cow ? 0.12 : 0) - (wind ? 0.05 : 0) + bounce * 0.035;
+  u.body.rotation.set(pitch, -twist * 0.4, roll); u.chest.rotation.set(chestP, twist, roll * 0.6); u.chest.scale.set(1 + br * 0.03, 1 + br * 0.05, 1 + br * 0.03);   // respira
+  if (cow) m.rotation.z = Math.sin(t * 40) * 0.03; else m.rotation.z = 0;
+  if (lunge) { m.position.x += Math.sin(u.yaw) * lunge * 0.14; m.position.z += Math.cos(u.yaw) * lunge * 0.14; }
+  // ---- testa: resta stabile rispetto al mondo, anticipa le curve, annusa da ferma, scatta quando morde
+  const hp = sp('head', -(pitch + chestP) * 0.7 + 0.12 + (wind ? -0.3 : 0) + (strike ? 0.5 : 0) + (u.hurt > 0 ? -0.5 : 0) + bounce * 0.12, 90, 9);
+  const hy = sp('headY', cl(u.yawRate * 0.07, -0.5, 0.5) + Math.sin(t * 0.8) * 0.12 * (1 - sf), 80, 8), hr = sp('headR', Math.sin(t * 1.1) * 0.1 - roll * 0.8, 70, 8);
+  u.neck.rotation.set(hp * 0.5, hy * 0.6, hr * 0.5); u.head.rotation.set(hp * 0.5, hy * 0.4, hr * 0.5);
+  // ---- bocca: la mascella e una molla pigra che sbatte a ogni passo; urla se colpito, si spalanca e scatta nel morso
+  const jt = u.hurt > 0 ? 0.8 : sum ? 0.85 : wind ? 0.35 + p * 1.2 : strike ? (p < 0.47 ? 0.95 : -0.05) : 0.1 + Math.sin(t * 3.1) * 0.04 + sf * 0.12, jw = sp('jaw', jt, 160, 9);
+  u.jaw.rotation.x = Math.max(-0.1, jw); u.tongue.position.z = 0.1 + Math.max(0, jw) * 0.04; u.tongue.rotation.x = Math.sin(t * 9) * 0.12 * Math.max(0, jw);
+  // ---- braccia: oscillano al contrario delle gambe con ritardo; si alzano per colpire, tremano quando evoca
+  u.arms.forEach((a, i) => {
+    const tg = sum ? -2.6 + Math.sin(t * 22) * 0.12 : cow ? -2.7 : atk ? (wind ? (i ? -2.7 : -1.9) : strike ? (i ? 0.1 : -0.6) : -0.7) : (i ? sw : -sw) * 0.85 * sf - 0.15 - 0.1 * Math.sin(t * 1.4 + i);
+    a.rotation.x = sp('arm' + i, tg, atk ? 220 : 55, atk ? 14 : 6); a.rotation.z = (i ? -1 : 1) * (0.08 + sf * 0.06 + 0.05 * Math.sin(t * 1.7 + i));
+    u.elbows[i].rotation.x = sp('elb' + i, -0.35 - ((i ? sw : -sw) > 0 ? 0.6 * sf : 0.1 * sf) - (wind ? 1 : 0) + (strike ? 0.9 : 0), 90, 8);
+  });
+  // ---- gambe: anca, ginocchio che si piega quando il piede si solleva, caviglia che compensa
+  u.legs.forEach((l, i) => {
+    const o = i ? Math.PI : 0, a = Math.sin(ph + o), lift = Math.max(0, Math.cos(ph + o));
+    const hip = sp('hip' + i, a * 0.75 * sf + (cow ? 0.6 : 0.1) + (wind ? -0.1 : 0) + (strike ? (i ? 0.5 : -0.2) : 0), 140, 14), knee = 0.25 + lift * 0.95 * sf + (cow ? 0.7 : 0) + (wind ? 0.35 : 0);
+    l.rotation.x = hip; u.knees[i].rotation.x = knee; u.ankles[i].rotation.x = -hip * 0.6 - (knee - 0.25) * 0.4 + lift * 0.4 * sf;
+  });
+  // ---- coda: ogni segmento segue il precedente con piu ritardo, frusta nelle curve e rimbalza con i passi
+  u.tail.forEach((sg, i) => {
+    sg.rotation.y = sp('tY' + i, -u.yawRate * 0.12 * (i + 1) + Math.sin(t * 2.2 - i * 0.8) * (0.18 + 0.25 * sf), 50 - i * 8, 4);
+    sg.rotation.x = sp('tX' + i, -bounce * 0.15 * (i + 1) + 0.05 * i + (wind ? -0.3 : 0), 40 - i * 6, 3.5);
+  });
+  // ---- occhi: sfarfallano, si stringono quando attacca, ogni tanto sbattono le palpebre
+  const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (atk || sum ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1);
+  u.eyes.forEach(([a, b]) => { a.scale.y = 0.035 * sq; b.scale.set(0.14 * fl, 0.1 * fl * sq, 0.07); });
 }
 
 function t3Props(q) {   // oggetti di scena: armature, rastrelliere, casse, barili, bauli
@@ -485,26 +547,26 @@ function t3Get(map, key, make) { let m = map.get(key); if (!m) { m = make(); map
 
 function t3Sync() {
   const cam = T3.cam, px = player.x, py = player.y, P = PAL[0], st = ++T3.stamp;
+  const nowMs = performance.now(); T3.dt = Math.min(0.05, (nowMs - (T3.lastMs || nowMs)) / 1000) || 0.016; T3.lastMs = nowMs;
   const k = shake && shake.t > 0 ? shake.a * shake.t / shake.max * 0.004 : 0, r = () => (Math.random() - 0.5) * k;
   const ey = 0.5 + W1.camH + (W1.fall > 0 ? (W1.fall / 0.8) ** 2 * 1.4 : 0);   // la camera segue il pavimento (e la caduta)
   cam.position.set(px + r(), ey + r(), py + r()); cam.lookAt(px + player.dirX, ey, py + player.dirY);
   // luci: le 6 torce piu vicine illuminano davvero i muri
   const gc = P.glow.split(',').map(Number), col = new THREE.Color(gc[0] / 255, gc[1] / 255, gc[2] / 255);
   const near = torches.map(q => ({ q, d: (q.x - px) ** 2 + (q.y - py) ** 2 })).sort((a, b) => a.d - b.d);
-  T3.lights.forEach((l, i) => { const o = near[i]; l.visible = !!o && o.d < 200; if (o) { l.position.set(o.q.x, 0.75 + world1Hn(o.q.x, o.q.y), o.q.y); l.color.copy(col); l.intensity = (o.q.k || 1) * T3CFG.torch * flick; } });
+  T3.lights.forEach((l, i) => { const o = near[i]; l.visible = !!o && o.d < 100; if (o) { l.position.set(o.q.x, 0.75 + world1Hn(o.q.x, o.q.y), o.q.y); l.color.copy(col); l.intensity = (o.q.k || 1) * T3CFG.torch * flick; } });
   T3.amb.intensity = T3CFG.ambient * powerK; T3.hand.position.copy(cam.position); T3.hand.intensity = T3CFG.hand * powerK;
-  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.7 + 0.35 * Math.sin(tNow * 3);   // crepe che pulsano for (const t of T3.torchMats) t.mat.map = t.frames[fr];
+  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];   // fiamme delle torce animate; le crepe dei demoni pulsano
   if (doorAnim && T3.doorTex) T3.doorTex.needsUpdate = true;
   // mostri
   for (const e of enemies) {
     const m = t3Get(T3.mobs, e, () => t3Mob(e)), u = m.userData, T = TYPES[e.type] || TYPES.demon;
     const d2 = (e.x - px) ** 2 + (e.y - py) ** 2, dx = e.x - u.px, dy = e.y - u.py, mv = Math.hypot(dx, dy);
-    m.visible = d2 < 484; u.px = e.x; u.py = e.y; if (!m.visible) continue;
+    m.visible = d2 < 900; u.px = e.x; u.py = e.y; if (!m.visible) continue;   // da lontano si vedono solo gli occhi
     m.position.set(e.x, world1H(e.x, e.y) + (T.lift ? T.lift + Math.sin(tNow * 3 + e.x) * 0.04 : 0), e.y);
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
     if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss)) u.hd = Math.atan2(px - e.x, py - e.y);
-    m.rotation.y = u.hd; u.ph += mv * 14;
-    t3Anim(m, e, mv);
+    t3Anim(m, e, mv, d2);
     // barra vita: compare solo dopo il primo colpo
     const show = e.alive && e.hp < e.mhp && d2 < 144, b = t3Get(T3.bars, e, () => { const g = new THREE.Group(), mk = (c, z) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.04), new THREE.MeshBasicMaterial({ color: c, fog: false })); o.position.z = z; g.add(o); return o; }; mk(0x000000, 0); g.userData.fg = mk(0xdd2222, 0.001); return g; });
     b.visible = show; if (show) { const q = Math.max(0, e.hp / e.mhp); b.position.set(e.x, world1H(e.x, e.y) + u.sc * 0.98 + 0.12, e.y); b.quaternion.copy(cam.quaternion); b.userData.fg.scale.x = Math.max(0.001, q); b.userData.fg.position.x = -0.2 * (1 - q); }
@@ -536,7 +598,7 @@ function t3Sync() {
 
 function t3Tag(s) {   // scritta in alto: versione e motore usato
   const el = document.querySelector('#hudInfo span'); if (!el) return;
-  const t = 'CASTEDDISH v5' + (s ? ' [' + s + ']' : ''); if (el.textContent !== t) el.textContent = t;
+  const t = 'CASTEDDISH v6' + (s ? ' [' + s + ']' : ''); if (el.textContent !== t) el.textContent = t;
 }
 
 // Chiamata da render(): restituisce true se il fotogramma e stato disegnato in 3D

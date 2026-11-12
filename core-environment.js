@@ -537,7 +537,7 @@ function loadFloor(prog) {
   }
 
   // Crates, chests and chandeliers (crates and chests are solid, rooms keep a free ring)
-  blk.set(map); props.length = 0; chands.length = 0; fires.length = 0; nebulas.length = 0; decals.clear(); debris.length = 0; rubble.length = 0;
+  blk.set(map); if (typeof world1Carve === 'function') world1Carve(f); props.length = 0; chands.length = 0; fires.length = 0; nebulas.length = 0; decals.clear(); debris.length = 0; rubble.length = 0;
   const sroom = stairs && rooms.find(r => stairs.x >= r.x && stairs.x < r.x + r.w && stairs.y >= r.y && stairs.y < r.y + r.h);
   const used = [];
   for (const r of rooms) {

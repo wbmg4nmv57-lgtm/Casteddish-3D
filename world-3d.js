@@ -317,7 +317,7 @@ function world1Sync3D() {
    ====================================================================== */
 const T3 = { on: false, failed: false, sig: '', stamp: 0, mobs: new Map(), prj: new Map(), eprj: new Map(), pick: new Map(), prop: new Map(), icons: new Map(), bars: new Map(), chd: [] };
 
-const T3CFG = { ambient: 0.16, hand: 1.5, handDist: 6.5, torch: 1.4, torchDist: 8, fog: 0.2 };   // luminosita: alza o abbassa questi numeri
+const T3CFG = { ambient: 0.135, hand: 1.3, handDist: 6.5, torch: 1.25, torchDist: 8, fog: 0.22 };   // luminosita: alza o abbassa questi numeri
 function t3Tex(cv) { const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
 function t3Mat(c, r) { return new THREE.MeshStandardMaterial({ color: c, roughness: r || 0.85 }); }
 const t3Box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
@@ -790,8 +790,8 @@ function t3Anim(m, e, mv, d2) {
   const u = m.userData, dt = Math.min(0.05, T3.dt || 0.016), t = tNow + u.seed, cl = (v, a, b) => Math.max(a, Math.min(b, v));
   if (!e.alive && !u.deadEyes) { u.deadEyes = true; u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
   const near = d2 < 169;
-  const eyeFx = (squint) => {   // occhi gialli: sfarfallano, si stringono quando attacca, sbattono le palpebre; l'alone cresce con la distanza
-    const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (squint ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1), gw = (0.2 + Math.sqrt(d2) * 0.03) / u.sc;
+  const eyeFx = (squint) => {   // occhi gialli: sfarfallano, si stringono quando attacca, sbattono le palpebre; l'alone resta un puntino piccolo a qualunque distanza (il corpo emerge dal buio solo da vicino)
+    const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (squint ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1), gw = (0.04 + Math.sqrt(d2) * 0.0115) / (1.22 * u.sc);
     u.eyes.forEach(([a, b]) => { a.scale.y = (a.userData.by || 0.04) * sq; b.scale.set(gw * fl, gw * fl * (0.55 + 0.45 * sq), 1); });
   };
   if (u.lod !== near) { u.lod = near; u.close = null; u.all.forEach(o => { o.visible = near; }); }   // da lontano restano solo gli occhi

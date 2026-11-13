@@ -13,7 +13,7 @@
 const player = { x: 3.5, y: 3.5, dirX: 1, dirY: 0, planeX: 0, planeY: 0.9, moveSpeed: 3.2, rotSpeed: 2.4, radius: 0.25, hp: 100, kills: 0, pitch: 0 };
 
 const TYPES = {
-  demon: { hp: 100, spd: 1.3, dmg: 12, sc: 1 },
+  demon: { hp: 100, spd: 1.9, dmg: 12, sc: 1 },
   ghoul: { hp: 170, spd: 1.75, dmg: 16, sc: 0.95 },
   wraith: { hp: 140, spd: 2.0, dmg: 20, sc: 1, lift: 0.12 },
   witch: { hp: 260, spd: 1.5, dmg: 14, sc: 1 },
@@ -224,7 +224,7 @@ function head(c, cx, cy, tilt, jaw, st, back, glow) {
 const VARS = {
   demon: [
     ['axe2'],
-    ['mace', { blade: '#bfc6cc' }, { ws: 0.78, lw: 4.5, hs: 1.04, sp: 2 }],                                                     // thin: twice as fast
+    ['mace', { blade: '#bfc6cc' }, { ws: 0.78, lw: 4.5, hs: 1.04, sp: 1.6 }],                                                   // thin: the fastest, still just under the player's speed
     ['trident', { blade: '#d86a2a', dark: '#8a2a0a' }, { ws: 1.2, belly: 10, lw: 9, hs: 0.95, pw: 2 }],                           // fat: twice as strong
     ['scimitar', {}, { hs: 1.2, lw: 6, ws: 0.92 }],
     ['halberd', { handle: '#3a2a22' }, { hs: 0.8, ws: 1.08, headS: 1.12 }],

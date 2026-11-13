@@ -333,6 +333,38 @@ function settleBlastFx(dt) {
   }
   if (flashEl && flashA > 0) { flashA = Math.max(0, flashA - dt * 1.6); flashEl.style.opacity = flashA.toFixed(3); }
 }
+// Piano 1: i demoni non si compenetrano. Ogni coppia troppo vicina viene spinta in direzioni opposte (chi e piu lontano dal giocatore cede di piu),
+// senza mai entrare nei muri: se uno dei due e bloccato, l'altro si sposta di piu.
+function separateDemons() {
+  if (curFloor !== 0) return;
+  const ds = [];
+  for (const e of enemies) {
+    if (!e.alive || e.type !== 'demon') continue;
+    if (e.cr === undefined) { const mo = (VARS.demon[e.v] && VARS.demon[e.v][2]) || {}; e.cr = 0.4 * (e.hs || 1) * Math.max(1, mo.ws || 1); }   // raggio del corpo
+    ds.push(e);
+  }
+  const slide = (e, mx, my) => {   // si sposta scivolando lungo i muri; restituisce quanto si e mosso davvero
+    let ax = 0, ay = 0;
+    if (!isWall(e.x + mx, e.y)) { e.x += mx; ax = mx; }
+    if (!isWall(e.x, e.y + my)) { e.y += my; ay = my; }
+    return [ax, ay];
+  };
+  for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) {
+    const a = ds[i], b = ds[j], need = a.cr + b.cr;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    if (Math.abs(dx) >= need || Math.abs(dy) >= need) continue;
+    let d = Math.hypot(dx, dy);
+    if (d >= need) continue;
+    if (d < 0.001) { const an = i * 2.4 + j * 1.7; dx = Math.cos(an); dy = Math.sin(an); d = 0; }   // esattamente nello stesso punto: li separo in una direzione qualsiasi
+    const ux = d > 0 ? dx / d : dx, uy = d > 0 ? dy / d : dy, corr = Math.min(0.15, (need - d) * 0.9);
+    const da = Math.hypot(a.x - player.x, a.y - player.y), db = Math.hypot(b.x - player.x, b.y - player.y);
+    const k = Math.max(0.2, Math.min(0.8, 0.5 + (da - db) * 0.25));   // quota di spostamento di a
+    const wax = -ux * corr * k, way = -uy * corr * k;
+    const mvA = slide(a, wax, way);
+    slide(b, ux * corr * (1 - k) + (mvA[0] - wax), uy * corr * (1 - k) + (mvA[1] - way));
+  }
+}
+
 function update(dt) {
   if (typeof world1Update === 'function') world1Update(dt);   // trappole e botole del piano 1
   tNow += dt;
@@ -580,6 +612,7 @@ function update(dt) {
       e.state = 'attack'; hurt(T.dmg * dt * e.pw);
     }
   }
+  separateDemons();
   enemies = enemies.filter((e) => e.alive || e.deathTimer < 8);
 
   updatePickups();

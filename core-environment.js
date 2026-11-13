@@ -241,8 +241,8 @@ function lamp(f, base, kind, P) {
     g.quadraticCurveTo(x + w, y - ht * 0.5, x + w, y);
     g.quadraticCurveTo(x, y + w * 0.8, x - w, y); g.fill();
   };
-  if (kind === 'torch') { flame(32, 28, 8, 20 + h, P.fire[0], 0); flame(32, 28, 6, 15 + h, P.fire[1], j / 2); flame(32, 28, 3.5, 9 + h, P.fire[2], 0); }
-  else if (kind === 'candle') { for (const x of [23, 32, 41]) { flame(x, 24, 3, 8 + h * 0.5, P.fire[1], 0); flame(x, 24, 1.6, 4 + h * 0.3, P.fire[2], 0); } }
+  if (kind === 'torch') paintFlame(g, 32, 29, 8.5, 25, f, { sparks: 1 });
+  else if (kind === 'candle') { for (const x of [23, 32, 41]) paintFlame(g, x, 24.5, 2.7, 9.5, f, { ph: x * 0.7, halo: 0, sparks: 0 }); }
   else if (kind === 'bulb') {
     g.strokeStyle = '#555'; g.lineWidth = 1.2; g.beginPath(); g.arc(32, 25, 8, 0, 7); g.stroke();
     g.fillStyle = `rgba(255,240,170,${0.35 + 0.65 * k})`; g.beginPath(); g.arc(32, 25, 5.5, 0, 7); g.fill();

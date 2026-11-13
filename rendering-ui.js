@@ -50,6 +50,103 @@ function corpseFx(list, e, T) {
   }
 }
 
+// All the glowing effects (fires, shots, explosions, flashes) as a list of sprites. The 2D engine draws them in renderSprites;
+// the 3D floor (world-3d.js, t3Fx) turns the very same list into additive Three.js sprites. 'add' = blended additively (light, not paint).
+function pushFxSprites(list) {
+  const near = (x, y) => (x - player.x) * (x - player.x) + (y - player.y) * (y - player.y) < 289;
+  const fl = (n) => flameFrames[n & 3];
+  const glow = (x, y, cvs, sc, z, al) => list.push({ x, y, canvas: cvs, scale: sc, z, emit: true, add: true, alpha: al });
+  const tail = (x, y, dx, dy, cvs, sc, z, n, step, al) => {   // a fading comet tail behind a fast shot
+    for (let k = 1; k <= n; k++) { const u = 1 - k / (n + 1); list.push({ x: x - dx * k * step, y: y - dy * k * step, canvas: cvs, scale: sc * (0.4 + 0.6 * u), z, emit: true, add: true, alpha: al * u * u }); }
+  };
+  for (const f of fires) {
+    if (!near(f.x, f.y)) continue;
+    const k = Math.min(1, f.life / 1.5), ph = (tNow * 0.8 + f.x * 3.1 + f.y * 1.7) % 1;
+    glow(f.x, f.y, SH.haloW, (1.0 + f.r * 0.8) * (0.92 + 0.08 * Math.sin(tNow * 13 + f.x * 5)), 0.3, 0.5 * k);   // light cast around the fire
+    for (const pt of f.pts) list.push({ x: f.x + pt.dx, y: f.y + pt.dy, canvas: fl(tNow * 10 + pt.ph | 0), scale: (0.45 + f.r * 0.25) * (0.5 + 0.5 * k), floor: 0.05, emit: true, add: true });
+    glow(f.x + Math.sin(ph * 9 + f.x) * 0.15, f.y, SH.bullet, 0.06 * (1 - ph * 0.5), 0.2 + ph * 0.9, k * (1 - ph));   // an ember climbing
+    list.push({ x: f.x, y: f.y, canvas: SH.smoke, scale: 0.3 + ph * 0.35, z: 0.75 + ph * 0.5, emit: true, alpha: 0.3 * Math.sin(ph * Math.PI) * k });   // and a wisp of smoke
+  }
+  for (const n of nebulas) list.push({ x: n.x, y: n.y, canvas: blobCanvas, scale: n.s * (1.6 - 0.6 * n.life / n.max), z: n.z, emit: true, alpha: Math.max(0, n.life / n.max) * 0.5 });
+  for (const p of projectiles) {
+    const dx = p.dirX || 0, dy = p.dirY || 0;
+    if (p.kind === 'molotov' || p.kind === 'grenade') {
+      list.push({ x: p.x, y: p.y, canvas: p.kind === 'molotov' ? bottleCanvas : grenadeCanvas, scale: 0.2, z: p.z, emit: true });
+      list.push({ x: p.x, y: p.y, canvas: shadowCanvas, scale: 0.3, floor: 0.5, emit: true });
+      if (p.kind === 'molotov') list.push({ x: p.x, y: p.y, canvas: fl(tNow * 14 | 0), scale: 0.24, z: p.z + 0.13, emit: true, add: true });   // the burning rag
+    } else if (p.kind === 'flame') {
+      const u = Math.min(1, p.distTraveled / 6.5);
+      list.push({ x: p.x, y: p.y, canvas: fl(tNow * 14 + p.x * 7 | 0), scale: 0.2 + u * 0.5, z: p.z, emit: true, add: true, alpha: Math.max(0.2, 0.95 - p.distTraveled / 8) });
+      glow(p.x, p.y, SH.haloW, 0.5 + u * 0.8, p.z, 0.45 * (1 - u * 0.7));
+    } else if (p.kind === 'fireball') {
+      list.push({ x: p.x, y: p.y, canvas: fl(tNow * 14 + p.x * 7 | 0), scale: 0.55, z: p.z, emit: true, add: true });
+      glow(p.x, p.y, SH.haloW, 1.4, p.z, 0.7);
+      tail(p.x, p.y, dx, dy, fl(tNow * 14 + 2 | 0), 0.45, p.z, 3, 0.3, 0.6);
+    } else if (p.kind === 'plasma') {
+      const pu = 1 + 0.1 * Math.sin(tNow * 28 + p.x * 3);
+      list.push({ x: p.x, y: p.y, canvas: BOLT_F[(tNow * 16 + p.x * 5 | 0) & 3], scale: 0.34 * pu, z: p.z, emit: true, add: true });
+      glow(p.x, p.y, SH.haloG, 1.0 * pu, p.z, 0.75);
+      tail(p.x, p.y, dx, dy, SH.haloG, 0.55, p.z, 5, 0.2, 0.55);
+    } else {
+      list.push({ x: p.x, y: p.y, canvas: projectileCanvas, scale: p.big ? 0.5 : 0.2, z: p.z, emit: true, add: true });
+      glow(p.x, p.y, SH.haloW, p.big ? 1.3 : 0.5, p.z, p.big ? 0.8 : 0.55);
+      if (p.big) {   // rocket: fiery exhaust and a trail of smoke
+        tail(p.x, p.y, dx, dy, fl(tNow * 16 | 0), 0.38, p.z, 4, 0.28, 0.9);
+        for (let k = 1; k <= 4; k++) list.push({ x: p.x - dx * k * 0.5, y: p.y - dy * k * 0.5, canvas: SH.smoke, scale: 0.2 + k * 0.07, z: p.z, emit: true, alpha: 0.4 * (1 - k / 5) });
+      } else tail(p.x, p.y, dx, dy, SH.bullet, 0.16, p.z, 3, 0.2, 0.6);
+    }
+  }
+  for (const b of eShots) {
+    const k = b.kind || 'bolt', nm = k === 'throw' ? ['rock', 'barrel', 'crate'][b.obj | 0] : k === 'boulder' ? 'rock' : k;
+    const sc = ({ bolt: 0.3, plasma: 0.36, fire: 0.34, venom: 0.28, bullet: 0.14, bone: 0.22, skull: 0.3, web: 0.3, ice: 0.26, bat: 0.28, dark: 0.34, rock: 0.3, barrel: 0.34, crate: 0.3 })[nm] || 0.3;
+    const big = b.big || (k === 'boulder' ? 1.6 : 1), dx = b.dx || 0, dy = b.dy || 0;
+    if (nm === 'plasma') {
+      const pu = 1 + 0.1 * Math.sin(tNow * 26 + b.x * 3);
+      list.push({ x: b.x, y: b.y, canvas: PLASMA_F[(tNow * 16 + b.x * 5 | 0) & 3], scale: sc * 1.15 * big * pu, z: 0.45, emit: true, add: true });
+      glow(b.x, b.y, SH.haloV, sc * 3 * big * pu, 0.45, 0.7);
+      tail(b.x, b.y, dx, dy, SH.haloV, sc * 1.6 * big, 0.45, 4, 0.22, 0.5);
+    } else if (nm === 'fire') {
+      list.push({ x: b.x, y: b.y, canvas: fl(tNow * 14 + b.x * 7 | 0), scale: sc * 1.5 * big, z: 0.45, emit: true, add: true });
+      glow(b.x, b.y, SH.haloW, sc * 3.4 * big, 0.45, 0.6);
+      tail(b.x, b.y, dx, dy, fl(tNow * 14 | 0), sc * 1.2 * big, 0.45, 3, 0.25, 0.5);
+    } else {
+      list.push({ x: b.x, y: b.y, canvas: SH[nm] || boltCanvas, scale: sc * big, z: 0.45, emit: nm !== 'rock' && nm !== 'barrel' && nm !== 'crate', add: nm === 'bolt' || nm === 'venom' || nm === 'bullet' });
+      if (nm === 'bolt') glow(b.x, b.y, SH.haloG, sc * 2.6 * big, 0.45, 0.6);
+      else if (nm === 'venom') glow(b.x, b.y, SH.haloG, sc * 2.8 * big, 0.45, 0.55);
+      else if (nm === 'bullet') tail(b.x, b.y, dx, dy, SH.bullet, sc * 0.9, 0.45, 3, 0.18, 0.6);
+    }
+  }
+  for (const k of strikes) list.push({ x: k.x, y: k.y, canvas: SH[k.kind === 'bolt' ? 'markB' : 'markR'], scale: 0.55 + 0.12 * Math.sin(tNow * 14), floor: 0, emit: true, add: true });
+  for (const f of fxs) { const u = f.t / f.life; list.push({ x: f.x, y: f.y, canvas: SH[f.cv], scale: f.s0 + (f.s1 - f.s0) * u, floor: 0, emit: true, add: true, alpha: 1 - u }); }
+  for (const b of beams) if (b.ok) {   // sparks along the beam from the attacker to the player
+    const e = b.e;
+    for (let k = 0; k < 9; k++) { const u = (k + Math.random() * 0.6) / 9; list.push({ x: e.x + (player.x - e.x) * u + (Math.random() - 0.5) * 0.5, y: e.y + (player.y - e.y) * u + (Math.random() - 0.5) * 0.5, canvas: SH['spark' + b.col], scale: 0.18 + Math.random() * 0.12, z: 0.6 + (Math.random() - 0.5) * 0.3, emit: true, add: true }); }
+  }
+  for (const ex of explosions) {   // impacts grow, glow and fade; hits on a wall or a monster also throw sparks
+    const fire = ex.kind === 'fire', u = Math.min(1, ex.timer / (ex.maxTime || 0.3)), base = ex.big ? 1.3 : fire ? 0.8 : ex.kind === 'plasma' ? 0.55 : 0.5;
+    list.push({ x: ex.x, y: ex.y, canvas: ex.kind === 'plasma' ? plasmaImpactCanvas : fire ? fl(tNow * 12 | 0) : impactCanvas,
+      scale: base * (0.55 + 0.75 * Math.sqrt(u)), floor: fire ? 0.05 : undefined, emit: true, add: true, alpha: 1 - u * u });
+    glow(ex.x, ex.y, ex.kind === 'plasma' ? SH.haloG : SH.haloW, base * 2.6 * (0.6 + 0.4 * u), 0.5, 0.85 * (1 - u));
+    if (!fire) for (let i = 0; i < 6; i++) {
+      const a = i * 1.047 + ex.x * 3, d = 0.12 + 0.55 * Math.sqrt(u);
+      glow(ex.x + Math.cos(a) * d * 0.6, ex.y + Math.sin(a) * d * 0.6, ex.kind === 'plasma' ? SH.sparkB : SH.bullet, 0.08 * (1 - u), 0.45 + 0.35 * Math.sin(a * 2) * u - 0.4 * u * u, 1 - u);
+    }
+  }
+  for (const b of blasts) {   // barrel explosion: white flash, fireball, flames, embers, rising smoke
+    const t = b.t;
+    if (t < 0.14) list.push({ x: b.x, y: b.y, canvas: SH.bullet, scale: 0.6 + 2.6 * (t / 0.14), z: 0.45, emit: true, add: true, alpha: 1 - 0.4 * (t / 0.14) });
+    if (t < 0.5) { const u = t / 0.5; list.push({ x: b.x, y: b.y, canvas: SH.fire, scale: 0.9 + 2.0 * Math.sqrt(u), z: 0.42 + 0.18 * u, emit: true, add: true, alpha: 0.95 * (1 - u * u) }); }
+    if (t < 0.7) { const u = t / 0.7; list.push({ x: b.x, y: b.y, canvas: fl(tNow * 14 | 0), scale: 0.8 + 1.4 * u, z: 0.35 + 0.3 * u, emit: true, add: true, alpha: 1 - u }); }
+    if (t < 0.6) glow(b.x, b.y, SH.haloW, 2.2 + 3.2 * Math.sqrt(t / 0.6), 0.5, 0.9 * (1 - t / 0.6));
+    for (const p of b.ps) {
+      const u = 1 - p.life / p.max;
+      if (p.k === 'ember') list.push({ x: p.x, y: p.y, canvas: SH.bullet, scale: p.s * (1 - u * 0.5), z: p.z, emit: true, add: true, alpha: 1 - u * u });
+      else if (p.k === 'fire') list.push({ x: p.x, y: p.y, canvas: fl(tNow * 12 + p.ph | 0), scale: p.s * (0.7 + 0.8 * u), z: p.z, emit: true, add: true, alpha: 1 - u });
+      else list.push({ x: p.x, y: p.y, canvas: SH.smoke, scale: p.s * (0.5 + 1.3 * u), z: p.z, emit: true, alpha: 0.75 * (u < 0.15 ? u / 0.15 : 1 - (u - 0.15) / 0.85) });
+    }
+  }
+}
+
 function renderSprites() {
   const list = [], P = PAL[curFloor];
   const near = (x, y) => (x - player.x) * (x - player.x) + (y - player.y) * (y - player.y) < 289;
@@ -92,52 +189,7 @@ function renderSprites() {
   for (const r of rubble) if (near(r.x, r.y)) list.push({ x: r.x, y: r.y, canvas: rubbleArt[r.mat], scale: 0.3, floor: 0.02 });
   for (const d of debris) list.push({ x: d.x, y: d.y, canvas: debrisArt[d.mat], scale: 0.1, z: d.z, emit: true });
   for (const c of chands) if (near(c.x, c.y)) list.push({ x: c.x, y: c.y, canvas: chandArt[c.v], scale: 0.5, z: 0.75, emit: true });
-  for (const f of fires) {
-    if (!near(f.x, f.y)) continue;
-    const k = Math.min(1, f.life / 1.5);
-    for (const pt of f.pts) list.push({ x: f.x + pt.dx, y: f.y + pt.dy, canvas: flameFrames[(tNow * 10 + pt.ph | 0) & 3], scale: (0.45 + f.r * 0.25) * (0.5 + 0.5 * k), floor: 0.05, emit: true });
-  }
-  for (const n of nebulas) list.push({ x: n.x, y: n.y, canvas: blobCanvas, scale: n.s * (1.6 - 0.6 * n.life / n.max), z: n.z, emit: true, alpha: Math.max(0, n.life / n.max) * 0.5 });
-  for (const p of projectiles) {
-    if (p.kind === 'molotov' || p.kind === 'grenade') {
-      list.push({ x: p.x, y: p.y, canvas: p.kind === 'molotov' ? bottleCanvas : grenadeCanvas, scale: 0.2, z: p.z, emit: true });
-      list.push({ x: p.x, y: p.y, canvas: shadowCanvas, scale: 0.3, floor: 0.5, emit: true });
-    } else if (p.kind === 'flame') {
-      list.push({ x: p.x, y: p.y, canvas: flameFrames[(tNow * 14 + p.x * 7 | 0) & 3], scale: 0.2 + Math.min(1, p.distTraveled / 6.5) * 0.5, z: p.z, emit: true, alpha: Math.max(0.2, 0.95 - p.distTraveled / 8) });
-    } else if (p.kind === 'fireball') {
-      list.push({ x: p.x, y: p.y, canvas: flameFrames[(tNow * 14 + p.x * 7 | 0) & 3], scale: 0.55, z: p.z, emit: true });
-    } else if (p.kind === 'plasma') {
-      list.push({ x: p.x, y: p.y, canvas: boltCanvas, scale: 0.26, z: p.z, emit: true });
-    } else list.push({ x: p.x, y: p.y, canvas: projectileCanvas, scale: p.big ? 0.5 : 0.2, z: p.z, emit: true });
-  }
-  for (const b of eShots) {
-    const k = b.kind || 'bolt', nm = k === 'throw' ? ['rock', 'barrel', 'crate'][b.obj | 0] : k === 'boulder' ? 'rock' : k;
-    const sc = ({ bolt: 0.3, plasma: 0.36, fire: 0.34, venom: 0.28, bullet: 0.14, bone: 0.22, skull: 0.3, web: 0.3, ice: 0.26, bat: 0.28, dark: 0.34, rock: 0.3, barrel: 0.34, crate: 0.3 })[nm] || 0.3;
-    list.push({ x: b.x, y: b.y, canvas: SH[nm] || boltCanvas, scale: sc * (b.big || (k === 'boulder' ? 1.6 : 1)), z: 0.45, emit: nm !== 'rock' && nm !== 'barrel' && nm !== 'crate' });
-  }
-  for (const k of strikes) list.push({ x: k.x, y: k.y, canvas: SH[k.kind === 'bolt' ? 'markB' : 'markR'], scale: 0.55 + 0.12 * Math.sin(tNow * 14), floor: 0, emit: true });
-  for (const f of fxs) { const u = f.t / f.life; list.push({ x: f.x, y: f.y, canvas: SH[f.cv], scale: f.s0 + (f.s1 - f.s0) * u, floor: 0, emit: true, alpha: 1 - u }); }
-  for (const b of beams) if (b.ok) {   // sparks along the beam from the attacker to the player
-    const e = b.e;
-    for (let k = 0; k < 9; k++) { const u = (k + Math.random() * 0.6) / 9; list.push({ x: e.x + (player.x - e.x) * u + (Math.random() - 0.5) * 0.5, y: e.y + (player.y - e.y) * u + (Math.random() - 0.5) * 0.5, canvas: SH['spark' + b.col], scale: 0.18 + Math.random() * 0.12, z: 0.6 + (Math.random() - 0.5) * 0.3, emit: true }); }
-  }
-  for (const ex of explosions) {
-    const fire = ex.kind === 'fire';
-    list.push({ x: ex.x, y: ex.y, canvas: ex.kind === 'plasma' ? plasmaImpactCanvas : fire ? flameFrames[(tNow * 12 | 0) & 3] : impactCanvas,
-      scale: ex.big ? 1.3 : fire ? 0.8 : 0.5, floor: fire ? 0.05 : undefined, emit: true });
-  }
-  for (const b of blasts) {   // barrel explosion: white flash, fireball, flames, embers, rising smoke
-    const t = b.t;
-    if (t < 0.14) list.push({ x: b.x, y: b.y, canvas: SH.bullet, scale: 0.6 + 2.6 * (t / 0.14), z: 0.45, emit: true, alpha: 1 - 0.4 * (t / 0.14) });
-    if (t < 0.5) { const u = t / 0.5; list.push({ x: b.x, y: b.y, canvas: SH.fire, scale: 0.9 + 2.0 * Math.sqrt(u), z: 0.42 + 0.18 * u, emit: true, alpha: 0.95 * (1 - u * u) }); }
-    if (t < 0.7) { const u = t / 0.7; list.push({ x: b.x, y: b.y, canvas: flameFrames[(tNow * 14 | 0) & 3], scale: 0.8 + 1.4 * u, z: 0.35 + 0.3 * u, emit: true, alpha: 1 - u }); }
-    for (const p of b.ps) {
-      const u = 1 - p.life / p.max;
-      if (p.k === 'ember') list.push({ x: p.x, y: p.y, canvas: SH.bullet, scale: p.s * (1 - u * 0.5), z: p.z, emit: true, alpha: 1 - u * u });
-      else if (p.k === 'fire') list.push({ x: p.x, y: p.y, canvas: flameFrames[(tNow * 12 + p.ph | 0) & 3], scale: p.s * (0.7 + 0.8 * u), z: p.z, emit: true, alpha: 1 - u });
-      else list.push({ x: p.x, y: p.y, canvas: SH.smoke, scale: p.s * (0.5 + 1.3 * u), z: p.z, emit: true, alpha: 0.75 * (u < 0.15 ? u / 0.15 : 1 - (u - 0.15) / 0.85) });
-    }
-  }
+  pushFxSprites(list);   // fires, shots, explosions, glows (shared with the 3D floor)
   for (const sp of list) sp.d = (sp.x - player.x) * (sp.x - player.x) + (sp.y - player.y) * (sp.y - player.y);
   list.sort((a, b) => b.d - a.d);
 
@@ -168,6 +220,7 @@ function renderSprites() {
     }
 
     ctx.globalAlpha = spr.alpha === undefined ? 1 : spr.alpha;
+    ctx.globalCompositeOperation = spr.add ? 'lighter' : 'source-over';   // glows add light instead of painting over
     if (spr.clip) { ctx.save(); ctx.beginPath(); ctx.rect(0, horizon - lh / 2, RENDER_WIDTH, lh); ctx.clip(); }
     const a = Math.max(0, Math.floor(startX)), b = Math.min(RENDER_WIDTH, Math.floor(startX + size));
     for (let stripe = a; stripe < b; stripe++) {
@@ -177,6 +230,7 @@ function renderSprites() {
       }
     }
     if (spr.clip) ctx.restore();
+    if (spr.add) ctx.globalCompositeOperation = 'source-over';
     if (spr.hp !== undefined && size >= 5) {   // HP bar: red = life left, black = life lost
       const bw = Math.max(6, Math.round(size * 0.5)), bh = Math.max(2, Math.round(size * 0.05)), bx = Math.round(startX + size / 2 - bw / 2);
       const by = Math.round(startY + size * hpTop(spr.ht) - bh - 2), fw = spr.hp > 0 ? Math.max(1, Math.round(bw * spr.hp)) : 0;
@@ -294,23 +348,62 @@ function drawGuns() {
   }
 }
 
+// Muzzle flash: the room lights up, a warm glow, a spiky star and a white-hot core (green and crackling for the plasma gun, a roaring jet for the flamethrower)
+function muzzleCast(k) {
+  const c = cur === 7 ? '70,255,130' : cur === 6 ? '255,110,20' : '255,170,50';
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = `rgba(${c},${(0.09 * k).toFixed(3)})`; ctx.fillRect(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
+  ctx.restore();
+}
+function muzzleFlash(fx, fy, r, k, gx, gy, sz) {
+  const warm = cur === 7 ? '70,255,130' : cur === 6 ? '255,120,25' : cur === 3 ? '255,105,15' : '255,175,55';
+  const hot = cur === 7 ? '215,255,225' : cur === 6 ? '255,230,150' : '255,246,205';
+  const seed = (stats.shots + 1) * 12.9898, rr = (i) => { const v = Math.sin(seed + i * 78.233) * 43758.5453; return v - Math.floor(v); };
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.imageSmoothingEnabled = true;
+  ctx.globalAlpha = 0.3 * k; ctx.drawImage(gunArt[cur], gx, gy, sz, sz); ctx.globalAlpha = 1;   // the weapon is lit by its own flash
+  const R = r * 4.4, gl = ctx.createRadialGradient(fx, fy, 0, fx, fy, R);
+  gl.addColorStop(0, `rgba(${warm},${(0.7 * k).toFixed(3)})`); gl.addColorStop(0.3, `rgba(${warm},${(0.26 * k).toFixed(3)})`); gl.addColorStop(1, `rgba(${warm},0)`);
+  ctx.fillStyle = gl; ctx.fillRect(fx - R, fy - R, R * 2, R * 2);
+  if (cur === 6) {   // flamethrower: a jet of tongues leaving the nozzle
+    const f = (tNow * 14 | 0) & 3;
+    for (let i = 0; i < 5; i++) paintFlame(ctx, fx + (i - 2) * 4.5, fy + 10, 6.5 - Math.abs(i - 2) * 0.9, 34 - Math.abs(i - 2) * 6 + rr(i) * 8, (f + i) & 3, { ph: i * 1.3, halo: 0, sparks: i === 2 ? 1 : 0 });
+  } else {
+    const n = cur === 1 ? 9 : 6;
+    for (let i = 0; i < n; i++) {   // thin spikes, longer upwards (the muzzle points away from us)
+      const a = (i + rr(i) * 0.6) / n * 6.283, up = Math.max(0, -Math.sin(a)), L = r * (1.5 + rr(i + 7) * 2.4) * (1 + up * 1.1) * (0.55 + 0.45 * k), wd = r * 0.2;
+      ctx.fillStyle = `rgba(${hot},${(0.85 * k).toFixed(3)})`; ctx.beginPath();
+      ctx.moveTo(fx + Math.cos(a + 1.5708) * wd, fy + Math.sin(a + 1.5708) * wd); ctx.lineTo(fx + Math.cos(a) * L, fy + Math.sin(a) * L);
+      ctx.lineTo(fx + Math.cos(a - 1.5708) * wd, fy + Math.sin(a - 1.5708) * wd); ctx.closePath(); ctx.fill();
+    }
+    if (cur === 7) {   // plasma: crackling arcs around the muzzle
+      ctx.strokeStyle = `rgba(${hot},${(0.9 * k).toFixed(3)})`; ctx.lineWidth = 1.1; ctx.lineJoin = 'round';
+      for (let i = 0; i < 4; i++) {
+        let a = rr(i + 20) * 6.283, d = r * 0.4; ctx.beginPath(); ctx.moveTo(fx, fy);
+        while (d < r * 2.1) { d += r * 0.3; a += (rr(i * 9 + d) - 0.5) * 1.3; ctx.lineTo(fx + Math.cos(a) * d, fy + Math.sin(a) * d); }
+        ctx.stroke();
+      }
+    }
+  }
+  const core = ctx.createRadialGradient(fx, fy, 0, fx, fy, r * 1.15);
+  core.addColorStop(0, `rgba(255,255,255,${(0.98 * k).toFixed(3)})`); core.addColorStop(0.45, `rgba(${hot},${(0.7 * k).toFixed(3)})`); core.addColorStop(1, `rgba(${warm},0)`);
+  ctx.fillStyle = core; ctx.beginPath(); ctx.arc(fx, fy, r * 1.15, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
 function renderGun() {
   const W = RENDER_WIDTH, H = RENDER_HEIGHT, cx = W / 2;
   const oy = isFiring ? (fireAnimFrame % 2 === 1 ? 7 : -3) : 0;
   const mv = Math.min(1, Math.hypot(joy.x, joy.y) + (input.fwd || input.back ? 1 : 0));
   const sz = 104, gx = cx - 52 + Math.sin(tNow * 9) * 4 * mv, gy = H - sz + 10 + oy + Math.abs(Math.cos(tNow * 9)) * 3 * mv;
   CVBOX.gun = { cx: gx + sz / 2, cy: gy + sz / 2, w: sz, h: sz };
+  const FLASH = [['#ffcc00', 15, 12], ['#ffcc00', 15, 8], ['#ffcc00', 15, 4], ['#ff6a00', 20, 6], null, null, ['#ff8a20', 17, 4], ['#4dff6a', 13, 18]][cur];
+  const mzK = isFiring && FLASH ? (cur === 6 ? 1 : cur === 7 ? [0, 1, 0.75, 0.4][fireAnimFrame] || 0 : [0, 1, 0.45, 0][fireAnimFrame] || 0) : 0;   // the flash dies out over the first frames
+  if (mzK > 0) muzzleCast(mzK);
   const lyG = layoutBegin('gun', gx + sz / 2, gy + sz / 2);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(gunArt[cur], gx, gy, sz, sz);
   ctx.imageSmoothingEnabled = false;
-  const FLASH = [['#ffcc00', 15, 12], ['#ffcc00', 15, 8], ['#ffcc00', 15, 4], ['#ff6a00', 20, 6], null, null, ['#ff8a20', 17, 4], ['#4dff6a', 13, 18]][cur];
-  if (isFiring && (fireAnimFrame === 1 || cur === 6) && FLASH) {
-    const fx = gx + sz * 0.5, fy = gy + FLASH[2] * sz / 128;
-    ctx.fillStyle = FLASH[0]; ctx.beginPath(); ctx.arc(fx, fy, FLASH[1], 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = cur === 7 ? '#d8ffe0' : '#fff'; ctx.beginPath(); ctx.arc(fx, fy, 7, 0, Math.PI * 2); ctx.fill();
-  }
-
+  if (mzK > 0) muzzleFlash(gx + sz * 0.5, gy + FLASH[2] * sz / 128, FLASH[1], mzK, gx, gy, sz);
   layoutEnd(lyG);
   ctx.font = 'bold 12px monospace';
   const txt = (t, x, y, col, al) => {

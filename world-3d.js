@@ -20,6 +20,19 @@ function lightAt(x, y) {
   for (const t of torches) { const d2 = (x - t.x) * (x - t.x) + (y - t.y) * (y - t.y); l += (t.k || 1) * 1.4 / (1 + d2 * (t.f || 0.9)); }
   for (const f of fires) { const d2 = (x - f.x) * (x - f.x) + (y - f.y) * (y - f.y); l += 1.6 * Math.min(1, f.life / 1.5) * f.r / (1 + d2 * 0.8); }
   for (const b of blasts) { if (b.t > 1.1) continue; const d2 = (x - b.x) * (x - b.x) + (y - b.y) * (y - b.y); l += 3.2 * (1 - b.t / 1.1) / (1 + d2 * 0.25); }
+  for (const p of projectiles) {   // glowing shots light the walls they fly past
+    const w = p.kind === 'plasma' ? 1.7 : p.kind === 'fireball' ? 1.8 : p.kind === 'flame' ? 0.9 : p.big ? 2 : 0;
+    if (w) l += w / (1 + ((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y)) * 1.1);
+  }
+  for (const s of eShots) {
+    const w = s.kind === 'plasma' ? 1.5 : s.kind === 'fire' ? 1.4 : (s.kind === 'venom' || s.kind === 'bolt') ? 1 : 0;
+    if (w) l += w / (1 + ((x - s.x) * (x - s.x) + (y - s.y) * (y - s.y)) * 1.1);
+  }
+  for (const ex of explosions) l += 2.2 * (1 - ex.timer / ex.maxTime) / (1 + ((x - ex.x) * (x - ex.x) + (y - ex.y) * (y - ex.y)) * 0.6);
+  if (isFiring && cur !== 4 && cur !== 5) {   // the flash of your own gun
+    const m = cur === 6 ? 0.8 : [0, 1, 0.45, 0.15][fireAnimFrame] || 0;
+    if (m) { const mx = player.x + player.dirX * 0.7, my = player.y + player.dirY * 0.7; l += 2.6 * m / (1 + ((x - mx) * (x - mx) + (y - my) * (y - my)) * 0.5); }
+  }
   return l * flick;
 }
 
@@ -319,6 +332,7 @@ function t3Init() {
   T3.amb = new THREE.AmbientLight(0xfff0e0, T3CFG.ambient); T3.scene.add(T3.amb);
   T3.hand = new THREE.PointLight(0xffd7a0, T3CFG.hand, T3CFG.handDist, 1.6); T3.scene.add(T3.hand);
   T3.lights = []; for (let i = 0; i < 7; i++) { const l = new THREE.PointLight(0xffaa44, 1, T3CFG.torchDist, 1.6); T3.scene.add(l); T3.lights.push(l); }
+  T3.fxLights = []; for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xffaa44, 0, 9, 1.6); T3.scene.add(l); T3.fxLights.push(l); }   // lampi dei colpi, delle fiamme e delle esplosioni
   T3.on = true;
 }
 
@@ -379,6 +393,11 @@ function t3SkinTex() {
   const mk = () => { const c = document.createElement('canvas'); c.width = c.height = 128; return c; };
   const a = mk(), g = a.getContext('2d');
   g.fillStyle = '#5c1812'; g.fillRect(0, 0, 128, 128);
+  g.lineWidth = 1;
+  for (let y = 0; y < 128; y += 8) for (let x = ((y / 8) % 2) * 5; x < 128; x += 10) {   // scaglie da rettile
+    g.strokeStyle = 'rgba(14,2,1,0.5)'; g.beginPath(); g.arc(x, y, 5.5, 0.15, Math.PI - 0.15); g.stroke();
+    g.strokeStyle = 'rgba(190,80,50,0.16)'; g.beginPath(); g.arc(x, y - 1.5, 5, 0.5, Math.PI - 0.5); g.stroke();
+  }
   for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${R() < 0.5 ? '20,4,2' : '150,50,35'},${0.1 + R() * 0.25})`; g.fillRect(R() * 128, R() * 128, 1 + R() * 3, 1 + R() * 3); }
   g.lineWidth = 1.2;
   for (let i = 0; i < 16; i++) { g.strokeStyle = 'rgba(25,3,3,0.7)'; g.beginPath(); let x = R() * 128, y = R() * 128; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (R() - 0.5) * 30; y += (R() - 0.5) * 30; g.lineTo(x, y); } g.stroke(); }   // vene
@@ -390,8 +409,9 @@ function t3SkinTex() {
   T3.skinTex = t3Tex(a); T3.glowTex = t3Tex(b);
 }
 
-// Demone: curvo in avanti, torace enorme con costole, cranio allungato con corna, occhi infuocati,
-// mascella con lingua e zanne, braccia lunghe con artigli, gambe all'indietro, coda e spuntoni sulla schiena.
+// Demone-artiglio (stile deathclaw): schiena curva con cresta di spuntoni, torace enorme, testa a cuneo con lunghe corna ricurve,
+// occhi gialli con pupilla a fessura (l'alone cresce con la distanza: si vedono da lontano anche al buio), mascella piena di zanne,
+// braccia lunghissime con tre artigli a falce per mano, gambe con ginocchio inverso e coda con lama.
 // Scheletro a catena: bacino > torace > collo > testa, spalla > gomito, anca > ginocchio > caviglia, coda a 4 segmenti.
 function t3Mob(e) {
   t3SkinTex();
@@ -399,54 +419,101 @@ function t3Mob(e) {
   const S = STY[e.type] || STY.demon, T = TYPES[e.type] || TYPES.demon, mo = (VARS[e.type] && VARS[e.type][e.v | 0] && VARS[e.type][e.v | 0][2]) || {};
   const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, mc = T3.mc = T3.mc || {};
   if (!mc[e.type]) {
-    const std = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r }), ec = S.eye || '#ff3b1a';
+    const std = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r }), ec = S.eye || '#ffe000';
+    if (!T3.eyeGlow) {   // alone degli occhi: bianco al centro, sfuma a zero (il colore lo da il materiale)
+      const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), r = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,0.8)'); r.addColorStop(0.5, 'rgba(255,255,255,0.22)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = r; x.fillRect(0, 0, 64, 64); T3.eyeGlow = new THREE.CanvasTexture(c);
+    }
     mc[e.type] = {
       skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, color: new THREE.Color(S.c2 || '#7a2a20').lerp(new THREE.Color(0xffffff), 0.55), emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.5, roughness: 0.8 }),
-      dark: std(new THREE.Color(S.c1 || '#2a0c0a'), 0.9), horn: std(new THREE.Color(S.horn || '#2a1c18'), 0.5), bone: std(0xe8dcc0, 0.6), tongue: std(0x8a1020, 0.45),
+      dark: std(new THREE.Color(S.c1 || '#2a0c0a'), 0.9), horn: std(new THREE.Color(S.horn || '#d9cfae'), 0.45), bone: std(0xe8dcc0, 0.6), tongue: std(0x8a1020, 0.45),
+      claw: std(0xd8ccae, 0.35), socket: std(0x100303, 1), gum: new THREE.MeshBasicMaterial({ color: 0x5a0808 }),
       steel: new THREE.MeshStandardMaterial({ color: 0x59606a, roughness: 0.35, metalness: 0.5 }),
       eye: new THREE.MeshBasicMaterial({ color: ec, fog: false }),
-      halo: new THREE.MeshBasicMaterial({ color: ec, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
+      glow: new THREE.SpriteMaterial({ map: T3.eyeGlow, color: ec, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
     };
-    if (S.alpha) for (const k in mc[e.type]) if (k !== 'eye' && k !== 'halo') { mc[e.type][k].transparent = true; mc[e.type][k].opacity = S.alpha; }
+    if (S.alpha) for (const k in mc[e.type]) if (k !== 'eye' && k !== 'glow') { mc[e.type][k].transparent = true; mc[e.type][k].opacity = S.alpha; }
   }
   const M = mc[e.type], g = new THREE.Group(), det = [], all = [], eyes = [];
   const sph = G('sph', () => new THREE.SphereGeometry(0.5, 12, 9)), cyl = G('cyl', () => new THREE.CylinderGeometry(0.5, 0.36, 1, 8)), cone = G('cone', () => new THREE.ConeGeometry(0.5, 1, 6)), box = G('box', () => new THREE.BoxGeometry(1, 1, 1));
   const part = (geo, mat, x, y, z, p, s, rot, isDet, keep) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); if (s) o.scale.set(s[0], s[1], s[2]); if (rot) o.rotation.set(rot[0], rot[1], rot[2]); (p || g).add(o); if (!keep) all.push(o); if (isDet) det.push(o); return o; };
   const grp = (p, x, y, z) => { const o = new THREE.Group(); o.position.set(x, y, z); p.add(o); return o; };
-  const body = grp(g, 0, 0.45, 0); part(sph, M.dark, 0, -0.04, 0, body, [0.3, 0.24, 0.24]);                               // bacino
-  const chest = grp(body, 0, 0.1, 0); part(sph, M.skin, 0, 0.06, 0, chest, [0.46 * wsc, 0.5, 0.3]);                        // torace
-  for (let i = 0; i < 3; i++) part(box, M.bone, 0, 0.14 - i * 0.08, 0.13, chest, [0.26 * wsc, 0.018, 0.04], null, true);   // costole
-  for (let i = 0; i < 4; i++) part(cone, M.horn, 0, 0.2 - i * 0.1, -0.15, chest, [0.06, 0.16, 0.06], [-2.0, 0, 0], true);  // spuntoni sulla schiena
-  const neck = grp(chest, 0, 0.2, 0.04); part(cyl, M.skin, 0, 0.02, 0, neck, [0.1, 0.14, 0.1]);
+  // corno ricurvo: n segmenti che si assottigliano, ognuno piegato un po' piu all'indietro del precedente
+  const horn = (p, x, y, z, rx, ry, rz, w, L, n, curl, mat, isDet) => {
+    let q = grp(p, x, y, z); q.rotation.set(rx, ry, rz);
+    for (let i = 0; i < n; i++) {
+      const wi = w * Math.pow(0.72, i), last = i === n - 1;
+      part(last ? cone : cyl, mat, 0, L / 2, 0, q, [wi, L, wi], last ? null : [Math.PI, 0, 0], isDet);
+      if (!last) { const nx = grp(q, 0, L, 0); nx.rotation.x = -curl; q = nx; }
+    }
+  };
+  // artiglio a falce appeso alla mano: due segmenti, il secondo si piega in avanti
+  const claw = (p, x, y, z, L, w, ax, az) => {
+    const cg = grp(p, x, y, z); cg.rotation.set(-0.15 - (ax || 0), 0, az || 0);
+    part(cyl, M.claw, 0, -L * 0.3, 0, cg, [w, L * 0.6, w]);
+    const tg = grp(cg, 0, -L * 0.6, 0); tg.rotation.x = -0.65;
+    part(cone, M.claw, 0, -L * 0.2, 0, tg, [w * 0.72, L * 0.4, w * 0.72], [Math.PI, 0, 0]);
+  };
+  const body = grp(g, 0, 0.45, 0); part(sph, M.dark, 0, -0.04, 0, body, [0.32, 0.26, 0.26]);                                   // bacino
+  part(sph, M.skin, 0, 0.04, 0.02, body, [0.27, 0.22, 0.2]);                                                                    // addome
+  const chest = grp(body, 0, 0.1, 0); part(sph, M.skin, 0, 0.07, 0, chest, [0.54 * wsc, 0.54, 0.35]);                          // torace enorme
+  for (const s of [-1, 1]) part(sph, M.skin, s * 0.12 * wsc, 0.12, 0.12, chest, [0.22 * wsc, 0.18, 0.15]);                     // pettorali
+  part(sph, M.skin, 0, 0.26, -0.04, chest, [0.5 * wsc, 0.17, 0.26]);                                                            // gobba dei trapezi
+  for (let i = 0; i < 4; i++) part(box, M.bone, 0, 0.16 - i * 0.07, 0.17, chest, [0.3 * wsc - i * 0.02, 0.016, 0.03], null, true);   // costole scoperte
+  for (let i = 0; i < 7; i++) part(cone, M.horn, 0, 0.3 - i * 0.075, -0.16 - (i > 4 ? 0.02 : 0), chest, [0.06 - i * 0.003, 0.2 - i * 0.012, 0.06 - i * 0.003], [-1.9 + i * 0.05, 0, 0], true);   // cresta di spuntoni
+  const neck = grp(chest, 0, 0.2, 0.05); part(cyl, M.skin, 0, 0.03, 0, neck, [0.15, 0.17, 0.15]);
+  part(cone, M.horn, 0, 0.09, -0.07, neck, [0.045, 0.14, 0.045], [-1.6, 0, 0], true);
   const head = grp(neck, 0, 0.08, 0.03);
-  part(sph, M.skin, 0, 0, 0.02, head, [0.24, 0.26, 0.3]); part(sph, M.dark, 0, -0.02, 0.1, head, [0.16, 0.12, 0.14]);       // cranio, muso
-  part(box, M.dark, 0, 0.085, 0.16, head, [0.22, 0.03, 0.06]);                                                              // sopracciglia
-  const jaw = grp(head, 0, -0.08, 0.04); part(box, M.dark, 0, -0.02, 0.07, jaw, [0.15, 0.04, 0.2]);
-  const tongue = part(box, M.tongue, 0, -0.005, 0.1, jaw, [0.05, 0.015, 0.12], null, true);
-  for (let i = 0; i < 5; i++) { part(cone, M.bone, -0.056 + i * 0.028, 0.02, 0.15, jaw, [0.018, 0.055, 0.018], null, true); part(cone, M.bone, -0.056 + i * 0.028, -0.075, 0.17, head, [0.018, 0.055, 0.018], [Math.PI, 0, 0], true); }
+  part(sph, M.skin, 0, 0.02, -0.02, head, [0.22, 0.22, 0.3]);                                                                   // cranio
+  part(cyl, M.skin, 0, -0.01, 0.2, head, [0.2, 0.3, 0.15], [-Math.PI / 2, 0, 0]);                                              // muso a cuneo
+  part(sph, M.dark, 0, 0.055, 0.34, head, [0.12, 0.05, 0.06], null, true);                                                      // punta del muso
+  for (const s of [-1, 1]) part(sph, M.dark, s * 0.03, 0.045, 0.355, head, [0.025, 0.02, 0.02], null, true);                   // narici
+  part(box, M.gum, 0, -0.07, 0.17, head, [0.13, 0.02, 0.26], null, true);                                                       // interno della bocca
+  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) { const tl = i < 2 ? 0.1 : 0.055; part(cone, M.bone, s * (i < 2 ? 0.055 : 0.065), -0.08 - tl / 2, 0.1 + i * 0.045, head, [0.018, tl, 0.018], [Math.PI, 0, 0], true); }   // zanne superiori
+  const jaw = grp(head, 0, -0.08, 0.04); part(box, M.dark, 0, -0.02, 0.15, jaw, [0.15, 0.04, 0.3]);
+  const tongue = part(box, M.tongue, 0, 0.0, 0.1, jaw, [0.05, 0.015, 0.16], null, true);
+  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) { const tl = i === 5 ? 0.09 : 0.05; part(cone, M.bone, s * 0.055, tl / 2, 0.06 + i * 0.045, jaw, [0.018, tl, 0.018], null, true); }   // zanne inferiori
   for (const s of [-1, 1]) {
-    eyes.push([part(sph, M.eye, s * 0.07, 0.04, 0.17, head, [0.055, 0.035, 0.03], [0, 0, s * 0.4], false, true), part(sph, M.halo, s * 0.07, 0.04, 0.17, head, [0.14, 0.1, 0.07], null, false, true)]);   // occhi + alone
-    part(cone, M.horn, s * 0.1, 0.17, -0.02, head, [0.075, 0.26, 0.075], [-0.5, 0, -s * 0.55]); part(cone, M.horn, s * 0.2, 0.33, -0.1, head, [0.05, 0.2, 0.05], [-1.0, 0, -s * 0.25]);
-    part(cone, M.skin, s * 0.14, 0.02, -0.02, head, [0.04, 0.14, 0.02], [0, 0, -s * 1.3]);
+    part(sph, M.socket, s * 0.088, 0.045, 0.13, head, [0.1, 0.08, 0.09], null, true);                                           // orbita incavata
+    part(box, M.dark, s * 0.075, 0.098, 0.15, head, [0.13, 0.035, 0.075], [0, 0, s * 0.4], true);                               // arcata cattiva
+    const eye = part(sph, M.eye, s * 0.09, 0.045, 0.155, head, [0.065, 0.04, 0.035], [0, 0, s * 0.35], false, true);              // occhio giallo
+    const gl = new THREE.Sprite(M.glow); gl.position.set(s * 0.09, 0.045, 0.17); head.add(gl); eyes.push([eye, gl]);              // alone: si vede da lontano
+    part(box, M.socket, s * 0.09, 0.045, 0.19, head, [0.012, 0.05, 0.01], null, true);                                          // pupilla a fessura
+    horn(head, s * 0.09, 0.12, -0.02, -0.55, 0, -s * 0.55, 0.095, 0.17, 3, 0.6, M.horn);                                        // corna principali, all'indietro
+    horn(head, s * 0.12, 0.0, -0.1, -1.5, 0, -s * 0.9, 0.05, 0.12, 2, 0.4, M.horn, true);                                      // corna posteriori
+    part(cone, M.horn, s * 0.13, -0.045, 0.06, head, [0.04, 0.13, 0.04], [0.2, 0, -s * 1.5], true);                             // spuntoni sulle guance
   }
+  for (let i = 0; i < 3; i++) part(cone, M.horn, 0, 0.14 - i * 0.01, -0.02 - i * 0.07, head, [0.045, 0.13, 0.045], [-1.2 - i * 0.15, 0, 0], true);   // cresta sul cranio
   const elbows = [], arms = [-1, 1].map(s => {
-    const a = grp(chest, s * 0.25 * wsc, 0.16, 0);
-    part(sph, M.skin, 0, 0, 0, a, [0.14, 0.14, 0.14]); part(cone, M.horn, s * 0.04, 0.08, 0, a, [0.05, 0.16, 0.05], [0, 0, -s * 0.5]); part(cyl, M.skin, 0, -0.14, 0, a, [0.09, 0.28, 0.09]);
-    const el = grp(a, 0, -0.29, 0); el.rotation.x = -0.35; elbows.push(el);
-    part(cyl, M.skin, 0, -0.13, 0, el, [0.075, 0.26, 0.075]); part(sph, M.dark, 0, -0.27, 0, el, [0.1, 0.1, 0.1]);
-    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.35, 0.01, el, [0.02, 0.1, 0.02], [Math.PI, 0, 0], true);   // artigli
-    if (s === 1) { part(box, M.dark, 0, -0.27, 0.16, el, [0.03, 0.03, 0.34]); part(box, M.steel, 0, -0.27, 0.36, el, [0.03, 0.2, 0.14]); }   // mannaia
+    const a = grp(chest, s * 0.28 * wsc, 0.17, 0);
+    part(sph, M.skin, 0, 0, 0, a, [0.2, 0.2, 0.2]);                                                                              // spalla
+    horn(a, s * 0.05, 0.08, -0.02, -0.3, 0, -s * 0.9, 0.07, 0.1, 2, 0.5, M.horn, true);                                         // spuntone sulla spalla
+    part(cyl, M.skin, 0, -0.14, 0, a, [0.14, 0.28, 0.14]);                                                                       // braccio
+    const el = grp(a, 0, -0.28, 0); el.rotation.x = -0.35; elbows.push(el);
+    part(sph, M.dark, 0, 0, -0.02, el, [0.12, 0.12, 0.12]); part(cone, M.horn, 0, -0.02, -0.08, el, [0.045, 0.14, 0.045], [-2.3, 0, 0], true);   // gomito con spuntone
+    part(cyl, M.skin, 0, -0.14, 0, el, [0.11, 0.27, 0.11]); part(sph, M.skin, 0, -0.08, 0.01, el, [0.16, 0.2, 0.16]);              // avambraccio e muscolo
+    part(sph, M.dark, 0, -0.3, 0.02, el, [0.13, 0.12, 0.15]);                                                                    // mano
+    for (let k = -1; k <= 1; k++) claw(el, k * 0.045, -0.33, 0.05, 0.28, 0.036, 0, 0);                                           // tre artigli a falce
+    claw(el, -s * 0.07, -0.31, 0.03, 0.2, 0.03, 0.1, -s * 0.4);                                                                   // pollice
     return a;
   });
   const knees = [], ankles = [], legs = [-1, 1].map(s => {
-    const l = grp(g, s * 0.1, 0.44, 0); part(cyl, M.skin, 0, -0.1, 0.04, l, [0.12, 0.26, 0.12], [-0.45, 0, 0]);               // coscia
-    const kn = grp(l, 0, -0.2, 0.12); part(cyl, M.dark, 0, -0.1, -0.03, kn, [0.075, 0.26, 0.075], [0.7, 0, 0]);               // stinco
-    const an = grp(kn, 0, -0.22, -0.07); part(box, M.dark, 0, -0.01, 0.04, an, [0.09, 0.04, 0.16]);                           // piede
-    for (let k = -1; k <= 1; k++) part(cone, M.bone, k * 0.03, -0.01, 0.12, an, [0.02, 0.07, 0.02], [Math.PI / 2, 0, 0], true);
+    const l = grp(g, s * 0.12, 0.44, 0); part(sph, M.skin, 0, -0.1, 0.05, l, [0.19, 0.36, 0.19], [-0.45, 0, 0]);                  // coscia muscolosa
+    const kn = grp(l, 0, -0.2, 0.12); part(cyl, M.dark, 0, -0.1, -0.03, kn, [0.1, 0.28, 0.1], [0.7, 0, 0]);                       // stinco
+    part(sph, M.skin, 0, -0.04, -0.01, kn, [0.14, 0.18, 0.15]); part(cone, M.horn, 0, 0.0, 0.08, kn, [0.04, 0.1, 0.04], [Math.PI / 2, 0, 0], true);   // ginocchio con spuntone
+    const an = grp(kn, 0, -0.22, -0.07); part(box, M.dark, 0, -0.01, 0.05, an, [0.11, 0.05, 0.2]);                               // piede
+    for (let k = -1; k <= 1; k++) part(cone, M.claw, k * 0.04, -0.015, 0.18, an, [0.03, 0.14, 0.03], [Math.PI / 2 + 0.2, 0, 0], true);   // artigli dei piedi
+    part(cone, M.horn, 0, 0.04, -0.08, an, [0.04, 0.12, 0.04], [-Math.PI / 2 - 0.3, 0, 0], true);                                // sperone del tallone
     knees.push(kn); ankles.push(an); return l;
   });
   const tail = []; let par = body;
-  for (let i = 0; i < 4; i++) { const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); part(cone, M.skin, 0, 0, -0.08, sg, [0.09 - i * 0.018, 0.2, 0.09 - i * 0.018], [-Math.PI / 2, 0, 0]); tail.push(sg); par = sg; }
+  for (let i = 0; i < 4; i++) {
+    const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); part(cone, M.skin, 0, 0, -0.08, sg, [0.16 - i * 0.03, 0.2, 0.16 - i * 0.03], [-Math.PI / 2, 0, 0]);
+    part(cone, M.horn, 0, 0.06 - i * 0.008, -0.06, sg, [0.05 - i * 0.008, 0.13, 0.05 - i * 0.008], [-0.6, 0, 0], true);                 // spuntone sulla coda
+    if (i === 3) part(cone, M.claw, 0, 0, -0.26, sg, [0.07, 0.3, 0.05], [-Math.PI / 2, 0, 0]);                                        // lama in punta
+    tail.push(sg); par = sg;
+  }
   g.rotation.order = 'YXZ'; g.scale.setScalar(sc);
   g.userData = { arms, elbows, legs, knees, ankles, body, chest, neck, head, jaw, tongue, tail, eyes, det, all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
   return g;
@@ -458,8 +525,12 @@ function t3Anim(m, e, mv, d2) {
   const u = m.userData, dt = Math.min(0.05, T3.dt || 0.016), t = tNow + u.seed, cl = (v, a, b) => Math.max(a, Math.min(b, v));
   if (!e.alive && !u.deadEyes) { u.deadEyes = true; u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
   const near = d2 < 169;
+  const eyeFx = (squint) => {   // occhi gialli: sfarfallano, si stringono quando attacca, sbattono le palpebre; l'alone cresce con la distanza
+    const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (squint ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1), gw = (0.2 + Math.sqrt(d2) * 0.03) / u.sc;
+    u.eyes.forEach(([a, b]) => { a.scale.y = 0.04 * sq; b.scale.set(gw * fl, gw * fl * (0.55 + 0.45 * sq), 1); });
+  };
   if (u.lod !== near) { u.lod = near; u.close = null; u.all.forEach(o => { o.visible = near; }); }   // da lontano restano solo gli occhi
-  if (!near) { u.yaw = u.hd; m.rotation.y = u.yaw; u.spd = 0; return; }
+  if (!near) { u.yaw = u.hd; m.rotation.y = u.yaw; u.spd = 0; if (e.alive) eyeFx(false); return; }
   const close = d2 < 64; if (u.close !== close) { u.close = close; u.det.forEach(o => { o.visible = close; }); }
   const sp = (n, tg, k, c) => { const s = u.s[n] || (u.s[n] = { x: 0, v: 0 }); s.v += (k * (tg - s.x) - c * s.v) * dt; s.x += s.v * dt; return s.x; };
   const kick = (n, v) => { (u.s[n] || (u.s[n] = { x: 0, v: 0 })).v += v; };
@@ -520,9 +591,8 @@ function t3Anim(m, e, mv, d2) {
     sg.rotation.y = sp('tY' + i, -u.yawRate * 0.12 * (i + 1) + Math.sin(t * 2.2 - i * 0.8) * (0.18 + 0.25 * sf), 50 - i * 8, 4);
     sg.rotation.x = sp('tX' + i, -bounce * 0.15 * (i + 1) + 0.05 * i + (wind ? -0.3 : 0), 40 - i * 6, 3.5);
   });
-  // ---- occhi: sfarfallano, si stringono quando attacca, ogni tanto sbattono le palpebre
-  const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (atk || sum ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1);
-  u.eyes.forEach(([a, b]) => { a.scale.y = 0.035 * sq; b.scale.set(0.14 * fl, 0.1 * fl * sq, 0.07); });
+  // ---- occhi
+  eyeFx(atk || sum);
 }
 
 function t3Props(q) {   // oggetti di scena: armature, rastrelliere, casse, barili, bauli
@@ -545,6 +615,58 @@ function t3Props(q) {   // oggetti di scena: armature, rastrelliere, casse, bari
 function t3Stale(map) { for (const [k, m] of map) if (m.userData.f !== T3.stamp) { T3.root.remove(m); map.delete(k); } }
 function t3Get(map, key, make) { let m = map.get(key); if (!m) { m = make(); map.set(key, m); T3.root.add(m); } m.userData.f = T3.stamp; return m; }
 
+// ---------- effetti: gli stessi sprite del motore 2D (pushFxSprites), qui come sprite additivi in 3D, piu vere luci ----------
+function t3Fx() {
+  const L = []; pushFxSprites(L);
+  const pool = T3.fxPool || (T3.fxPool = []), texs = T3.fxTex || (T3.fxTex = new Map());
+  let n = 0;
+  for (const d of L) {
+    if (n >= 420) break;
+    let tx = texs.get(d.canvas); if (!tx) { tx = new THREE.CanvasTexture(d.canvas); texs.set(d.canvas, tx); }
+    let sp = pool[n];
+    if (!sp) { sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, transparent: true, depthWrite: false, fog: false })); sp.renderOrder = 5; pool.push(sp); T3.root.add(sp); }
+    n++;
+    const m = sp.material;
+    if (m.map !== tx) m.map = tx;
+    const bl = d.add ? THREE.AdditiveBlending : THREE.NormalBlending;
+    if (m.blending !== bl) m.blending = bl;
+    m.opacity = d.alpha === undefined ? 1 : d.alpha;
+    const cy = d.floor !== undefined ? (d.lift || 0) + d.scale * (0.5 - d.floor) : (d.z === undefined ? 0.5 : d.z);
+    sp.position.set(d.x, cy + world1H(d.x, d.y), d.y); sp.scale.set(d.scale, d.scale, 1); sp.visible = true;
+  }
+  for (let i = n; i < pool.length; i++) pool[i].visible = false;
+}
+
+function t3FxLights() {
+  if (!T3.fxLights) return;
+  const src = [], px = player.x, py = player.y;
+  const add = (x, y, z, rgb, k) => { if (k <= 0) return; const d2 = (x - px) * (x - px) + (y - py) * (y - py); src.push({ x, y, z, rgb, k, s: k / (1 + d2 * 0.08) }); };
+  for (const b of blasts) if (b.t < 1.1) add(b.x, b.y, 0.5, [1, 0.55, 0.2], 7 * (1 - b.t / 1.1));
+  for (const ex of explosions) add(ex.x, ex.y, 0.5, ex.kind === 'plasma' ? [0.3, 1, 0.5] : [1, 0.6, 0.2], 4 * (1 - ex.timer / ex.maxTime));
+  for (const p of projectiles) {
+    if (p.kind === 'plasma') add(p.x, p.y, p.z, [0.3, 1, 0.45], 2.6);
+    else if (p.kind === 'fireball') add(p.x, p.y, p.z, [1, 0.5, 0.15], 3);
+    else if (p.kind === 'flame') add(p.x, p.y, p.z, [1, 0.5, 0.15], 1.6);
+    else if (p.big) add(p.x, p.y, p.z, [1, 0.55, 0.2], 3);
+  }
+  for (const e of eShots) {
+    if (e.kind === 'plasma') add(e.x, e.y, 0.45, [0.7, 0.3, 1], 2.4);
+    else if (e.kind === 'fire') add(e.x, e.y, 0.45, [1, 0.5, 0.15], 2.4);
+    else if (e.kind === 'venom') add(e.x, e.y, 0.45, [0.5, 1, 0.2], 1.8);
+  }
+  for (const f of fires) if ((f.x - px) ** 2 + (f.y - py) ** 2 < 100) add(f.x, f.y, 0.3, [1, 0.5, 0.15], 1.4 * Math.min(1, f.life / 1.5) * (0.85 + 0.15 * Math.sin(tNow * 13 + f.x)));
+  if (isFiring && cur !== 4 && cur !== 5) {   // il lampo della tua arma
+    const m = cur === 6 ? 0.8 : [0, 1, 0.45, 0.15][fireAnimFrame] || 0;
+    if (m) add(px + player.dirX * 0.6, py + player.dirY * 0.6, 0.55, cur === 7 ? [0.3, 1, 0.5] : [1, 0.7, 0.3], 4.5 * m);
+  }
+  src.sort((a, b) => b.s - a.s);
+  T3.fxLights.forEach((l, i) => {
+    const q = src[i];
+    if (!q) { l.intensity = 0; return; }
+    l.position.set(q.x, q.z + world1H(q.x, q.y), q.y); l.color.setRGB(q.rgb[0], q.rgb[1], q.rgb[2]); l.intensity = q.k * powerK;
+  });
+}
+
 function t3Sync() {
   const cam = T3.cam, px = player.x, py = player.y, P = PAL[0], st = ++T3.stamp;
   const nowMs = performance.now(); T3.dt = Math.min(0.05, (nowMs - (T3.lastMs || nowMs)) / 1000) || 0.016; T3.lastMs = nowMs;
@@ -562,7 +684,7 @@ function t3Sync() {
   for (const e of enemies) {
     const m = t3Get(T3.mobs, e, () => t3Mob(e)), u = m.userData, T = TYPES[e.type] || TYPES.demon;
     const d2 = (e.x - px) ** 2 + (e.y - py) ** 2, dx = e.x - u.px, dy = e.y - u.py, mv = Math.hypot(dx, dy);
-    m.visible = d2 < 900; u.px = e.x; u.py = e.y; if (!m.visible) continue;   // da lontano si vedono solo gli occhi
+    m.visible = d2 < 2025; u.px = e.x; u.py = e.y; if (!m.visible) continue;   // da lontano si vedono solo gli occhi
     m.position.set(e.x, world1H(e.x, e.y) + (T.lift ? T.lift + Math.sin(tNow * 3 + e.x) * 0.04 : 0), e.y);
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
     if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss)) u.hd = Math.atan2(px - e.x, py - e.y);
@@ -572,9 +694,8 @@ function t3Sync() {
     b.visible = show; if (show) { const q = Math.max(0, e.hp / e.mhp); b.position.set(e.x, world1H(e.x, e.y) + u.sc * 0.98 + 0.12, e.y); b.quaternion.copy(cam.quaternion); b.userData.fg.scale.x = Math.max(0.001, q); b.userData.fg.position.x = -0.2 * (1 - q); }
   }
   t3Stale(T3.mobs); t3Stale(T3.bars);
-  // colpi del giocatore e dei nemici
-  const dot = (map, list, size, c0) => { for (const s of list) { const m = t3Get(map, s, () => new THREE.Mesh(new THREE.SphereGeometry(size, 8, 6), new THREE.MeshBasicMaterial({ color: s.col || c0, fog: false }))); m.position.set(s.x, (s.z != null ? s.z : 0.5) + world1H(s.x, s.y), s.y); m.scale.setScalar(s.big ? 2 : 1); } };
-  dot(T3.prj, projectiles, 0.06, 0xffc060); dot(T3.eprj, eShots, 0.07, 0xb04bff); t3Stale(T3.prj); t3Stale(T3.eprj);
+  // colpi, fiamme, esplosioni e bagliori (sprite additivi + luci dinamiche)
+  t3Fx(); t3FxLights();
   // raccoglibili: cubetti con l'icona, che ruotano e fluttuano
   for (const q of pickups) {
     if (q.taken) continue;

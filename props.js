@@ -11,6 +11,76 @@
 
 // ---- sprites for the enemy shots and the effects ----
 const SH = {};
+// ---- Fire and energy art: soft additive layers, built once at start-up ----
+let PLASMA_F = [], BOLT_F = [];   // animated plasma balls: violet (monsters) and green (the player's gun)
+const fxRng = (s) => () => ((s = (s * 16807) % 2147483647) / 2147483647);   // private generator: the main seeded one stays untouched
+
+// One lick of flame: a bent teardrop, hot at the base and fading to nothing at the tip
+function fxTongue(g, x, y, w, h, bend, rgb, a) {
+  const tx = x + bend, gr = g.createLinearGradient(0, y, 0, y - h);
+  gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(0.55, `rgba(${rgb},${a * 0.55})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr; g.beginPath(); g.moveTo(x - w, y);
+  g.bezierCurveTo(x - w * 1.2, y - h * 0.42, tx - w * 0.3, y - h * 0.74, tx, y - h);
+  g.bezierCurveTo(tx + w * 0.3, y - h * 0.74, x + w * 1.2, y - h * 0.42, x + w, y);
+  g.quadraticCurveTo(x, y + w * 0.7, x - w, y); g.closePath(); g.fill();
+}
+
+// A whole flame, drawn additively: deep-red outer licks, orange body, yellow inside, white-hot heart, a soft halo and a few rising embers.
+// x,y = centre of the base, w = half width, h = height, f = animation frame (0-3, four frames make a full cycle)
+function paintFlame(g, x, y, w, h, f, o) {
+  o = o || {};
+  const ph = f * 1.5708 + (o.ph || 0), sw = (k) => Math.sin(ph * (1 + k * 0.37) + k * 2.3), ln = (k) => 1 + 0.16 * Math.sin(ph * 1.3 + k * 1.9);
+  g.save(); g.globalCompositeOperation = 'lighter';
+  if (o.halo !== 0) {
+    const hr = Math.min(Math.max(w * 1.9, h * 0.62), 31), cy = y - h * 0.32, gl = g.createRadialGradient(x, cy, 0, x, cy, hr);
+    gl.addColorStop(0, 'rgba(255,150,50,.40)'); gl.addColorStop(0.5, 'rgba(255,90,15,.14)'); gl.addColorStop(1, 'rgba(255,60,0,0)');
+    g.fillStyle = gl; g.fillRect(x - hr, cy - hr, hr * 2, hr * 2);
+  }
+  fxTongue(g, x - w * 0.5, y, w * 0.6, h * 0.62 * ln(1), sw(1) * w * 0.7 - w * 0.25, '215,38,4', 0.85);
+  fxTongue(g, x + w * 0.5, y, w * 0.6, h * 0.7 * ln(2), sw(2) * w * 0.7 + w * 0.25, '215,38,4', 0.85);
+  fxTongue(g, x, y, w * 0.95, h * ln(0), sw(0) * w * 0.55, '230,70,6', 0.9);
+  fxTongue(g, x - w * 0.2, y, w * 0.62, h * 0.8 * ln(3), sw(3) * w * 0.5, '255,125,12', 0.9);
+  fxTongue(g, x + w * 0.18, y, w * 0.55, h * 0.66 * ln(4), sw(4) * w * 0.5, '255,170,30', 0.9);
+  fxTongue(g, x, y, w * 0.42, h * 0.5 * ln(5), sw(5) * w * 0.3, '255,225,120', 0.95);
+  const hs = g.createRadialGradient(x, y - h * 0.08, 0, x, y - h * 0.08, w * 0.9);
+  hs.addColorStop(0, 'rgba(255,255,230,.95)'); hs.addColorStop(0.5, 'rgba(255,230,150,.45)'); hs.addColorStop(1, 'rgba(255,190,80,0)');
+  g.fillStyle = hs; g.fillRect(x - w, y - h * 0.08 - w, w * 2, w * 2);
+  if (o.sparks !== 0) {
+    for (let i = 0; i < 3; i++) {
+      const u = (f * 0.25 + i * 0.37 + (o.ph || 0) * 0.1) % 1, ex = x + Math.sin(ph * 2 + i * 4.1) * w * 1.1, ey = y - h * (0.55 + 0.7 * u);
+      g.fillStyle = `rgba(255,${170 + 60 * u | 0},70,${0.9 * (1 - u)})`; g.fillRect(ex - 0.7, ey - 0.7, 1.4, 1.4);
+    }
+  }
+  g.restore();
+}
+
+// A glowing ball: wide soft corona, tinted body, white-hot core and (optionally) crackling electric arcs
+// o = { glow, mid, core, arc: 'r,g,b' colours, body: size of the body (0-1), arcs: number of arcs, seed }
+function paintOrb(g, w, o) {
+  const c = w / 2, r = fxRng(o.seed || 7), br = c * (o.body || 0.5);
+  g.save(); g.globalCompositeOperation = 'lighter';
+  let gr = g.createRadialGradient(c, c, 0, c, c, c);
+  gr.addColorStop(0, `rgba(${o.glow},.55)`); gr.addColorStop(0.35, `rgba(${o.glow},.26)`); gr.addColorStop(0.7, `rgba(${o.glow},.08)`); gr.addColorStop(1, `rgba(${o.glow},0)`);
+  g.fillStyle = gr; g.fillRect(0, 0, w, w);
+  gr = g.createRadialGradient(c, c, 0, c, c, br);
+  gr.addColorStop(0, `rgba(${o.core},1)`); gr.addColorStop(0.45, `rgba(${o.mid},.95)`); gr.addColorStop(1, `rgba(${o.mid},0)`);
+  g.fillStyle = gr; g.beginPath(); g.arc(c, c, br, 0, 7); g.fill();
+  if (o.arcs) {
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (let i = 0; i < o.arcs; i++) {
+      let a = r() * 6.283, d = br * 0.3; const L = c * (0.62 + r() * 0.32);
+      g.beginPath(); g.moveTo(c, c);
+      while (d < L) { d += c * 0.12; a += (r() - 0.5) * 1.1; g.lineTo(c + Math.cos(a) * d, c + Math.sin(a) * d); }
+      g.strokeStyle = `rgba(${o.arc || o.mid},.55)`; g.lineWidth = w / 40; g.stroke();
+      g.strokeStyle = `rgba(${o.core},.95)`; g.lineWidth = w / 100; g.stroke();
+    }
+  }
+  gr = g.createRadialGradient(c, c, 0, c, c, br * 0.42);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, `rgba(${o.core},0)`);
+  g.fillStyle = gr; g.beginPath(); g.arc(c, c, br * 0.42, 0, 7); g.fill();
+  g.restore();
+}
+
 function makeFx() {
   const cv = (name, size, draw) => { const c = mk(); c.width = c.height = size; draw(c.getContext('2d'), size); SH[name] = c; };
   const rad = (name, stops) => cv(name, 64, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); stops.forEach(q => gr.addColorStop(q[0], q[1])); g.fillStyle = gr; g.fillRect(0, 0, w, w); });
@@ -23,6 +93,29 @@ function makeFx() {
   rad('markR', [[0, 'rgba(255,60,40,0)'], [0.5, 'rgba(255,60,40,.35)'], [0.8, 'rgba(255,120,60,.9)'], [1, 'rgba(255,60,40,0)']]);
   rad('smoke', [[0, 'rgba(70,64,58,.95)'], [0.55, 'rgba(38,34,31,.6)'], [1, 'rgba(14,12,11,0)']]);
   rad('vapor', [[0, 'rgba(238,244,255,.7)'], [0.45, 'rgba(222,230,246,.38)'], [1, 'rgba(210,220,240,0)']]);
+  // richer glowing balls: soft corona, tinted body, white-hot core; plasma and bolts also get crackling arcs and 4 animation frames
+  const orb = (name, w, o) => cv(name, w, (g) => paintOrb(g, w, o));
+  orb('fire', 64, { glow: '255,110,20', mid: '255,170,50', core: '255,248,200', body: 0.5 });
+  orb('venom', 64, { glow: '110,255,40', mid: '170,255,70', core: '245,255,210', body: 0.5 });
+  orb('bullet', 64, { glow: '255,185,60', mid: '255,225,110', core: '255,255,235', body: 0.42 });
+  orb('sparkB', 64, { glow: '80,160,255', mid: '150,210,255', core: '240,250,255', body: 0.4 });
+  orb('sparkR', 64, { glow: '255,60,40', mid: '255,130,100', core: '255,235,225', body: 0.4 });
+  const frames = (o) => [0, 1, 2, 3].map(i => { const c = mk(); c.width = c.height = 96; paintOrb(c.getContext('2d'), 96, Object.assign({}, o, { seed: 11 + i * 37 })); return c; });
+  PLASMA_F = frames({ glow: '170,60,255', mid: '190,95,255', core: '245,220,255', arc: '205,150,255', arcs: 5, body: 0.5 });
+  BOLT_F = frames({ glow: '60,255,110', mid: '95,255,135', core: '225,255,230', arc: '150,255,175', arcs: 5, body: 0.48 });
+  SH.plasma = PLASMA_F[0];
+  boltCanvas.width = boltCanvas.height = 96; boltCanvas.getContext('2d').drawImage(BOLT_F[0], 0, 0);
+  const redo = (cvs, w, o) => { cvs.width = cvs.height = w; paintOrb(cvs.getContext('2d'), w, o); };
+  redo(projectileCanvas, 64, { glow: '255,150,40', mid: '255,210,90', core: '255,255,235', body: 0.42 });
+  redo(impactCanvas, 96, { glow: '255,120,30', mid: '255,190,70', core: '255,250,210', body: 0.62, arcs: 9, arc: '255,200,90', seed: 5 });
+  redo(plasmaImpactCanvas, 96, { glow: '40,230,90', mid: '110,255,150', core: '230,255,235', body: 0.6, arcs: 8, arc: '150,255,180', seed: 9 });
+  // big soft halos: the glow that surrounds shots, fires and blasts
+  const halo = (name, rgb) => cv(name, 64, (g, w) => {
+    const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    gr.addColorStop(0, `rgba(${rgb},.5)`); gr.addColorStop(0.4, `rgba(${rgb},.2)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = gr; g.fillRect(0, 0, w, w);
+  });
+  halo('haloW', '255,160,60'); halo('haloG', '70,255,120'); halo('haloV', '180,80,255'); halo('haloB', '90,170,255');
   cv('bubble', 64, (g) => {
     const gr = g.createRadialGradient(26, 24, 2, 32, 32, 28);
     gr.addColorStop(0, 'rgba(240,255,170,.95)'); gr.addColorStop(0.35, 'rgba(170,205,40,.6)'); gr.addColorStop(0.85, 'rgba(110,150,20,.55)'); gr.addColorStop(1, 'rgba(60,90,10,0)');
@@ -204,17 +297,10 @@ function makeDecals() {
 }
 
 function flameArt(f) {
-  const c = mk(); c.width = c.height = 64; const g = c.getContext('2d'), j = [0, 3, -3, 2][f], h = [0, 5, -3, 3][f];
-  const gl = g.createRadialGradient(32, 46, 2, 32, 46, 30); gl.addColorStop(0, 'rgba(255,170,60,.5)'); gl.addColorStop(1, 'rgba(255,100,0,0)');
-  g.fillStyle = gl; g.fillRect(0, 0, 64, 64);
-  const fl = (x, w, ht, col, dx) => {
-    g.fillStyle = col; g.beginPath(); g.moveTo(x - w, 60);
-    g.quadraticCurveTo(x - w, 60 - ht * 0.5, x + j + dx, 60 - ht);
-    g.quadraticCurveTo(x + w, 60 - ht * 0.5, x + w, 60);
-    g.quadraticCurveTo(x, 60 + w * 0.8, x - w, 60); g.fill();
-  };
-  fl(32, 14, 46 + h, '#c81e0a', 0); fl(22, 8, 28 - h, '#e8400a', -j); fl(43, 8, 30 + h, '#e8400a', j);
-  fl(32, 10, 36 + h, '#ff8a00', j / 2); fl(32, 5.5, 22 + h, '#fff2a0', 0);
+  const c = mk(); c.width = c.height = 64; const g = c.getContext('2d');
+  paintFlame(g, 32, 58, 13, 50, f);
+  paintFlame(g, 19, 58, 7, 27, f, { ph: 1.9, halo: 0, sparks: 0 });
+  paintFlame(g, 45, 58, 7, 31, f, { ph: 3.4, halo: 0, sparks: 0 });
   return c;
 }
 
@@ -291,10 +377,7 @@ function drawThrown() {
 
 function chandelier(f, v) {
   const c = mk(); c.width = c.height = 128; const g = c.getContext('2d'); g.scale(2, 2);
-  const flame = (x, y, s) => {
-    g.fillStyle = '#ff9a20'; g.beginPath(); g.ellipse(x, y, s, s * 1.7, 0, 0, 7); g.fill();
-    g.fillStyle = '#fff2a0'; g.beginPath(); g.ellipse(x, y + s * 0.3, s * 0.5, s, 0, 0, 7); g.fill();
-  };
+  const flame = (x, y, s) => paintFlame(g, x, y + s * 1.8, s * 1.15, s * 5.6, 1, { halo: 0, sparks: 0, ph: x });
   const glow = (x, y, r, col) => {
     const gl = g.createRadialGradient(x, y, 1, x, y, r); gl.addColorStop(0, `rgba(${col},.55)`); gl.addColorStop(1, `rgba(${col},0)`);
     g.globalCompositeOperation = 'lighter'; g.fillStyle = gl; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalCompositeOperation = 'source-over';

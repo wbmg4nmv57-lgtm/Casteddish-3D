@@ -386,138 +386,403 @@ function t3Build() {
 }
 
 // ---------- mostri: veri modelli 3D con gambe e braccia che si muovono ----------
-// Pelle del demone: carne scura con vene, cicatrici e sangue + crepe incandescenti (si genera una volta sola)
-function t3SkinTex() {
-  if (T3.skinTex) return;
-  let s = 7; const R = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = 128; return c; };
-  const a = mk(), g = a.getContext('2d');
-  g.fillStyle = '#5c1812'; g.fillRect(0, 0, 128, 128);
-  g.lineWidth = 1;
-  for (let y = 0; y < 128; y += 8) for (let x = ((y / 8) % 2) * 5; x < 128; x += 10) {   // scaglie da rettile
-    g.strokeStyle = 'rgba(14,2,1,0.5)'; g.beginPath(); g.arc(x, y, 5.5, 0.15, Math.PI - 0.15); g.stroke();
-    g.strokeStyle = 'rgba(190,80,50,0.16)'; g.beginPath(); g.arc(x, y - 1.5, 5, 0.5, Math.PI - 0.5); g.stroke();
+// =====================================================================================================================
+// DEMONE-ARTIGLIO (piano 1): modellazione procedurale. Superfici lisce scolpite (loft e scultura), non piu pezzi di sfere e coni.
+// Ogni parte e una sola mesh con "ombre ambientali" nei colori di vertice, rilievo (bump) e texture dettagliate della pelle.
+// Lo scheletro resta quello di prima: bacino > torace > collo > testa, spalla > gomito, anca > ginocchio > caviglia, coda a 4 segmenti.
+// =====================================================================================================================
+const t3cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const t3nm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// BufferGeometry da array; se i triangoli sono rivolti verso l'interno (volume negativo) li rigira
+function t3Geo(pos, uv, col, idx) {
+  let vol = 0;
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    vol += pos[a] * (pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1]) + pos[a + 1] * (pos[b + 2] * pos[c] - pos[b] * pos[c + 2]) + pos[a + 2] * (pos[b] * pos[c + 1] - pos[b + 1] * pos[c]);
   }
-  for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${R() < 0.5 ? '20,4,2' : '150,50,35'},${0.1 + R() * 0.25})`; g.fillRect(R() * 128, R() * 128, 1 + R() * 3, 1 + R() * 3); }
-  g.lineWidth = 1.2;
-  for (let i = 0; i < 16; i++) { g.strokeStyle = 'rgba(25,3,3,0.7)'; g.beginPath(); let x = R() * 128, y = R() * 128; g.moveTo(x, y); for (let k = 0; k < 6; k++) { x += (R() - 0.5) * 30; y += (R() - 0.5) * 30; g.lineTo(x, y); } g.stroke(); }   // vene
-  for (let i = 0; i < 7; i++) { g.fillStyle = 'rgba(70,0,0,0.55)'; g.beginPath(); g.arc(R() * 128, R() * 128, 3 + R() * 9, 0, 6.3); g.fill(); }   // sangue
-  for (let i = 0; i < 5; i++) { g.strokeStyle = 'rgba(210,150,120,0.55)'; g.beginPath(); const x = R() * 128, y = R() * 128; g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 26, y + (R() - 0.5) * 26); g.stroke(); }   // cicatrici
-  const b = mk(), h = b.getContext('2d');
-  h.fillStyle = '#000'; h.fillRect(0, 0, 128, 128); h.strokeStyle = '#ff5a14'; h.shadowColor = '#ff2a00'; h.shadowBlur = 6; h.lineWidth = 2;
-  for (let i = 0; i < 11; i++) { h.beginPath(); let x = R() * 128, y = R() * 128; h.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (R() - 0.5) * 34; y += (R() - 0.5) * 34; h.lineTo(x, y); } h.stroke(); }   // crepe di fuoco
-  T3.skinTex = t3Tex(a); T3.glowTex = t3Tex(b);
+  if (vol < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals(); return g;
 }
 
-// Demone-artiglio (stile deathclaw): schiena curva con cresta di spuntoni, torace enorme, testa a cuneo con lunghe corna ricurve,
-// occhi gialli con pupilla a fessura (l'alone cresce con la distanza: si vedono da lontano anche al buio), mascella piena di zanne,
-// braccia lunghissime con tre artigli a falce per mano, gambe con ginocchio inverso e coda con lama.
-// Scheletro a catena: bacino > torace > collo > testa, spalla > gomito, anca > ginocchio > caviglia, coda a 4 segmenti.
+// Loft: superficie liscia che segue una serie di anelli. Anello = [x, y, z, raggioX, raggioZ, ombra 0-1, spostX, spostZ, [r,g,b]]
+function t3Loft(rings, seg, o) {
+  o = o || {};
+  const n = rings.length, pos = [], uv = [], col = [], idx = [], tint = o.tint || [1, 1, 1], ex = o.n || 2, W = seg + 1;
+  const A = rings[0], B = rings[n - 1], dv = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const ref = Math.abs(dv[1]) > 0.7 * Math.hypot(dv[0], dv[1], dv[2]) ? [0, 0, 1] : [0, 1, 0];
+  let v = 0;
+  for (let i = 0; i < n; i++) {
+    const r = rings[i], a = rings[Math.max(0, i - 1)], b = rings[Math.min(n - 1, i + 1)];
+    const T = t3nm([b[0] - a[0], b[1] - a[1], b[2] - a[2]]), S = t3nm(t3cr(T, ref)), U = t3cr(S, T);
+    if (i) v += Math.hypot(r[0] - rings[i - 1][0], r[1] - rings[i - 1][1], r[2] - rings[i - 1][2]);
+    const ao = r[5] === undefined ? 1 : r[5], c = r[8] || tint;
+    for (let j = 0; j <= seg; j++) {
+      const an = j / seg * 6.2831853, cx = Math.cos(an), sy = Math.sin(an);
+      const qx = ex === 2 ? cx : Math.sign(cx) * Math.pow(Math.abs(cx), 2 / ex), qz = ex === 2 ? sy : Math.sign(sy) * Math.pow(Math.abs(sy), 2 / ex);
+      const lx = (r[6] || 0) + r[3] * qx, lz = (r[7] || 0) + r[4] * qz;
+      pos.push(r[0] + S[0] * lx + U[0] * lz, r[1] + S[1] * lx + U[1] * lz, r[2] + S[2] * lx + U[2] * lz);
+      uv.push(j / seg * (o.uT || 2), v * (o.vT || 4)); col.push(ao * c[0], ao * c[1], ao * c[2]);
+    }
+  }
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < seg; j++) { const a = i * W + j, b = a + 1, c = a + W, d = c + 1; idx.push(a, c, b, b, c, d); }
+  if (o.cap !== false) for (const e of [0, n - 1]) {   // tappi alle due estremita
+    const r = rings[e], ci = pos.length / 3, ao = r[5] === undefined ? 1 : r[5], c = r[8] || tint;
+    pos.push(r[0], r[1], r[2]); uv.push(0.5, e ? v * (o.vT || 4) : 0); col.push(ao * c[0], ao * c[1], ao * c[2]);
+    for (let j = 0; j < seg; j++) { const a = e * W + j; if (e) idx.push(ci, a + 1, a); else idx.push(ci, a, a + 1); }
+  }
+  return t3Geo(pos, uv, col, idx);
+}
+
+// Unisce piu geometrie in una sola (una mesh = una chiamata di disegno). item = { g, p: posizione, r: rotazione XYZ, s: scala, t: tinta }
+function t3Merge(items) {
+  const pos = [], uv = [], col = [], idx = []; let base = 0;
+  for (const it of items) {
+    const g = it.g, P = g.attributes.position.array, UV = g.attributes.uv.array, C = g.attributes.color.array, I = g.index.array;
+    const p = it.p || [0, 0, 0], r = it.r || [0, 0, 0], s = it.s || [1, 1, 1], t = it.t || [1, 1, 1];
+    const cx = Math.cos(r[0]), sx = Math.sin(r[0]), cy = Math.cos(r[1]), sy = Math.sin(r[1]), cz = Math.cos(r[2]), sz = Math.sin(r[2]);
+    for (let i = 0; i < P.length; i += 3) {
+      let x = P[i] * s[0], y = P[i + 1] * s[1], z = P[i + 2] * s[2], q;
+      q = x * cz - y * sz; y = x * sz + y * cz; x = q;
+      q = x * cy + z * sy; z = -x * sy + z * cy; x = q;
+      q = y * cx - z * sx; z = y * sx + z * cx; y = q;
+      pos.push(x + p[0], y + p[1], z + p[2]);
+    }
+    for (let i = 0; i < UV.length; i++) uv.push(UV[i]);
+    for (let i = 0; i < C.length; i += 3) col.push(C[i] * t[0], C[i + 1] * t[1], C[i + 2] * t[2]);
+    const fl = s[0] * s[1] * s[2] < 0;
+    for (let i = 0; i < I.length; i += 3) { if (fl) idx.push(base + I[i], base + I[i + 2], base + I[i + 1]); else idx.push(base + I[i], base + I[i + 1], base + I[i + 2]); }
+    base += P.length / 3;
+  }
+  return t3Geo(pos, uv, col, idx);
+}
+
+// Tabella a tratti con interpolazione morbida: [y, a, b, c...]
+const t3Tab = (tb, y) => {
+  for (let i = 0; i < tb.length - 1; i++) if (y <= tb[i + 1][0]) { const a = tb[i], b = tb[i + 1], t = Math.max(0, (y - a[0]) / (b[0] - a[0])), s = t * t * (3 - 2 * t); return a.map((v, k) => k ? v + (b[k] - v) * s : y); }
+  return tb[tb.length - 1];
+};
+// Percorso a passi: direzione hf(t), raggio rf(t) -> [rx, rz], colore opzionale; restituisce gli anelli per t3Loft
+function t3Path(p, n, L, hf, rf, col) {
+  const rings = [], st = L / n; let q = p.slice();
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, r = rf(t); rings.push([q[0], q[1], q[2], r[0], r[1], i === 0 ? 0.8 : 1, 0, 0, col ? col(t) : undefined]);
+    const d = t3nm(hf(t)); q = [q[0] + d[0] * st, q[1] + d[1] * st, q[2] + d[2] * st];
+  }
+  return rings;
+}
+const t3Mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const t3Ball = () => t3Loft(Array.from({ length: 9 }, (_, i) => { const a = Math.PI * i / 8, r = Math.sin(a) + 0.002; return [0, -Math.cos(a), 0, r, r]; }), 12);
+// Dente / spuntone / artiglio: parte da y=0 verso +y, si assottiglia, si piega all'indietro (-z) di "bend"
+function t3Spike(L, w, o) {
+  o = o || {}; const cb = o.cb || [0.6, 0.5, 0.42], ct = o.ct || [1, 0.96, 0.86], rings = [];
+  for (let i = 0; i <= 5; i++) { const t = i / 5, rr = w * (1 - 0.92 * Math.pow(t, 1.25)) + 0.0006; rings.push([0, L * t, -(o.bend || 0) * L * t * t, rr, rr * (o.fl || 1), i ? 1 : 0.75, 0, 0, t3Mix(cb, ct, Math.min(1, t * 1.4))]); }
+  return t3Loft(rings, o.seg || 6, { vT: 2, uT: 1 });
+}
+// Corno ricurvo e nervato: parte da y=0, sale, si piega all'indietro (-z) e verso l'esterno (+x)
+function t3Horn(L, w, e0, curl, yaw) {
+  const rf = (t) => { const r = w * Math.pow(1 - t, 0.85) * (1 + 0.5 * Math.max(0, 0.14 - t) / 0.14) * (1 + 0.07 * Math.sin(t * 30)) + 0.002; return [r, r * 0.9]; };
+  const hf = (t) => { const e = e0 + curl * t, y = yaw * (1 - 0.5 * t); return [Math.sin(y), Math.cos(e), -Math.sin(e)]; };
+  return t3Loft(t3Path([0, 0, 0], 16, L, hf, rf, (t) => t3Mix([0.5, 0.4, 0.34], [1, 0.95, 0.84], Math.pow(t, 0.7))), 10, { vT: 3, uT: 1 });
+}
+
+// ---------------- testa: superficie scolpita (cranio + muso a cuneo, orbite, arcate, zigomi, narici) ----------------
+function t3HeadSurf() {
+  const F = [], add = (x, y, z, s, a, d, mir) => { F.push([x, y, z, s, a, d || 0]); if (mir) F.push([-x, y, z, s, a, d || 0]); };
+  add(0.078, 0.047, 0.14, 0.03, -0.046, 0.85, 1);    // orbite incavate
+  add(0.086, 0.092, 0.115, 0.032, 0.04, 0, 1);       // arcata sopraccigliare esterna
+  add(0.074, 0.076, 0.15, 0.02, 0.03, 0.2, 1);       // palpebra pesante che incombe sull'occhio
+  add(0.08, 0.012, 0.15, 0.022, 0.016, 0.3, 1);      // borsa sotto l'occhio
+  add(0.05, 0.095, 0.16, 0.03, 0.044, 0, 1);         // arcata interna
+  add(0, 0.088, 0.17, 0.04, 0.013, 0, 0);            // ponte fra le arcate
+  add(0.1, 0.0, 0.12, 0.035, 0.022, 0, 1);           // zigomo
+  add(0.085, -0.05, 0.12, 0.035, -0.022, 0.4, 1);    // guancia scavata
+  add(0.1, 0.04, 0.02, 0.04, -0.013, 0.3, 1);        // tempia
+  add(0.105, -0.045, 0.0, 0.04, 0.02, 0, 1);         // massetere
+  add(0, 0.125, -0.04, 0.035, 0.016, 0, 0); add(0, 0.12, -0.1, 0.03, 0.013, 0, 0);   // cresta sagittale
+  add(0.024, 0.016, 0.372, 0.011, -0.016, 0.9, 1);   // narici
+  add(0, 0.03, 0.35, 0.03, 0.01, 0, 0);              // naso
+  add(0, 0.07, 0.24, 0.03, 0.013, 0, 0); add(0, 0.06, 0.3, 0.025, 0.01, 0, 0);       // dorso del muso
+  add(0.055, 0.03, 0.26, 0.016, -0.008, 0.3, 1);     // pieghe sul muso
+  add(0.04, 0.0, 0.31, 0.016, -0.008, 0.3, 1);
+  return (dx, dy, dz) => {
+    const fr = Math.max(0, dz), k = Math.pow(fr, 1.25), w = 0.112 * (1 - 0.54 * k), h = (0.1175 + 0.0125 * Math.tanh(dy * 5)) * (1 - 0.6 * k), L = 0.26 + 0.13 * Math.tanh(dz * 4);
+    const p0 = [w * dx, h * dy, L * dz], n = t3nm([dx / w, dy / h, dz / L]); let ao = 1; const p = p0.slice();
+    for (const f of F) {
+      const d2 = (p0[0] - f[0]) * (p0[0] - f[0]) + (p0[1] - f[1]) * (p0[1] - f[1]) + (p0[2] - f[2]) * (p0[2] - f[2]), gs = Math.exp(-d2 / (2 * f[3] * f[3]));
+      if (gs < 0.003) continue; p[0] += n[0] * f[4] * gs; p[1] += n[1] * f[4] * gs; p[2] += n[2] * f[4] * gs; ao *= 1 - f[5] * gs;
+    }
+    return [p[0], p[1], p[2], ao];
+  };
+}
+function t3HeadGeo(surf) {
+  const NU = 48, NV = 34, pos = [], uv = [], col = [], idx = [];
+  for (let i = 0; i <= NV; i++) {
+    const ph = i / NV * Math.PI, sp = Math.sin(ph), cp = Math.cos(ph);
+    for (let j = 0; j <= NU; j++) {
+      const th = j / NU * 6.2831853, q = surf(sp * Math.cos(th), sp * Math.sin(th), cp), sh = 0.55 + 0.45 * q[3];
+      pos.push(q[0], q[1], q[2]); uv.push(j / NU * 2, i / NV * 2.4); col.push(sh, sh * 0.96, sh * 0.95);
+    }
+  }
+  for (let i = 0; i < NV; i++) for (let j = 0; j < NU; j++) { const a = i * (NU + 1) + j, b = a + 1, c = a + NU + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+  return t3Geo(pos, uv, col, idx);
+}
+
+// ---------------- tutte le geometrie del demone (costruite una volta sola e condivise) ----------------
+// Braccio, gamba e artigli sono costruiti per il lato destro (+x); il sinistro e lo stesso modello specchiato (scale.x = -1).
+function t3DemonGeos() {
+  const D = {}, ball = t3Ball(), surf = t3HeadSurf();
+  const B = (r, p, sx, sy, sz) => ({ g: ball, p: p || [0, 0, 0], s: [r * (sx || 1), r * (sy || 1), r * (sz || 1)] });
+  const BONE_B = [0.7, 0.34, 0.28];   // radice dei denti: macchiata di sangue
+
+  // --- bacino e torace
+  D.pelvis = t3Loft([[0, -0.17, 0, 0.05, 0.06, 0.8], [0, -0.13, 0, 0.11, 0.095], [0, -0.07, -0.005, 0.145, 0.115], [0, 0, -0.005, 0.14, 0.11], [0, 0.05, 0, 0.115, 0.095], [0, 0.09, 0, 0.09, 0.08, 0.85]], 20, { n: 2.2 });
+  const TT = [[-0.24, 0.105, 0.09, 0], [-0.16, 0.14, 0.11, 0], [-0.08, 0.16, 0.115, 0.01], [0, 0.22, 0.13, 0.02], [0.08, 0.27, 0.15, 0.035], [0.16, 0.29, 0.15, 0.03], [0.24, 0.28, 0.135, -0.005], [0.3, 0.2, 0.12, -0.02], [0.35, 0.1, 0.085, -0.01], [0.385, 0.02, 0.02, 0]];
+  const tr = [];
+  for (let i = 0; i < 56; i++) {   // costole in rilievo sotto la pelle tesa
+    const y = -0.24 + i / 55 * 0.625, v = t3Tab(TT, y), rib = y > -0.1 && y < 0.13 ? Math.cos((y + 0.1) / 0.058 * 6.2832) : 0;
+    tr.push([0, y, 0, v[1] * (1 + 0.03 * rib), v[2] * (1 + 0.03 * rib), i && i < 55 ? 0.92 + 0.08 * rib : 0.8, 0, v[3]]);
+  }
+  D.torso = t3Loft(tr, 30, { n: 2.3, vT: 3 });
+  const tb = [];
+  [0.31, 0.26, 0.21, 0.16, 0.11, 0.06, 0.01, -0.04, -0.09].forEach((y, i) => { const v = t3Tab(TT, y); tb.push({ g: t3Spike(0.15 - i * 0.008, 0.03 - i * 0.0012, { bend: 0.2 }), p: [0, y, v[3] - v[2] + 0.012], r: [-1.75 + i * 0.03, 0, 0] }); });   // vertebre che sporgono
+  for (const s of [-1, 1]) [0.074, 0.016, -0.042, -0.1].forEach((y, k) => {   // costole scoperte
+    const v = t3Tab(TT, y), rg = [];
+    for (let i = 0; i <= 8; i++) { const ph = 0.45 + i / 8 * 1.25, r = 0.0115 * (1 - 0.5 * Math.pow(Math.abs(i - 4) / 4, 2)); rg.push([s * v[1] * 1.04 * Math.sin(ph), y - 0.015 * ph, v[3] + v[2] * 1.04 * Math.cos(ph), r, r * 0.8, 1, 0, 0, t3Mix([0.95, 0.9, 0.78], [0.6, 0.3, 0.25], 0.5 + 0.5 * Math.sin(k * 2 + i))]); }
+    tb.push({ g: t3Loft(rg, 6, { vT: 2 }) });
+  });
+  D.torsoBone = t3Merge(tb);
+  D.neck = t3Merge([{ g: t3Loft([[0, -0.06, -0.005, 0.1, 0.09, 0.8], [0, 0, 0.012, 0.083, 0.076], [0, 0.06, 0.03, 0.07, 0.068], [0, 0.105, 0.04, 0.072, 0.068, 0.85]], 18) }].concat([-1, 1].map(s => ({ g: t3Loft(t3Path([s * 0.045, 0.1, 0.05], 5, 0.17, t => [s * (0.3 + 0.2 * t), -1, -0.1], t => [0.012 - 0.003 * t, 0.011]), 6) }))));   // collo con tendini tesi
+
+  // --- testa, corna, denti, gengive
+  D.head = t3HeadGeo(surf);
+  const horn = t3Horn(0.4, 0.036, 0.35, 1.55, 0.55), hornB = t3Horn(0.17, 0.022, 1.3, 0.9, 0.5), hb = [];
+  for (const s of [-1, 1]) {
+    hb.push({ g: horn, p: [s * 0.072, 0.1, -0.015], s: [s, 1, 1] }, { g: hornB, p: [s * 0.1, 0.03, -0.08], s: [s, 1, 1] });
+    hb.push({ g: t3Spike(0.1, 0.022, { bend: 0.2 }), p: [s * 0.105, -0.05, 0.05], r: [0.2, 0, -s * 1.5] });          // spuntone sulla guancia
+    hb.push({ g: t3Spike(0.055, 0.013), p: [s * 0.062, 0.106, 0.15], r: [-0.3, 0, -s * 0.5] }, { g: t3Spike(0.045, 0.012), p: [s * 0.092, 0.096, 0.1], r: [-0.2, 0, -s * 0.8] });   // spuntoni sulle arcate
+  }
+  for (let i = 0; i < 3; i++) hb.push({ g: t3Spike(0.13 - i * 0.02, 0.026 - i * 0.004, { bend: 0.2 }), p: [0, 0.128 - i * 0.012, -0.03 - i * 0.07], r: [-1.2 - 0.15 * i, 0, 0] });   // cresta sul cranio
+  D.headBone = t3Merge(hb);
+  const rim = (s, dz) => { const sp = Math.sqrt(1 - dz * dz), q = surf(sp * Math.cos(-0.82), sp * Math.sin(-0.82), dz); return [s * q[0], q[1], q[2]]; };
+  const dzs = [0.95, 0.88, 0.78, 0.66, 0.54, 0.42, 0.3, 0.2], lens = [0.06, 0.095, 0.045, 0.052, 0.04, 0.04, 0.032, 0.03], tt = [], gg = [];
+  for (const s of [-1, 1]) {
+    const rg = [];
+    dzs.forEach((dz, i) => {
+      const q = rim(s, dz), j = Math.sin(i * 12.9 + s * 4.1);
+      tt.push({ g: t3Spike(lens[i] * (1 + 0.15 * j), i === 1 ? 0.017 : 0.012, { cb: BONE_B, bend: -0.12 }), p: [q[0], q[1] + 0.007, q[2]], r: [Math.PI + 0.12 * j, 0, -s * (0.16 + 0.1 * j)] });
+      rg.push([q[0], q[1] + 0.003, q[2], 0.0125, 0.011, 0.9, 0, 0, [0.8, 0.45, 0.45]]);
+    });
+    gg.push({ g: t3Loft(rg, 8, { vT: 2 }) });
+  }
+  tt.push({ g: t3Spike(0.05, 0.012, { cb: BONE_B }), p: [0.012, -0.006, 0.383], r: [Math.PI, 0, 0.1] }, { g: t3Spike(0.05, 0.012, { cb: BONE_B }), p: [-0.012, -0.006, 0.383], r: [Math.PI, 0, -0.1] });
+  D.teeth = t3Merge(tt); D.gums = t3Merge(gg);
+
+  // --- mandibola (origine = cerniera), denti inferiori, lingua, bava
+  const xr = [[0, 0.074], [0.06, 0.072], [0.15, 0.058], [0.25, 0.036], [0.322, 0.017], [0.345, 0.008]];
+  const ramus = (s) => t3Loft([[s * 0.074, 0, 0, 0.026, 0.024, 0.8], [s * 0.072, -0.002, 0.06, 0.027, 0.024], [s * 0.058, -0.006, 0.15, 0.022, 0.021], [s * 0.036, -0.008, 0.25, 0.018, 0.018], [s * 0.017, -0.004, 0.322, 0.014, 0.014], [s * 0.008, 0, 0.345, 0.01, 0.01, 0.8]], 10);
+  D.jaw = t3Merge([{ g: ramus(1) }, { g: ramus(-1) }, { g: t3Loft([[0, -0.012, 0.03, 0.07, 0.005, 0.8], [0, -0.014, 0.15, 0.045, 0.006], [0, -0.012, 0.3, 0.016, 0.006, 0.8]], 10) }, B(0.02, [0, -0.005, 0.34])]);
+  const jt = [], jz = [0.33, 0.3, 0.26, 0.21, 0.16, 0.11, 0.07], jl = [0.078, 0.05, 0.04, 0.045, 0.035, 0.03, 0.028];
+  for (const s of [-1, 1]) jz.forEach((z, i) => { const x = s * t3Tab(xr, z)[1] * 0.93, j = Math.sin(i * 7.7 + s * 2.3); jt.push({ g: t3Spike(jl[i] * (1 + 0.12 * j), i === 0 ? 0.016 : 0.012, { cb: BONE_B, bend: -0.1 }), p: [x, 0.016, z], r: [0.1 * j, 0, s * (0.12 + 0.08 * j)] }); });
+  jt.push({ g: t3Spike(0.09, 0.013, { cb: BONE_B }), p: [0.009, 0.004, 0.347], r: [-0.25, 0, -0.1] }, { g: t3Spike(0.075, 0.012, { cb: BONE_B }), p: [-0.009, 0.004, 0.347], r: [-0.3, 0, 0.1] });
+  D.jawTeeth = t3Merge(jt);
+  const tg = t3Path([0, 0, -0.07], 9, 0.25, () => [0, 0, 1], t => [0.027 * (1 - 0.45 * t * t), 0.008]).map(r => { r[1] = 0.006 * Math.sin(r[2] * 34); return r; });
+  const fork = (s) => t3Loft(t3Path([0, 0.006 * Math.sin(0.18 * 34), 0.18], 3, 0.07, () => [s * 0.35, 0, 1], t => [0.011 * (1 - 0.8 * t), 0.006 * (1 - 0.6 * t)]), 6);
+  D.tongue = t3Merge([{ g: t3Loft(tg, 10, { n: 2.5, vT: 2 }) }, { g: fork(1) }, { g: fork(-1) }]);
+  const dr = [];
+  [[-0.034, 0.3, 0.1], [0.03, 0.25, 0.07], [0.02, 0.2, 0.12], [-0.03, 0.15, 0.05]].forEach(([x, z, L]) => dr.push({ g: t3Loft(t3Path([x, 0.014, z], 4, L, () => [0, -1, 0], t => [0.0032 * (1 - 0.5 * t), 0.0032 * (1 - 0.5 * t)]), 4, { vT: 2 }) }));
+  D.drool = t3Merge(dr);
+
+  // --- braccio destro: spalla, avambraccio, mano con tre dita e pollice, artigli a falce
+  D.upperArm = t3Merge([{ g: t3Loft([[0, 0.05, 0, 0.06, 0.06, 0.8], [0, 0.01, 0, 0.108, 0.1, 0.9], [0, -0.05, 0.005, 0.112, 0.1], [0, -0.11, 0.01, 0.098, 0.095], [0, -0.18, 0.01, 0.08, 0.078], [0, -0.24, 0, 0.066, 0.064], [0, -0.27, 0, 0.062, 0.06, 0.8]], 20) }, B(0.1)]);
+  D.upperBone = t3Merge([{ g: t3Spike(0.17, 0.042, { bend: 0.3 }), p: [0.06, 0.07, -0.02], r: [-0.35, 0, -0.9] }, { g: t3Spike(0.1, 0.03, { bend: 0.2 }), p: [0.02, 0.09, -0.05], r: [-0.9, 0, -0.3] }]);
+  const fr = [[0, 0.015, 0, 0.055, 0.055, 0.75], [0, -0.02, 0, 0.074, 0.072, 0.85], [0, -0.07, 0.005, 0.082, 0.078], [0, -0.13, 0.005, 0.07, 0.068], [0, -0.2, 0, 0.052, 0.05], [0, -0.26, 0, 0.04, 0.038], [0, -0.285, 0, 0.044, 0.03], [0, -0.31, 0.006, 0.056, 0.028], [0, -0.345, 0.012, 0.058, 0.026], [0, -0.36, 0.015, 0.05, 0.022, 0.8]];
+  const fi = [{ g: t3Loft(fr, 18, { n: 2.2 }) }, B(0.068, [0, 0, -0.005])], cl = [];
+  const finger = (x0, y0, z0, L, cu, sp, claw) => {
+    const hf = (t) => [sp * t, -Math.cos(cu * t), Math.sin(cu * t)], rg = t3Path([x0, y0, z0], 4, L, hf, t => [0.0165 - 0.006 * t, 0.0152 - 0.0055 * t]);
+    fi.push({ g: t3Loft(rg, 8, { vT: 2 }) }); const e = rg[rg.length - 1];
+    const hc = (t) => [sp, -Math.cos(cu + 1.05 * t), Math.sin(cu + 1.05 * t)];
+    cl.push({ g: t3Loft(t3Path([e[0], e[1], e[2]], 7, claw, hc, t => [0.0105 * (1 - 0.93 * t) + 0.0006, 0.0128 * (1 - 0.93 * t) + 0.0006], t => t3Mix([0.8, 0.72, 0.58], [1, 0.97, 0.88], t)), 7, { vT: 3, uT: 1 }) });
+  };
+  finger(-0.036, -0.35, 0.012, 0.105, 0.45, -0.12, 0.17); finger(0, -0.355, 0.014, 0.118, 0.5, 0, 0.2); finger(0.036, -0.35, 0.012, 0.105, 0.45, 0.12, 0.17);
+  finger(-0.052, -0.33, 0.008, 0.07, 0.35, -0.5, 0.13);   // pollice
+  D.fore = t3Merge(fi);
+  D.foreBone = t3Merge(cl.concat([{ g: t3Spike(0.13, 0.03, { bend: 0.1 }), p: [0, -0.01, -0.06], r: [-2.3, 0, 0] }, { g: t3Spike(0.11, 0.026), p: [0, -0.1, -0.078], r: [-2.55, 0, 0] }, { g: t3Spike(0.08, 0.022), p: [0, -0.17, -0.062], r: [-2.6, 0, 0] }]));
+
+  // --- gamba destra: coscia, stinco con polpaccio, piede con tre artigli
+  D.thigh = t3Merge([{ g: t3Loft([[0, 0.03, -0.015, 0.1, 0.1, 0.8], [0, -0.04, 0.02, 0.115, 0.115], [0, -0.1, 0.06, 0.12, 0.115], [0, -0.16, 0.098, 0.095, 0.09], [0, -0.205, 0.122, 0.068, 0.066, 0.85]], 18) }, B(0.095, [0, 0, 0])]);
+  D.shin = t3Merge([B(0.072), { g: t3Loft([[0, -0.03, -0.012, 0.072, 0.082, 0.9, 0, -0.01], [0, -0.07, -0.03, 0.07, 0.08, 1, 0, -0.012], [0, -0.12, -0.045, 0.052, 0.056], [0, -0.17, -0.058, 0.04, 0.04], [0, -0.215, -0.068, 0.032, 0.034, 0.85]], 14) }]);
+  D.kneeBone = t3Merge([{ g: t3Spike(0.11, 0.034, { bend: -0.1 }), p: [0, 0.01, 0.062], r: [Math.PI / 2 - 0.15, 0, 0] }]);
+  const ft = [{ g: t3Loft([[0, 0.02, -0.045, 0.03, 0.03, 0.8], [0, 0.005, -0.01, 0.034, 0.032], [0, -0.012, 0.06, 0.04, 0.028], [0, -0.02, 0.12, 0.046, 0.024, 0.9]], 12, { vT: 3 }) }, B(0.042, [0, 0.012, -0.022])], fc = [];
+  for (const x of [-0.038, 0, 0.038]) {
+    const hf = (t) => [x * 0.5, -0.2 * t - 0.1, 1], rg = t3Path([x, -0.02, 0.115], 3, 0.065, hf, t => [0.0165 - 0.005 * t, 0.014 - 0.004 * t]);
+    ft.push({ g: t3Loft(rg, 8, { vT: 2 }) }); const e = rg[rg.length - 1];
+    fc.push({ g: t3Loft(t3Path([e[0], e[1], e[2]], 6, 0.11, (t) => [0, -Math.sin(0.3 + 0.9 * t), Math.cos(0.3 + 0.9 * t)], t => [0.0105 * (1 - 0.93 * t) + 0.0006, 0.0125 * (1 - 0.93 * t) + 0.0006], t => t3Mix([0.8, 0.72, 0.58], [1, 0.97, 0.88], t)), 7, { vT: 3, uT: 1 }) });
+  }
+  fc.push({ g: t3Spike(0.12, 0.03, { bend: 0.2 }), p: [0, 0.03, -0.05], r: [-1.25, 0, 0] });   // sperone del tallone
+  D.foot = t3Merge(ft); D.footBone = t3Merge(fc);
+
+  // --- coda: 4 segmenti che si assottigliano, con spuntoni e una lama in punta
+  D.tail = [0, 1, 2, 3].map(i => {
+    const ra = 0.08 - 0.015 * i, rb = 0.062 - 0.015 * i + (i === 3 ? 0.005 : 0), rg = [];
+    for (let k = 0; k <= 6; k++) { const t = k / 6, r = ra + (rb - ra) * t; rg.push([0, 0, 0.03 - 0.22 * t, r * (1 + 0.04 * Math.sin(t * 9)), r * 0.9, k && k < 6 ? 1 : 0.85]); }
+    const bone = [{ g: t3Spike(0.13 - 0.015 * i, 0.028 - 0.004 * i, { bend: 0.2 }), p: [0, 0.052 - 0.008 * i, -0.07], r: [-0.55, 0, 0] }];
+    if (i === 3) bone.push({ g: t3Loft([[0, 0, -0.17, 0.012, 0.02, 0.8], [0, 0, -0.22, 0.012, 0.05], [0, 0, -0.3, 0.01, 0.052], [0, 0, -0.38, 0.006, 0.03], [0, 0, -0.45, 0.002, 0.002, 1]], 6, { vT: 2, tint: [0.95, 0.9, 0.78] }) });
+    return { skin: t3Loft(rg, 14), bone: t3Merge(bone) };
+  });
+  return D;
+}
+
+// ---------------- texture: pelle (colore, rilievo, crepe incandescenti), osso, occhio ----------------
+function t3TexL(cv, clamp) { const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; t.wrapS = t.wrapT = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping; return t; }
+function t3SkinTex() {
+  if (T3.skinTex) return;
+  let sd = 7; const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647), N = 256;
+  const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  // disegna anche nelle copie traslate: la texture si ripete senza giunture
+  const wrap = (gs, x, y, r, f) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { if (x + ox + r < 0 || x + ox - r > N || y + oy + r < 0 || y + oy - r > N) continue; for (const g of gs) { g.save(); g.translate(ox, oy); } f(); for (const g of gs) g.restore(); } };
+  const ca = mk(N, N), cb = mk(N, N), g = ca.getContext('2d'), h = cb.getContext('2d');
+  g.fillStyle = '#4a2019'; g.fillRect(0, 0, N, N); h.fillStyle = '#808080'; h.fillRect(0, 0, N, N);
+  const PAL = ['#6a2f22', '#35120f', '#4d2030', '#7a4430', '#2a0e0c', '#5a2418'];
+  for (let i = 0; i < 80; i++) {   // chiazze di colore: pelle scura, bruciata, con zone livide
+    const x = R() * N, y = R() * N, r = 18 + R() * 40, c = PAL[R() * PAL.length | 0], al = 0.14 + R() * 0.22;
+    wrap([g], x, y, r, () => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, c); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.globalAlpha = al; g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalAlpha = 1; });
+  }
+  for (let row = 0; row < 16; row++) for (let col = 0; col < 16; col++) {   // scaglie
+    const x = col * 16 + (row % 2) * 8 + 8, y = row * 16 + 8, k = 0.6 + R() * 0.8;
+    wrap([g, h], x, y, 10, () => {
+      g.strokeStyle = 'rgba(12,2,3,' + (0.45 * k) + ')'; g.lineWidth = 1.3; g.beginPath(); g.arc(x, y, 7.5, 0.1, Math.PI - 0.1); g.stroke();
+      g.strokeStyle = 'rgba(200,100,70,' + (0.12 * k) + ')'; g.lineWidth = 1; g.beginPath(); g.arc(x, y - 1.5, 6.5, Math.PI + 0.3, 6.28 - 0.3); g.stroke();
+      const gr = h.createRadialGradient(x, y - 1, 0, x, y - 1, 8); gr.addColorStop(0, 'rgba(255,255,255,0.34)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); h.fillStyle = gr; h.fillRect(x - 9, y - 9, 18, 18);
+      h.strokeStyle = 'rgba(0,0,0,0.55)'; h.lineWidth = 1.4; h.beginPath(); h.arc(x, y, 7.5, 0.1, Math.PI - 0.1); h.stroke();
+    });
+  }
+  g.lineCap = h.lineCap = 'round';
+  for (let i = 0; i < 40; i++) {   // rughe e pieghe
+    const x = R() * N, y = R() * N, L = 10 + R() * 26, a = (R() - 0.5) * 0.7;
+    wrap([g, h], x, y, 40, () => { g.strokeStyle = 'rgba(18,4,4,0.4)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke(); h.strokeStyle = 'rgba(0,0,0,0.5)'; h.lineWidth = 1.6; h.beginPath(); h.moveTo(x, y); h.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); h.stroke(); });
+  }
+  for (let i = 0; i < 16; i++) {   // vene viola in rilievo
+    const x = R() * N, y = R() * N, hd = R() * 6.28, pts = [[x, y]]; let px = x, py = y, a = hd;
+    for (let k = 0; k < 7; k++) { a += (R() - 0.5) * 1.2; px += Math.cos(a) * (14 + R() * 12); py += Math.sin(a) * (14 + R() * 12); pts.push([px, py]); }
+    const lw = 1.5 + R() * 1.2;
+    wrap([g, h], x, y, 130, () => {
+      g.strokeStyle = 'rgba(78,14,46,0.55)'; g.lineWidth = lw; g.beginPath(); pts.forEach((p, k) => k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.stroke();
+      h.strokeStyle = 'rgba(255,255,255,0.2)'; h.lineWidth = lw + 0.8; h.beginPath(); pts.forEach((p, k) => k ? h.lineTo(p[0], p[1]) : h.moveTo(p[0], p[1])); h.stroke();
+    });
+  }
+  for (let i = 0; i < 1800; i++) {   // pori e sporco
+    const x = R() * N, y = R() * N, d = R() < 0.55;
+    g.fillStyle = d ? 'rgba(10,2,2,' + (0.1 + R() * 0.2) + ')' : 'rgba(170,80,55,' + (0.08 + R() * 0.12) + ')'; g.fillRect(x, y, 1 + R() * 1.5, 1 + R() * 1.5);
+    h.fillStyle = d ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.14)'; h.fillRect(x, y, 1, 1);
+  }
+  for (let i = 0; i < 9; i++) {   // sangue colato
+    const x = R() * N, y = R() * N * 0.7, L = 25 + R() * 45, w = 2 + R() * 4;
+    wrap([g], x, y, 80, () => { g.strokeStyle = 'rgba(66,0,3,' + (0.35 + R() * 0.2) + ')'; g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 6, y + L); g.stroke(); g.fillStyle = 'rgba(66,0,3,0.5)'; g.beginPath(); g.arc(x, y + L, w * 0.8, 0, 7); g.fill(); });
+  }
+  for (let i = 0; i < 5; i++) {   // cicatrici cucite
+    const x = R() * N, y = R() * N, L = 24 + R() * 28, a = R() * 6.28, ca2 = Math.cos(a), sa = Math.sin(a);
+    wrap([g, h], x, y, 60, () => {
+      g.strokeStyle = 'rgba(205,150,125,0.5)'; g.lineWidth = 1.7; g.beginPath(); g.moveTo(x, y); g.lineTo(x + ca2 * L, y + sa * L); g.stroke();
+      h.strokeStyle = 'rgba(255,255,255,0.35)'; h.lineWidth = 2; h.beginPath(); h.moveTo(x, y); h.lineTo(x + ca2 * L, y + sa * L); h.stroke();
+      for (let k = 1; k < 6; k++) { const px = x + ca2 * L * k / 6, py = y + sa * L * k / 6; g.strokeStyle = 'rgba(40,12,8,0.6)'; g.lineWidth = 1.3; g.beginPath(); g.moveTo(px - sa * 3.5, py + ca2 * 3.5); g.lineTo(px + sa * 3.5, py - ca2 * 3.5); g.stroke(); }
+    });
+  }
+  for (let i = 0; i < 4; i++) {   // ferite aperte: carne viva e umida
+    const x = R() * N, y = R() * N, rx = 10 + R() * 8, ry = 6 + R() * 6, a = R() * 3;
+    wrap([g, h], x, y, 24, () => {
+      g.save(); g.translate(x, y); g.rotate(a); const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx); gr.addColorStop(0, 'rgba(92,6,12,0.9)'); gr.addColorStop(0.7, 'rgba(140,22,28,0.85)'); gr.addColorStop(1, 'rgba(190,90,80,0.35)');
+      g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 7); g.fill(); g.restore();
+      h.save(); h.translate(x, y); h.rotate(a); h.fillStyle = 'rgba(0,0,0,0.55)'; h.beginPath(); h.ellipse(0, 0, rx * 0.85, ry * 0.85, 0, 0, 7); h.fill(); h.restore();
+    });
+  }
+  const cg = mk(N, N), q = cg.getContext('2d');   // crepe incandescenti (emissive)
+  q.fillStyle = '#000'; q.fillRect(0, 0, N, N); q.strokeStyle = '#ff5a14'; q.shadowColor = '#ff2a00'; q.shadowBlur = 6; q.lineWidth = 2; q.lineCap = 'round';
+  for (let i = 0; i < 12; i++) { const x = R() * N, y = R() * N, pts = [[x, y]]; let px = x, py = y; for (let k = 0; k < 5; k++) { px += (R() - 0.5) * 50; py += (R() - 0.5) * 50; pts.push([px, py]); } wrap([q], x, y, 140, () => { q.beginPath(); pts.forEach((p, k) => k ? q.lineTo(p[0], p[1]) : q.moveTo(p[0], p[1])); q.stroke(); }); }
+  T3.skinTex = t3TexL(ca); T3.skinBump = t3TexL(cb); T3.glowTex = t3TexL(cg);
+
+  // osso, corno, denti: avorio venato, macchiato e crepato
+  const M2 = 128, da = mk(M2, M2), db = mk(M2, M2), o = da.getContext('2d'), p = db.getContext('2d');
+  o.fillStyle = '#cdbf9e'; o.fillRect(0, 0, M2, M2); p.fillStyle = '#808080'; p.fillRect(0, 0, M2, M2);
+  for (let i = 0; i < 46; i++) { const x = R() * M2, y = R() * M2, L = 20 + R() * 60; o.strokeStyle = 'rgba(110,90,60,' + (0.12 + R() * 0.16) + ')'; o.lineWidth = 1 + R() * 1.5; o.beginPath(); o.moveTo(x, y); o.lineTo(x + (R() - 0.5) * 4, y + L); o.stroke(); p.strokeStyle = 'rgba(0,0,0,0.3)'; p.lineWidth = 1; p.beginPath(); p.moveTo(x, y); p.lineTo(x + (R() - 0.5) * 4, y + L); p.stroke(); }
+  for (let i = 0; i < 14; i++) { const x = R() * M2, y = R() * M2, r = 8 + R() * 16, gr = o.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(80,50,25,0.3)'); gr.addColorStop(1, 'rgba(80,50,25,0)'); o.fillStyle = gr; o.fillRect(x - r, y - r, r * 2, r * 2); }
+  o.lineCap = p.lineCap = 'round';
+  for (let i = 0; i < 6; i++) { const pts = [[R() * M2, R() * M2]]; for (let k = 0; k < 5; k++) pts.push([pts[k][0] + (R() - 0.5) * 22, pts[k][1] + (R() - 0.5) * 22]); o.strokeStyle = 'rgba(40,25,15,0.55)'; o.lineWidth = 1; o.beginPath(); pts.forEach((pt, k) => k ? o.lineTo(pt[0], pt[1]) : o.moveTo(pt[0], pt[1])); o.stroke(); p.strokeStyle = 'rgba(0,0,0,0.5)'; p.lineWidth = 1.3; p.beginPath(); pts.forEach((pt, k) => k ? p.lineTo(pt[0], pt[1]) : p.moveTo(pt[0], pt[1])); p.stroke(); }
+  for (let i = 0; i < 500; i++) { const x = R() * M2, y = R() * M2; o.fillStyle = R() < 0.5 ? 'rgba(60,40,20,0.15)' : 'rgba(255,245,220,0.12)'; o.fillRect(x, y, 1, 1); p.fillStyle = R() < 0.5 ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.12)'; p.fillRect(x, y, 1, 1); }
+  T3.boneTex = t3TexL(da); T3.boneBump = t3TexL(db);
+
+  // occhio: iride gialla incandescente con pupilla verticale (centrata a u=.25: e il davanti di una SphereGeometry)
+  const ce = mk(256, 128), e = ce.getContext('2d');
+  e.fillStyle = '#3a0a06'; e.fillRect(0, 0, 256, 128);
+  for (let i = 0; i < 26; i++) { const a = R() * 6.28, r0 = 34 + R() * 4, r1 = r0 + 8 + R() * 22; e.strokeStyle = 'rgba(200,30,20,' + (0.3 + R() * 0.3) + ')'; e.lineWidth = 1; e.beginPath(); e.moveTo(64 + Math.cos(a) * r0, 64 + Math.sin(a) * r0); e.lineTo(64 + Math.cos(a + (R() - 0.5) * 0.5) * r1, 64 + Math.sin(a + (R() - 0.5) * 0.5) * r1); e.stroke(); }
+  const ig = e.createRadialGradient(64, 64, 2, 64, 64, 34); ig.addColorStop(0, '#fffbd0'); ig.addColorStop(0.3, '#ffe628'); ig.addColorStop(0.72, '#ffa000'); ig.addColorStop(1, '#8a3000');
+  e.fillStyle = ig; e.beginPath(); e.arc(64, 64, 34, 0, 7); e.fill();
+  e.strokeStyle = 'rgba(60,12,0,0.85)'; e.lineWidth = 3; e.beginPath(); e.arc(64, 64, 33, 0, 7); e.stroke();
+  for (let i = 0; i < 22; i++) { const a = R() * 6.28; e.strokeStyle = 'rgba(190,70,0,0.35)'; e.lineWidth = 1; e.beginPath(); e.moveTo(64 + Math.cos(a) * 8, 64 + Math.sin(a) * 8); e.lineTo(64 + Math.cos(a) * 31, 64 + Math.sin(a) * 31); e.stroke(); }
+  e.fillStyle = '#060000'; e.beginPath(); e.ellipse(64, 64, 4.4, 26, 0, 0, 7); e.fill();
+  e.fillStyle = 'rgba(255,255,255,0.7)'; e.beginPath(); e.arc(55, 52, 3, 0, 7); e.fill();
+  T3.eyeTex = t3TexL(ce, true);
+}
+
+// Demone-artiglio: assembla le parti sullo scheletro (le animazioni di t3Anim restano quelle di prima)
 function t3Mob(e) {
   t3SkinTex();
   const gc = T3.gc = T3.gc || {}, G = (k, f) => gc[k] || (gc[k] = f());
   const S = STY[e.type] || STY.demon, T = TYPES[e.type] || TYPES.demon, mo = (VARS[e.type] && VARS[e.type][e.v | 0] && VARS[e.type][e.v | 0][2]) || {};
   const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, mc = T3.mc = T3.mc || {};
   if (!mc[e.type]) {
-    const std = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r }), ec = S.eye || '#ffe000';
+    const ec = S.eye || '#ffe000';
     if (!T3.eyeGlow) {   // alone degli occhi: bianco al centro, sfuma a zero (il colore lo da il materiale)
       const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), r = x.createRadialGradient(32, 32, 0, 32, 32, 32);
       r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,0.8)'); r.addColorStop(0.5, 'rgba(255,255,255,0.22)'); r.addColorStop(1, 'rgba(255,255,255,0)');
       x.fillStyle = r; x.fillRect(0, 0, 64, 64); T3.eyeGlow = new THREE.CanvasTexture(c);
     }
     mc[e.type] = {
-      skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, color: new THREE.Color(S.c2 || '#7a2a20').lerp(new THREE.Color(0xffffff), 0.55), emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.5, roughness: 0.8 }),
-      dark: std(new THREE.Color(S.c1 || '#2a0c0a'), 0.9), horn: std(new THREE.Color(S.horn || '#d9cfae'), 0.45), bone: std(0xe8dcc0, 0.6), tongue: std(0x8a1020, 0.45),
-      claw: std(0xd8ccae, 0.35), socket: std(0x100303, 1), gum: new THREE.MeshBasicMaterial({ color: 0x5a0808 }),
-      steel: new THREE.MeshStandardMaterial({ color: 0x59606a, roughness: 0.35, metalness: 0.5 }),
-      eye: new THREE.MeshBasicMaterial({ color: ec, fog: false }),
+      skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, bumpMap: T3.skinBump, bumpScale: 1.6, vertexColors: true, emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.5, roughness: 0.58, metalness: 0.05 }),
+      bone: new THREE.MeshStandardMaterial({ map: T3.boneTex, bumpMap: T3.boneBump, bumpScale: 1.2, vertexColors: true, roughness: 0.5 }),
+      flesh: new THREE.MeshStandardMaterial({ color: 0x8a1822, vertexColors: true, roughness: 0.28, emissive: 0x2a0204, emissiveIntensity: 0.6 }),
+      tongue: new THREE.MeshStandardMaterial({ color: 0x9a1e2c, vertexColors: true, roughness: 0.22 }),
+      drool: new THREE.MeshStandardMaterial({ color: 0xdfe8e0, vertexColors: true, roughness: 0.05, transparent: true, opacity: 0.45 }),
+      eye: new THREE.MeshBasicMaterial({ map: T3.eyeTex, fog: false }),
       glow: new THREE.SpriteMaterial({ map: T3.eyeGlow, color: ec, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
     };
     if (S.alpha) for (const k in mc[e.type]) if (k !== 'eye' && k !== 'glow') { mc[e.type][k].transparent = true; mc[e.type][k].opacity = S.alpha; }
   }
+  const D = G('demon', t3DemonGeos), eyeGeo = G('eye', () => new THREE.SphereGeometry(0.5, 16, 12));
   const M = mc[e.type], g = new THREE.Group(), det = [], all = [], eyes = [];
-  const sph = G('sph', () => new THREE.SphereGeometry(0.5, 12, 9)), cyl = G('cyl', () => new THREE.CylinderGeometry(0.5, 0.36, 1, 8)), cone = G('cone', () => new THREE.ConeGeometry(0.5, 1, 6)), box = G('box', () => new THREE.BoxGeometry(1, 1, 1));
-  const part = (geo, mat, x, y, z, p, s, rot, isDet, keep) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); if (s) o.scale.set(s[0], s[1], s[2]); if (rot) o.rotation.set(rot[0], rot[1], rot[2]); (p || g).add(o); if (!keep) all.push(o); if (isDet) det.push(o); return o; };
+  const mesh = (geo, mat, p, o) => { const m = new THREE.Mesh(geo, mat); (p || g).add(m); if (!(o && o.keep)) all.push(m); if (o && o.det) det.push(m); return m; };
   const grp = (p, x, y, z) => { const o = new THREE.Group(); o.position.set(x, y, z); p.add(o); return o; };
-  // corno ricurvo: n segmenti che si assottigliano, ognuno piegato un po' piu all'indietro del precedente
-  const horn = (p, x, y, z, rx, ry, rz, w, L, n, curl, mat, isDet) => {
-    let q = grp(p, x, y, z); q.rotation.set(rx, ry, rz);
-    for (let i = 0; i < n; i++) {
-      const wi = w * Math.pow(0.72, i), last = i === n - 1;
-      part(last ? cone : cyl, mat, 0, L / 2, 0, q, [wi, L, wi], last ? null : [Math.PI, 0, 0], isDet);
-      if (!last) { const nx = grp(q, 0, L, 0); nx.rotation.x = -curl; q = nx; }
-    }
-  };
-  // artiglio a falce appeso alla mano: due segmenti, il secondo si piega in avanti
-  const claw = (p, x, y, z, L, w, ax, az) => {
-    const cg = grp(p, x, y, z); cg.rotation.set(-0.15 - (ax || 0), 0, az || 0);
-    part(cyl, M.claw, 0, -L * 0.3, 0, cg, [w, L * 0.6, w]);
-    const tg = grp(cg, 0, -L * 0.6, 0); tg.rotation.x = -0.65;
-    part(cone, M.claw, 0, -L * 0.2, 0, tg, [w * 0.72, L * 0.4, w * 0.72], [Math.PI, 0, 0]);
-  };
-  const body = grp(g, 0, 0.45, 0); part(sph, M.dark, 0, -0.04, 0, body, [0.32, 0.26, 0.26]);                                   // bacino
-  part(sph, M.skin, 0, 0.04, 0.02, body, [0.27, 0.22, 0.2]);                                                                    // addome
-  const chest = grp(body, 0, 0.1, 0); part(sph, M.skin, 0, 0.07, 0, chest, [0.54 * wsc, 0.54, 0.35]);                          // torace enorme
-  for (const s of [-1, 1]) part(sph, M.skin, s * 0.12 * wsc, 0.12, 0.12, chest, [0.22 * wsc, 0.18, 0.15]);                     // pettorali
-  part(sph, M.skin, 0, 0.26, -0.04, chest, [0.5 * wsc, 0.17, 0.26]);                                                            // gobba dei trapezi
-  for (let i = 0; i < 4; i++) part(box, M.bone, 0, 0.16 - i * 0.07, 0.17, chest, [0.3 * wsc - i * 0.02, 0.016, 0.03], null, true);   // costole scoperte
-  for (let i = 0; i < 7; i++) part(cone, M.horn, 0, 0.3 - i * 0.075, -0.16 - (i > 4 ? 0.02 : 0), chest, [0.06 - i * 0.003, 0.2 - i * 0.012, 0.06 - i * 0.003], [-1.9 + i * 0.05, 0, 0], true);   // cresta di spuntoni
-  const neck = grp(chest, 0, 0.2, 0.05); part(cyl, M.skin, 0, 0.03, 0, neck, [0.15, 0.17, 0.15]);
-  part(cone, M.horn, 0, 0.09, -0.07, neck, [0.045, 0.14, 0.045], [-1.6, 0, 0], true);
-  const head = grp(neck, 0, 0.08, 0.03);
-  part(sph, M.skin, 0, 0.02, -0.02, head, [0.22, 0.22, 0.3]);                                                                   // cranio
-  part(cyl, M.skin, 0, -0.01, 0.2, head, [0.2, 0.3, 0.15], [-Math.PI / 2, 0, 0]);                                              // muso a cuneo
-  part(sph, M.dark, 0, 0.055, 0.34, head, [0.12, 0.05, 0.06], null, true);                                                      // punta del muso
-  for (const s of [-1, 1]) part(sph, M.dark, s * 0.03, 0.045, 0.355, head, [0.025, 0.02, 0.02], null, true);                   // narici
-  part(box, M.gum, 0, -0.07, 0.17, head, [0.13, 0.02, 0.26], null, true);                                                       // interno della bocca
-  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) { const tl = i < 2 ? 0.1 : 0.055; part(cone, M.bone, s * (i < 2 ? 0.055 : 0.065), -0.08 - tl / 2, 0.1 + i * 0.045, head, [0.018, tl, 0.018], [Math.PI, 0, 0], true); }   // zanne superiori
-  const jaw = grp(head, 0, -0.08, 0.04); part(box, M.dark, 0, -0.02, 0.15, jaw, [0.15, 0.04, 0.3]);
-  const tongue = part(box, M.tongue, 0, 0.0, 0.1, jaw, [0.05, 0.015, 0.16], null, true);
-  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) { const tl = i === 5 ? 0.09 : 0.05; part(cone, M.bone, s * 0.055, tl / 2, 0.06 + i * 0.045, jaw, [0.018, tl, 0.018], null, true); }   // zanne inferiori
-  for (const s of [-1, 1]) {
-    part(sph, M.socket, s * 0.088, 0.045, 0.13, head, [0.1, 0.08, 0.09], null, true);                                           // orbita incavata
-    part(box, M.dark, s * 0.075, 0.098, 0.15, head, [0.13, 0.035, 0.075], [0, 0, s * 0.4], true);                               // arcata cattiva
-    const eye = part(sph, M.eye, s * 0.09, 0.045, 0.155, head, [0.065, 0.04, 0.035], [0, 0, s * 0.35], false, true);              // occhio giallo
-    const gl = new THREE.Sprite(M.glow); gl.position.set(s * 0.09, 0.045, 0.17); head.add(gl); eyes.push([eye, gl]);              // alone: si vede da lontano
-    part(box, M.socket, s * 0.09, 0.045, 0.19, head, [0.012, 0.05, 0.01], null, true);                                          // pupilla a fessura
-    horn(head, s * 0.09, 0.12, -0.02, -0.55, 0, -s * 0.55, 0.095, 0.17, 3, 0.6, M.horn);                                        // corna principali, all'indietro
-    horn(head, s * 0.12, 0.0, -0.1, -1.5, 0, -s * 0.9, 0.05, 0.12, 2, 0.4, M.horn, true);                                      // corna posteriori
-    part(cone, M.horn, s * 0.13, -0.045, 0.06, head, [0.04, 0.13, 0.04], [0.2, 0, -s * 1.5], true);                             // spuntoni sulle guance
+  const body = grp(g, 0, 0.45, 0); mesh(D.pelvis, M.skin, body);
+  const chest = grp(body, 0, 0.1, 0); mesh(D.torso, M.skin, chest).scale.x = wsc; mesh(D.torsoBone, M.bone, chest).scale.x = wsc;
+  const neck = grp(chest, 0, 0.2, 0.05); mesh(D.neck, M.skin, neck);
+  const head = grp(neck, 0, 0.08, 0.03); head.scale.setScalar(1.22); mesh(D.head, M.skin, head); mesh(D.headBone, M.bone, head);
+  mesh(D.teeth, M.bone, head, { det: true }); mesh(D.gums, M.flesh, head, { det: true });
+  const jaw = grp(head, 0, -0.07, 0.03); mesh(D.jaw, M.skin, jaw); mesh(D.jawTeeth, M.bone, jaw, { det: true });
+  const tongue = mesh(D.tongue, M.tongue, jaw, { det: true }); tongue.position.set(0, 0.004, 0.1); mesh(D.drool, M.drool, jaw, { det: true });
+  for (const s of [-1, 1]) {   // occhi gialli con pupilla a fessura + alone che li rende visibili da lontano
+    const eye = mesh(eyeGeo, M.eye, head, { keep: true }); eye.position.set(s * 0.073, 0.047, 0.142); eye.scale.set(0.058, 0.058, 0.05); eye.rotation.y = -s * 0.2; eye.userData.by = 0.058;
+    const gl = new THREE.Sprite(M.glow); gl.position.set(s * 0.078, 0.047, 0.172); head.add(gl); eyes.push([eye, gl]);
   }
-  for (let i = 0; i < 3; i++) part(cone, M.horn, 0, 0.14 - i * 0.01, -0.02 - i * 0.07, head, [0.045, 0.13, 0.045], [-1.2 - i * 0.15, 0, 0], true);   // cresta sul cranio
   const elbows = [], arms = [-1, 1].map(s => {
-    const a = grp(chest, s * 0.28 * wsc, 0.17, 0);
-    part(sph, M.skin, 0, 0, 0, a, [0.2, 0.2, 0.2]);                                                                              // spalla
-    horn(a, s * 0.05, 0.08, -0.02, -0.3, 0, -s * 0.9, 0.07, 0.1, 2, 0.5, M.horn, true);                                         // spuntone sulla spalla
-    part(cyl, M.skin, 0, -0.14, 0, a, [0.14, 0.28, 0.14]);                                                                       // braccio
-    const el = grp(a, 0, -0.28, 0); el.rotation.x = -0.35; elbows.push(el);
-    part(sph, M.dark, 0, 0, -0.02, el, [0.12, 0.12, 0.12]); part(cone, M.horn, 0, -0.02, -0.08, el, [0.045, 0.14, 0.045], [-2.3, 0, 0], true);   // gomito con spuntone
-    part(cyl, M.skin, 0, -0.14, 0, el, [0.11, 0.27, 0.11]); part(sph, M.skin, 0, -0.08, 0.01, el, [0.16, 0.2, 0.16]);              // avambraccio e muscolo
-    part(sph, M.dark, 0, -0.3, 0.02, el, [0.13, 0.12, 0.15]);                                                                    // mano
-    for (let k = -1; k <= 1; k++) claw(el, k * 0.045, -0.33, 0.05, 0.28, 0.036, 0, 0);                                           // tre artigli a falce
-    claw(el, -s * 0.07, -0.31, 0.03, 0.2, 0.03, 0.1, -s * 0.4);                                                                   // pollice
+    const a = grp(chest, s * 0.28 * wsc, 0.17, 0); mesh(D.upperArm, M.skin, a).scale.x = s; mesh(D.upperBone, M.bone, a).scale.x = s;
+    const el = grp(a, 0, -0.28, 0); el.rotation.x = -0.35; elbows.push(el); mesh(D.fore, M.skin, el).scale.x = s; mesh(D.foreBone, M.bone, el).scale.x = s;
     return a;
   });
   const knees = [], ankles = [], legs = [-1, 1].map(s => {
-    const l = grp(g, s * 0.12, 0.44, 0); part(sph, M.skin, 0, -0.1, 0.05, l, [0.19, 0.36, 0.19], [-0.45, 0, 0]);                  // coscia muscolosa
-    const kn = grp(l, 0, -0.2, 0.12); part(cyl, M.dark, 0, -0.1, -0.03, kn, [0.1, 0.28, 0.1], [0.7, 0, 0]);                       // stinco
-    part(sph, M.skin, 0, -0.04, -0.01, kn, [0.14, 0.18, 0.15]); part(cone, M.horn, 0, 0.0, 0.08, kn, [0.04, 0.1, 0.04], [Math.PI / 2, 0, 0], true);   // ginocchio con spuntone
-    const an = grp(kn, 0, -0.22, -0.07); part(box, M.dark, 0, -0.01, 0.05, an, [0.11, 0.05, 0.2]);                               // piede
-    for (let k = -1; k <= 1; k++) part(cone, M.claw, k * 0.04, -0.015, 0.18, an, [0.03, 0.14, 0.03], [Math.PI / 2 + 0.2, 0, 0], true);   // artigli dei piedi
-    part(cone, M.horn, 0, 0.04, -0.08, an, [0.04, 0.12, 0.04], [-Math.PI / 2 - 0.3, 0, 0], true);                                // sperone del tallone
+    const l = grp(g, s * 0.12, 0.44, 0); mesh(D.thigh, M.skin, l);
+    const kn = grp(l, 0, -0.2, 0.12); mesh(D.shin, M.skin, kn); mesh(D.kneeBone, M.bone, kn);
+    const an = grp(kn, 0, -0.22, -0.07); mesh(D.foot, M.skin, an); mesh(D.footBone, M.bone, an);
     knees.push(kn); ankles.push(an); return l;
   });
   const tail = []; let par = body;
-  for (let i = 0; i < 4; i++) {
-    const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); part(cone, M.skin, 0, 0, -0.08, sg, [0.16 - i * 0.03, 0.2, 0.16 - i * 0.03], [-Math.PI / 2, 0, 0]);
-    part(cone, M.horn, 0, 0.06 - i * 0.008, -0.06, sg, [0.05 - i * 0.008, 0.13, 0.05 - i * 0.008], [-0.6, 0, 0], true);                 // spuntone sulla coda
-    if (i === 3) part(cone, M.claw, 0, 0, -0.26, sg, [0.07, 0.3, 0.05], [-Math.PI / 2, 0, 0]);                                        // lama in punta
-    tail.push(sg); par = sg;
-  }
+  for (let i = 0; i < 4; i++) { const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); mesh(D.tail[i].skin, M.skin, sg); mesh(D.tail[i].bone, M.bone, sg); tail.push(sg); par = sg; }
   g.rotation.order = 'YXZ'; g.scale.setScalar(sc);
   g.userData = { arms, elbows, legs, knees, ankles, body, chest, neck, head, jaw, tongue, tail, eyes, det, all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
   return g;
 }
+
 
 // Movimento: molle e inerzia. Ogni arto e un sistema molla-smorzatore che insegue un obiettivo, quindi
 // ha ritardo, rimbalzo e oscillazione residua. Passo guidato dalla distanza percorsa (i piedi non scivolano).
@@ -527,7 +792,7 @@ function t3Anim(m, e, mv, d2) {
   const near = d2 < 169;
   const eyeFx = (squint) => {   // occhi gialli: sfarfallano, si stringono quando attacca, sbattono le palpebre; l'alone cresce con la distanza
     const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (squint ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1), gw = (0.2 + Math.sqrt(d2) * 0.03) / u.sc;
-    u.eyes.forEach(([a, b]) => { a.scale.y = 0.04 * sq; b.scale.set(gw * fl, gw * fl * (0.55 + 0.45 * sq), 1); });
+    u.eyes.forEach(([a, b]) => { a.scale.y = (a.userData.by || 0.04) * sq; b.scale.set(gw * fl, gw * fl * (0.55 + 0.45 * sq), 1); });
   };
   if (u.lod !== near) { u.lod = near; u.close = null; u.all.forEach(o => { o.visible = near; }); }   // da lontano restano solo gli occhi
   if (!near) { u.yaw = u.hd; m.rotation.y = u.yaw; u.spd = 0; if (e.alive) eyeFx(false); return; }

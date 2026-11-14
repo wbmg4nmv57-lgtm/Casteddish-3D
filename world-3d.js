@@ -728,11 +728,53 @@ function t3SkinTex() {
 }
 
 // Demone-artiglio: assembla le parti sullo scheletro (le animazioni di t3Anim restano quelle di prima)
+// =====================================================================================================================
+// VARIANTI DEI DEMONI IN 3D: armi in mano (ascia, mazza, tridente, scimitarra, alabarda, fucile, martello, mannaia) e volumi di pelle
+// =====================================================================================================================
+function t3Blob(rx, ry, rz, sh) {   // massa di pelle (pancia, gobba): ellissoide con la stessa texture del corpo
+  const r = [];
+  for (let i = 0; i <= 8; i++) { const a = (i / 8 - 0.5) * Math.PI, k = Math.cos(a) * 0.98 + 0.02; r.push([0, Math.sin(a) * ry, 0, rx * k, rz * k, sh === undefined ? 0.95 : sh]); }
+  return t3Loft(r, 16, { n: 2, vT: 3 });
+}
+
+// arma impugnata: origine nel pugno, asse lungo +y; colori dalla variante (o.blade, o.dark, o.handle, o.rust)
+function t3Weapon(B, kind, o) {
+  const M = o.blade || '#cfd6dd', D = o.dark || '#7e8791', H = o.handle || '#6b4423', ST = 1.7;
+  const shaft = (top, bot, r) => B.seg('wood', [0, bot, 0], [0, top, 0], r, r * 0.9, H, 7);
+  const half = (y, R, col, mir) => B.cyl('iron', [R, R, 0.014, 10, 0, 3.1416], [0, y, 0], col, { r: [1.5708, 0, 0], s: [(mir ? -1 : 1) * 1.25, 1, 1], b: ST });   // lama a mezzaluna
+  const tip = (a, b, r, col) => B.seg('iron', a, b, r, 0.001, col, 5, { b: ST });   // punta conica
+  if (kind === 'axe2') {   // ascia bipenne
+    shaft(0.52, -0.12, 0.016); half(0.4, 0.115, M); half(0.4, 0.115, M, true); tip([0, 0.5, 0], [0, 0.65, 0], 0.016, D); B.box('iron', [0.045, 0.04, 0.045], [0, 0.4, 0], D); B.box('iron', [0.04, 0.03, 0.04], [0, 0.53, 0], D);
+  } else if (kind === 'mace') {   // mazza chiodata
+    shaft(0.4, -0.12, 0.017); B.sph('iron', 0.07, [0, 0.48, 0], D, { w: 10, h: 8, b: 1.4 });
+    const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]; for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) dirs.push([sx * 0.577, sy * 0.577, sz * 0.577]);
+    for (const d of dirs) tip([d[0] * 0.06, 0.48 + d[1] * 0.06, d[2] * 0.06], [d[0] * 0.125, 0.48 + d[1] * 0.125, d[2] * 0.125], 0.015, M);
+  } else if (kind === 'trident') {   // tridente
+    shaft(0.5, -0.14, 0.014); B.tor('iron', [0.07, 0.012, 5, 12, 3.1416], [0, 0.48, 0], M, { r: [0, 0, 3.1416], b: ST });
+    for (const x of [-0.07, 0, 0.07]) { const y0 = x ? 0.48 : 0.44, top = x ? 0.66 : 0.72; B.seg('iron', [x, y0, 0], [x, top - 0.07, 0], 0.011, 0.011, D, 5, { b: 1.3 }); tip([x, top - 0.07, 0], [x, top, 0], 0.022, M); }
+  } else if (kind === 'scimitar') {   // scimitarra: lama curva a segmenti che si assottigliano
+    B.seg('wood', [0, -0.08, 0], [0, 0.04, 0], 0.016, 0.016, H, 6); B.box('iron', [0.1, 0.016, 0.03], [0, 0.045, 0], D); B.sph('iron', 0.02, [0, -0.09, 0], D, { w: 6, h: 5 });
+    let x = 0, y = 0.05, a = 0; for (let i = 0; i < 6; i++) { const L = 0.09, w = 0.05 * (1 - i * 0.11); B.box('iron', [w, L, 0.012], [x + Math.sin(a) * L / 2, y + Math.cos(a) * L / 2, 0], M, { r: [0, 0, -a], b: ST }); x += Math.sin(a) * L; y += Math.cos(a) * L; a += 0.17; }
+  } else if (kind === 'halberd') {   // alabarda: lama, punta e uncino
+    shaft(0.62, -0.14, 0.016); half(0.5, 0.12, M); B.seg('iron', [0, 0.48, 0], [-0.075, 0.43, 0], 0.014, 0.001, D, 5, { b: 1.3 }); tip([0, 0.6, 0], [0, 0.78, 0], 0.02, M); B.box('iron', [0.04, 0.03, 0.04], [0, 0.6, 0], D);
+  } else if (kind === 'shotgun') {   // fucile a pompa: calcio, castello, doppia canna e fusto di legno
+    B.box('wood', [0.045, 0.2, 0.06], [0, -0.2, 0], '#5a3a1c'); B.box('iron', [0.06, 0.14, 0.06], [0, -0.04, 0], '#3a3a44', { b: 1.2 }); B.seg('iron', [0, 0.03, 0], [0, 0.52, 0], 0.02, 0.018, '#2a2a32', 8, { b: 1.4 });
+    B.box('wood', [0.07, 0.16, 0.075], [0, 0.2, 0], '#6a4a2a'); B.tor('iron', [0.021, 0.004, 4, 8], [0, 0.52, 0], '#4a4a54', { r: [1.5708, 0, 0] }); B.tor('iron', [0.03, 0.004, 4, 8, 3.1416], [0, -0.07, 0.03], '#3a3a44', { r: [0, 1.5708, 0] });
+  } else if (kind === 'hammer') {   // martello da guerra
+    shaft(0.6, -0.14, 0.02); B.box('iron', [0.24, 0.13, 0.13], [0, 0.56, 0], D, { b: 1.3 }); for (const sx of [-1, 1]) B.box('iron', [0.03, 0.14, 0.14], [sx * 0.125, 0.56, 0], M, { b: ST }); B.box('iron', [0.2, 0.025, 0.14], [0, 0.63, 0], M, { b: ST });
+  } else {   // mannaia: lama larga e bucata (con ruggine se la variante lo prevede)
+    B.seg('wood', [0, -0.1, 0], [0, 0.04, 0], 0.017, 0.017, H, 6); B.box('iron', [0.08, 0.018, 0.03], [0, 0.048, 0], D); B.box('iron', [0.13, 0.3, 0.014], [0.03, 0.2, 0], M, { b: ST }); B.box('iron', [0.1, 0.05, 0.014], [0.045, 0.375, 0], M, { r: [0, 0, -0.35], b: ST });
+    B.cyl('iron', [0.012, 0.012, 0.02, 6], [0.06, 0.3, 0], '#150404', { r: [1.5708, 0, 0], ao: false }); if (o.rust) B.box('flesh', [0.12, 0.07, 0.016], [0.03, 0.14, 0], '#8a5a3a');
+  }
+}
+
 function t3Mob(e) {
   t3SkinTex();
   const gc = T3.gc = T3.gc || {}, G = (k, f) => gc[k] || (gc[k] = f());
   const S = STY[e.type] || STY.demon, T = TYPES[e.type] || TYPES.demon, mo = (VARS[e.type] && VARS[e.type][e.v | 0] && VARS[e.type][e.v | 0][2]) || {};
   const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, mc = T3.mc = T3.mc || {};
+  const isD = e.type === 'demon', vr = isD ? (VARS.demon[e.v | 0] || VARS.demon[0]) : null;   // forme e armi delle varianti (per ora solo i demoni)
+  const kwA = isD ? (mo.lw || 7) / 7 : 1, kwR = isD ? (mo.lwR || mo.lw || 7) / 7 : 1, kwL = isD ? ((mo.lw || 7) + 1) / 8 : 1, akL = isD ? mo.armL || 1 : 1, akR = isD ? mo.armR || 1 : 1;
   if (!mc[e.type]) {
     const ec = S.eye || '#ffe000';
     if (!T3.eyeGlow) {   // alone degli occhi: bianco al centro, sfuma a zero (il colore lo da il materiale)
@@ -756,9 +798,11 @@ function t3Mob(e) {
   const mesh = (geo, mat, p, o) => { const m = new THREE.Mesh(geo, mat); (p || g).add(m); if (!(o && o.keep)) all.push(m); if (o && o.det) det.push(m); return m; };
   const grp = (p, x, y, z) => { const o = new THREE.Group(); o.position.set(x, y, z); p.add(o); return o; };
   const body = grp(g, 0, 0.45, 0); mesh(D.pelvis, M.skin, body);
+  if (isD && mo.belly) { const bk = mo.belly / 10, bm = mesh(G('belly', () => t3Blob(0.2, 0.17, 0.16)), M.skin, body); bm.position.set(0, -0.02, 0.06); bm.scale.set(wsc * (0.8 + 0.2 * bk), 0.8 + 0.2 * bk, 0.8 + 0.2 * bk); }   // pancia gonfia
   const chest = grp(body, 0, 0.1, 0); mesh(D.torso, M.skin, chest).scale.x = wsc; mesh(D.torsoBone, M.bone, chest).scale.x = wsc;
-  const neck = grp(chest, 0, 0.2, 0.05); mesh(D.neck, M.skin, neck);
-  const head = grp(neck, 0, 0.08, 0.03); head.scale.setScalar(1.22); mesh(D.head, M.skin, head); mesh(D.headBone, M.bone, head);
+  if (isD && mo.hump) { const hm = mesh(G('hump', () => t3Blob(0.1, 0.09, 0.1)), M.skin, chest); hm.position.set(0.08 * wsc, 0.2, -0.1); hm.scale.setScalar(mo.hump / 12); }   // gobba sulla schiena
+  const hn = isD ? (mo.hunch || 0) : 0, neck = grp(chest, 0, 0.2 - hn * 0.006, 0.05 + hn * 0.005); mesh(D.neck, M.skin, neck);   // schiena curva: la testa scende in avanti
+  const head = grp(neck, 0, 0.08, 0.03); head.scale.setScalar(1.22 * (isD ? mo.headS || 1 : 1)); mesh(D.head, M.skin, head); mesh(D.headBone, M.bone, head);
   mesh(D.teeth, M.bone, head, { det: true }); mesh(D.gums, M.flesh, head, { det: true });
   const jaw = grp(head, 0, -0.07, 0.03); mesh(D.jaw, M.skin, jaw); mesh(D.jawTeeth, M.bone, jaw, { det: true });
   const tongue = mesh(D.tongue, M.tongue, jaw, { det: true }); tongue.position.set(0, 0.004, 0.1); mesh(D.drool, M.drool, jaw, { det: true });
@@ -767,20 +811,27 @@ function t3Mob(e) {
     const gl = new THREE.Sprite(M.glow); gl.position.set(s * 0.078, 0.047, 0.172); head.add(gl); eyes.push([eye, gl]);
   }
   const elbows = [], arms = [-1, 1].map(s => {
-    const a = grp(chest, s * 0.28 * wsc, 0.17, 0); mesh(D.upperArm, M.skin, a).scale.x = s; mesh(D.upperBone, M.bone, a).scale.x = s;
-    const el = grp(a, 0, -0.28, 0); el.rotation.x = -0.35; elbows.push(el); mesh(D.fore, M.skin, el).scale.x = s; mesh(D.foreBone, M.bone, el).scale.x = s;
+    const kw = s > 0 ? kwR : kwA, ak = s > 0 ? akR : akL;   // spessore e lunghezza del braccio (il destro puo essere gigante)
+    const a = grp(chest, s * 0.28 * wsc, 0.17, 0); mesh(D.upperArm, M.skin, a).scale.set(s * kw, ak, kw); mesh(D.upperBone, M.bone, a).scale.set(s * kw, ak, kw);
+    const el = grp(a, 0, -0.28 * ak, 0); el.rotation.x = -0.35; elbows.push(el); mesh(D.fore, M.skin, el).scale.set(s * kw, ak, kw); mesh(D.foreBone, M.bone, el).scale.set(s * kw, ak, kw);
     return a;
   });
+  const gun = !!(vr && (vr[0] === 'shotgun' || vr[0] === 'rifle'));
+  if (vr && vr[0]) {   // arma nel pugno destro: segue braccio e avambraccio; le armi da fuoco puntano lungo il braccio, le altre in avanti
+    const wg = grp(elbows[1], 0, -0.32 * akR, 0.035 * kwR), wo = vr[1] || {};
+    wg.rotation.x = gun ? 2.85 : 1.45; wg.scale.setScalar(0.85 * (wo.sc || 1) * (0.8 + 0.2 * akR));
+    for (const p of t3PropGeo('wp_' + e.type + '_' + (e.v | 0), B => t3Weapon(B, vr[0], wo), 0.5)) mesh(p.g, p.m, wg);
+  }
   const knees = [], ankles = [], legs = [-1, 1].map(s => {
-    const l = grp(g, s * 0.12, 0.44, 0); mesh(D.thigh, M.skin, l);
-    const kn = grp(l, 0, -0.2, 0.12); mesh(D.shin, M.skin, kn); mesh(D.kneeBone, M.bone, kn);
-    const an = grp(kn, 0, -0.22, -0.07); mesh(D.foot, M.skin, an); mesh(D.footBone, M.bone, an);
+    const l = grp(g, s * 0.12, 0.44, 0); mesh(D.thigh, M.skin, l).scale.set(kwL, 1, kwL);
+    const kn = grp(l, 0, -0.2, 0.12); mesh(D.shin, M.skin, kn).scale.set(kwL, 1, kwL); mesh(D.kneeBone, M.bone, kn).scale.set(kwL, 1, kwL);
+    const an = grp(kn, 0, -0.22, -0.07); mesh(D.foot, M.skin, an).scale.set(kwL, 1, kwL); mesh(D.footBone, M.bone, an).scale.set(kwL, 1, kwL);
     knees.push(kn); ankles.push(an); return l;
   });
   const tail = []; let par = body;
   for (let i = 0; i < 4; i++) { const sg = grp(par, 0, i ? 0 : -0.14, i ? -0.16 : -0.14); mesh(D.tail[i].skin, M.skin, sg); mesh(D.tail[i].bone, M.bone, sg); tail.push(sg); par = sg; }
   g.rotation.order = 'YXZ'; g.scale.setScalar(sc);
-  g.userData = { arms, elbows, legs, knees, ankles, body, chest, neck, head, jaw, tongue, tail, eyes, det, all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
+  g.userData = { mo: isD ? mo : {}, gun, arms, elbows, legs, knees, ankles, body, chest, neck, head, jaw, tongue, tail, eyes, det, all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
   return g;
 }
 
@@ -825,11 +876,12 @@ function t3Anim(m, e, mv, d2) {
   if (e.hp < u.hp) { kick('pitch', -5); kick('head', -9); kick('jaw', 7); kick('twist', 3 * (Math.random() < 0.5 ? 1 : -1)); u.hurt = 0.5; }   // colpito: rinculo e urlo
   u.hp = e.hp; u.hurt = Math.max(0, u.hurt - dt);
   // ---- busto
-  const pitch = sp('pitch', 0.3 + sf * 0.18 + cl(acc * 0.05, -0.25, 0.3) + (wind ? -0.45 : 0) + (strike ? 0.55 : 0) + (sum ? -0.4 : 0) + (cow ? 0.5 : 0), 70, 9);
-  const bounce = sp('bounce', 0, 80, 6), roll = sp('roll', -u.yawRate * 0.05 + sw * 0.07 * sf, 60, 8);
+  const pitch = sp('pitch', 0.3 + (u.mo.bend || 0) * 1.3 + sf * 0.18 + cl(acc * 0.05, -0.25, 0.3) + (wind ? -0.45 : 0) + (strike ? 0.55 : 0) + (sum ? -0.4 : 0) + (cow ? 0.5 : 0), 70, 9);
+  const bounce = sp('bounce', 0, 80, 6), roll = sp('roll', -u.yawRate * 0.05 + sw * 0.07 * sf + (u.mo.limp ? (-0.08 + sw * 0.08) * sf : 0), 60, 8);
   const twist = sp('twist', Math.cos(ph) * 0.22 * sf + (wind ? 0.5 : 0) + (strike ? -0.7 : 0), 55, 7);          // il torace ruota contro il bacino
   const chestP = sp('chestP', 0.1 + (wind ? -0.25 : 0) + (strike ? 0.35 : 0) + Math.sin(t * 2.3) * 0.03 * (1 - sf), 60, 8), br = Math.sin(t * 2.6 + sf * 3) * 0.5 + 0.5;
   u.body.position.y = 0.45 - 0.04 * (1 - sf) - (cow ? 0.12 : 0) - (wind ? 0.05 : 0) + bounce * 0.035;
+  if (u.mo.limp) u.body.position.y -= 0.04 * Math.max(0, sw) * sf;   // zoppia: il corpo affonda a ogni passo sulla gamba corta
   u.body.rotation.set(pitch, -twist * 0.4, roll); u.chest.rotation.set(chestP, twist, roll * 0.6); u.chest.scale.set(1 + br * 0.03, 1 + br * 0.05, 1 + br * 0.03);   // respira
   if (cow) m.rotation.z = Math.sin(t * 40) * 0.03; else m.rotation.z = 0;
   if (lunge) { m.position.x += Math.sin(u.yaw) * lunge * 0.14; m.position.z += Math.cos(u.yaw) * lunge * 0.14; }
@@ -842,14 +894,14 @@ function t3Anim(m, e, mv, d2) {
   u.jaw.rotation.x = Math.max(-0.1, jw); u.tongue.position.z = 0.1 + Math.max(0, jw) * 0.04; u.tongue.rotation.x = Math.sin(t * 9) * 0.12 * Math.max(0, jw);
   // ---- braccia: oscillano al contrario delle gambe con ritardo; si alzano per colpire, tremano quando evoca
   u.arms.forEach((a, i) => {
-    const tg = sum ? -2.6 + Math.sin(t * 22) * 0.12 : cow ? -2.7 : atk ? (wind ? (i ? -2.7 : -1.9) : strike ? (i ? 0.1 : -0.6) : -0.7) : (i ? sw : -sw) * 0.85 * sf - 0.15 - 0.1 * Math.sin(t * 1.4 + i);
+    const aim = u.gun && atk, tg = aim ? (i ? -1.5 : -1.2) : sum ? -2.6 + Math.sin(t * 22) * 0.12 : cow ? -2.7 : atk ? (wind ? (i ? -2.7 : -1.9) : strike ? (i ? 0.1 : -0.6) : -0.7) : (i ? sw : -sw) * 0.85 * sf - 0.15 - 0.1 * Math.sin(t * 1.4 + i);
     a.rotation.x = sp('arm' + i, tg, atk ? 220 : 55, atk ? 14 : 6); a.rotation.z = (i ? -1 : 1) * (0.08 + sf * 0.06 + 0.05 * Math.sin(t * 1.7 + i));
-    u.elbows[i].rotation.x = sp('elb' + i, -0.35 - ((i ? sw : -sw) > 0 ? 0.6 * sf : 0.1 * sf) - (wind ? 1 : 0) + (strike ? 0.9 : 0), 90, 8);
+    u.elbows[i].rotation.x = sp('elb' + i, aim ? -0.15 : -0.35 - ((i ? sw : -sw) > 0 ? 0.6 * sf : 0.1 * sf) - (wind ? 1 : 0) + (strike ? 0.9 : 0), 90, 8);
   });
   // ---- gambe: anca, ginocchio che si piega quando il piede si solleva, caviglia che compensa
   u.legs.forEach((l, i) => {
-    const o = i ? Math.PI : 0, a = Math.sin(ph + o), lift = Math.max(0, Math.cos(ph + o));
-    const hip = sp('hip' + i, a * 0.75 * sf + (cow ? 0.6 : 0.1) + (wind ? -0.1 : 0) + (strike ? (i ? 0.5 : -0.2) : 0), 140, 14), knee = 0.25 + lift * 0.95 * sf + (cow ? 0.7 : 0) + (wind ? 0.35 : 0);
+    const o = i ? Math.PI : 0, a = Math.sin(ph + o), lift = Math.max(0, Math.cos(ph + o)), lk = u.mo.limp && i ? 0.4 : 1;   // zoppia: la gamba destra si trascina
+    const hip = sp('hip' + i, a * 0.75 * sf * lk + (cow ? 0.6 : 0.1) + (wind ? -0.1 : 0) + (strike ? (i ? 0.5 : -0.2) : 0), 140, 14), knee = 0.25 + lift * 0.95 * sf * lk + (cow ? 0.7 : 0) + (wind ? 0.35 : 0);
     l.rotation.x = hip; u.knees[i].rotation.x = knee; u.ankles[i].rotation.x = -hip * 0.6 - (knee - 0.25) * 0.4 + lift * 0.4 * sf;
   });
   // ---- coda: ogni segmento segue il precedente con piu ritardo, frusta nelle curve e rimbalza con i passi
@@ -1000,7 +1052,7 @@ function t3PB(R) {
   const e = new THREE.Euler(), qa = new THREE.Quaternion(), va = new THREE.Vector3(), sa = new THREE.Vector3(), st = [new THREE.Matrix4()];
   const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], glow: [], flame: [], decal: [] } };
   const loc = (p, r, s) => { e.set(r[0], r[1], r[2]); qa.setFromEuler(e); return new THREE.Matrix4().compose(va.set(p[0], p[1], p[2]), qa, sa.set(s[0], s[1], s[2])); };
-  B.add = (k, g, p, c, o) => { o = o || {}; B.L[k].push({ g, m: st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], o.r || [0, 0, 0], o.s || [1, 1, 1])), c: c || '#ffffff', dc: o.dc, sw: o.sw, ao: o.ao, st: o.st }); };
+  B.add = (k, g, p, c, o) => { o = o || {}; B.L[k].push({ g, m: st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], o.r || [0, 0, 0], o.s || [1, 1, 1])), c: c || '#ffffff', dc: o.dc, sw: o.sw, ao: o.ao, st: o.st, b: o.b }); };
   B.in = (p, r, s, f) => { st.push(st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], r || [0, 0, 0], s || [1, 1, 1]))); f(); st.pop(); };   // sotto-gruppo con la sua posizione/rotazione/scala
   B.box = (k, d, p, c, o) => B.add(k, new THREE.BoxGeometry(d[0], d[1], d[2]), p, c, o);
   B.cyl = (k, d, p, c, o) => B.add(k, new THREE.CylinderGeometry(d[0], d[1], d[2], d[3] || 8, 1, false, d[4] || 0, d[5] || 6.2832), p, c, o);
@@ -1037,7 +1089,7 @@ function t3PBake(B, R, y0, ctr) {
         }
         let f = it.ao === false ? 1 : 0.55 + 0.45 * Math.min(1, Math.max(0, (v.y + (y0 || 0)) / 0.28));
         if (it.st) f *= 1 - 0.2 * (Math.round(U.getX(i) * it.st) & 1);
-        f *= 0.92 + R() * 0.16;
+        f *= (0.92 + R() * 0.16) * (it.b || 1);
         col.push(c.r * f, c.g * f, c.b * f);
       }
       const fl = it.m.determinant() < 0;

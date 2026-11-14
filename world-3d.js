@@ -860,18 +860,510 @@ function t3Anim(m, e, mv, d2) {
   eyeFx(atk || sum);
 }
 
-function t3Props(q) {   // oggetti di scena: armature, rastrelliere, casse, barili, bauli
-  const g = new THREE.Group(), n = q.type === 'deco' ? DECOR[0][q.k].n : q.type;
-  const add = (geo, c, x, y, z, p) => { const o = new THREE.Mesh(geo, t3Mat(c)); o.position.set(x, y, z); (p || g).add(o); return o; };
-  if (/^armor/.test(n)) { add(new THREE.CylinderGeometry(0.03, 0.05, 0.12, 6), '#3a2c1c', 0, 0.06, 0); add(t3Box(0.04, 0.3, 0.04), '#3a2c1c', 0, 0.25, 0); if (n !== 'armorEmpty' && n !== 'armorWeb' && n !== 'armorBroken') { add(t3Box(0.2, 0.26, 0.12), '#8a5a38', 0, 0.45, 0); add(new THREE.SphereGeometry(0.07, 8, 6), '#7a4e30', 0, 0.68, 0); } }
-  else if (/rack|^weaponRack/.test(n)) { add(t3Box(0.5, 0.04, 0.06), '#4a2c14', 0, 0.5, 0); add(t3Box(0.04, 0.5, 0.06), '#4a2c14', -0.25, 0.25, 0); add(t3Box(0.04, 0.5, 0.06), '#4a2c14', 0.25, 0.25, 0); for (let i = 0; i < 4; i++) add(t3Box(0.025, 0.45, 0.025), '#7a7e86', -0.18 + i * 0.12, 0.3, 0.05); }
-  else if (n === 'barrel') add(new THREE.CylinderGeometry(0.17, 0.15, 0.4, 10), '#7a5230', 0, 0.2, 0);
-  else if (n === 'urn') add(new THREE.CylinderGeometry(0.1, 0.07, 0.3, 8), '#8a8a8a', 0, 0.15, 0);
-  else if (n === 'bones') add(t3Box(0.3, 0.04, 0.2), '#e0d8c0', 0, 0.02, 0);
-  else if (n === 'crate') add(t3Box(0.4, 0.4, 0.4), '#7a5230', 0, 0.2, 0);
-  else if (n === 'xbarrel') { add(new THREE.CylinderGeometry(0.17, 0.17, 0.5, 10), '#8a2418', 0, 0.25, 0); add(new THREE.CylinderGeometry(0.175, 0.175, 0.05, 10), '#e0b020', 0, 0.3, 0); }
-  else if (q.type === 'deco') add(t3Box(0.3, 0.3, 0.3), '#7a5230', 0, 0.15, 0);
-  else { add(t3Box(0.4, 0.2, 0.28), '#5a3a1a', 0, 0.1, 0); g.userData.lid = add(t3Box(0.4, 0.1, 0.28), '#7a5230', 0, 0.25, 0); g.userData.lid.geometry.translate(0, 0, 0.14); g.userData.lid.position.z = -0.14; }   // baule
+// =====================================================================================================================
+// OGGETTI DI SCENA HORROR (piano 1)
+// Bauli, casse, armature, rastrelliere, barili, ossa, urne e lampadari sono modelli veri: tanti piccoli pezzi (assi, borchie,
+// teschi, costole, catene...) uniti in poche mesh, con colori di vertice per lo sporco, texture procedurali con rilievo
+// (legno marcio, ferro arrugginito, osso, carne, pietra) e decalcomanie di sangue, mani, graffi, rune e ragnatele.
+// Ogni modello si costruisce una sola volta ed e condiviso da tutti gli esemplari presenti nel livello.
+// =====================================================================================================================
+
+// texture di colore + rilievo, senza giunture (si ripetono): una per materiale
+function t3PaintTex(kind) {
+  const N = 256, mk = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; };
+  let sd = 5003 + kind.charCodeAt(0) * 131 + kind.length * 17; const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  const cm = mk(), cb = mk(), g = cm.getContext('2d'), h = cb.getContext('2d');
+  const S = {
+    wood: ['#a07a52', ['#5a3c24', '#3a2414', '#7a5a38', '#4a3a20', '#2a1a10'], 7],
+    iron: ['#8a8680', ['#4a3a30', '#8a4e2a', '#2e2a28', '#9a6034', '#3a2a24'], 6],
+    bone: ['#d6c8a4', ['#a48a64', '#8a7250', '#e6dcc0', '#6a5238', '#b09a76'], 3],
+    flesh: ['#9a5a50', ['#5a2a28', '#7a3a34', '#3a1a1a', '#b07a68', '#4a2020'], 4],
+    stone: ['#8a847c', ['#5a554e', '#6a6a60', '#3a3632', '#9a958a', '#4e5a4a'], 5]
+  }[kind];
+  g.fillStyle = S[0]; g.fillRect(0, 0, N, N); h.fillStyle = '#808080'; h.fillRect(0, 0, N, N);
+  const wr = (f) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { g.save(); h.save(); g.translate(ox, oy); h.translate(ox, oy); f(); h.restore(); g.restore(); } };
+  const line = (c, x, y, L, a, w, col) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); c.stroke(); };
+  const crack = (n, col, w) => {
+    for (let i = 0; i < n; i++) {
+      const pts = [[R() * N, R() * N]]; for (let k = 0; k < 6; k++) pts.push([pts[k][0] + (R() - 0.5) * 26, pts[k][1] + (R() - 0.2) * 22]);
+      wr(() => { for (const [c, cc, ww] of [[g, col, w], [h, 'rgba(0,0,0,.6)', w + 1]]) { c.strokeStyle = cc; c.lineWidth = ww; c.beginPath(); pts.forEach((p, k) => k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.stroke(); } });
+    }
+  };
+  g.lineCap = h.lineCap = 'round';
+  for (let i = 0; i < 64; i++) {   // chiazze di colore e di sporco
+    const x = R() * N, y = R() * N, r = 14 + R() * 38, c = S[1][(R() * 5) | 0], al = 0.14 + R() * 0.22;
+    wr(() => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, c); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.globalAlpha = al; g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalAlpha = 1; });
+  }
+  if (kind === 'wood') {
+    for (let i = 0; i < 110; i++) {   // venature
+      const x = R() * N, y = R() * N, L = 50 + R() * 150, a = (R() - 0.5) * 0.06, dk = R() < 0.6, w = 0.8 + R() * 1.6;
+      wr(() => { line(g, x, y, L, a, w, dk ? 'rgba(30,16,8,.28)' : 'rgba(230,200,160,.12)'); line(h, x, y, L, a, w + 0.4, dk ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.18)'); });
+    }
+    for (let i = 0; i < 4; i++) {   // nodi
+      const x = R() * N, y = R() * N, r = 4 + R() * 6;
+      wr(() => { for (let k = 3; k > 0; k--) { for (const [c, col] of [[g, 'rgba(30,16,8,' + (0.18 + k * 0.1) + ')'], [h, 'rgba(0,0,0,.5)']]) { c.strokeStyle = col; c.lineWidth = 1.4; c.beginPath(); c.ellipse(x, y, r * k * 0.5 + 2, r * k * 0.3 + 1, 0, 0, 7); c.stroke(); } } g.fillStyle = 'rgba(20,10,4,.6)'; g.beginPath(); g.ellipse(x, y, r * 0.4, r * 0.25, 0, 0, 7); g.fill(); });
+    }
+    crack(9, 'rgba(14,8,4,.75)', 1.1);
+    for (let i = 0; i < 7; i++) { const x = R() * N, y = R() * N, r = 5 + R() * 11; wr(() => { g.fillStyle = 'rgba(70,92,60,.16)'; g.beginPath(); g.ellipse(x, y, r, r * 0.6, 0, 0, 7); g.fill(); }); }   // muffa
+  } else if (kind === 'iron') {
+    for (let i = 0; i < 26; i++) { const x = R() * N, y = R() * N, L = 12 + R() * 40, a = R() * 6.28; wr(() => { line(g, x, y, L, a, 0.8, 'rgba(210,200,190,.2)'); line(h, x, y, L, a, 1, 'rgba(255,255,255,.2)'); }); }   // graffi
+    for (let i = 0; i < 16; i++) { const x = R() * N, y = R() * N * 0.8, L = 18 + R() * 50; wr(() => line(g, x, y, L, 1.57, 2 + R() * 0, 'rgba(140,66,26,.3)')); }
+    for (let i = 0; i < 900; i++) { const x = R() * N, y = R() * N, d = R() < 0.6; g.fillStyle = d ? 'rgba(10,6,4,' + (0.2 + R() * 0.3) + ')' : 'rgba(170,84,34,' + (0.2 + R() * 0.3) + ')'; g.fillRect(x, y, 1 + R() * 2, 1 + R() * 2); h.fillStyle = 'rgba(0,0,0,.4)'; h.fillRect(x, y, 1 + R() * 1.5, 1 + R() * 1.5); }   // vaiolature
+    crack(3, 'rgba(10,6,4,.7)', 1);
+  } else if (kind === 'bone') {
+    for (let i = 0; i < 36; i++) { const x = R() * N, y = R() * N, L = 14 + R() * 40, a = 1.4 + (R() - 0.5) * 0.5; wr(() => { line(g, x, y, L, a, 1.2, 'rgba(110,90,60,.25)'); line(h, x, y, L, a, 1.4, 'rgba(0,0,0,.3)'); }); }
+    crack(8, 'rgba(40,25,15,.6)', 1);
+  } else if (kind === 'flesh') {
+    for (let i = 0; i < 16; i++) {   // vene
+      const pts = [[R() * N, R() * N]]; for (let k = 0; k < 6; k++) pts.push([pts[k][0] + (R() - 0.5) * 36, pts[k][1] + (R() - 0.5) * 36]); const lw = 1.2 + R() * 1.4;
+      wr(() => { for (const [c, col] of [[g, 'rgba(70,16,44,.5)'], [h, 'rgba(255,255,255,.2)']]) { c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); pts.forEach((p, k) => k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.stroke(); } });
+    }
+    for (let y = 0; y < N; y += 3) { g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, y, N, 1); }   // trama di stoffa / cuoio
+    for (let x = 0; x < N; x += 3) { g.fillStyle = 'rgba(0,0,0,.05)'; g.fillRect(x, 0, 1, N); }
+    for (let i = 0; i < 260; i++) { const x = R() * N, y = R() * N, r = 1 + R() * 3; h.fillStyle = 'rgba(255,255,255,.14)'; h.beginPath(); h.arc(x, y, r, 0, 7); h.fill(); }
+    crack(4, 'rgba(30,8,8,.6)', 1);
+  } else {
+    for (let i = 0; i < 10; i++) { const x = R() * N, y = R() * N, r = 6 + R() * 14; wr(() => { g.fillStyle = 'rgba(60,96,50,.2)'; g.beginPath(); g.ellipse(x, y, r, r * 0.7, 0, 0, 7); g.fill(); }); }   // muschio
+    crack(7, 'rgba(14,12,10,.7)', 1.2);
+  }
+  for (let i = 0, DR = S[2]; i < DR; i++) {   // sangue colato
+    const x = R() * N, y = R() * N * 0.6, L = 24 + R() * 60, w = 1.6 + R() * 3.2;
+    wr(() => {
+      g.strokeStyle = 'rgba(70,4,6,.5)'; g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 1, y + L); g.stroke(); g.fillStyle = 'rgba(70,4,6,.6)'; g.beginPath(); g.arc(x + 1, y + L, w * 0.8, 0, 7); g.fill();
+      h.strokeStyle = 'rgba(0,0,0,.3)'; h.lineWidth = w; h.beginPath(); h.moveTo(x, y); h.lineTo(x + 1, y + L); h.stroke();
+    });
+  }
+  for (let i = 0; i < 1500; i++) {   // grana e polvere
+    const x = R() * N, y = R() * N, d = R() < 0.55;
+    g.fillStyle = d ? 'rgba(10,6,4,' + (0.08 + R() * 0.16) + ')' : 'rgba(255,240,215,' + (0.05 + R() * 0.1) + ')'; g.fillRect(x, y, 1 + R() * 1.5, 1 + R() * 1.5);
+    h.fillStyle = d ? 'rgba(0,0,0,.2)' : 'rgba(255,255,255,.12)'; h.fillRect(x, y, 1, 1);
+  }
+  return { c: cm, b: cb };
+}
+
+// atlante delle decalcomanie (8 caselle da 128): mano, schizzo, colature, runa, graffi, pozza, ragnatela
+function t3PaintDecals() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d');
+  let sd = 9157; const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  const cell = (i, f) => { g.save(); g.translate((i & 1) * 128, (i >> 1) * 128); g.beginPath(); g.rect(0, 0, 128, 128); g.clip(); g.lineCap = 'round'; f(); g.restore(); };
+  const RED = 'rgba(92,5,8,.88)', DRK = 'rgba(58,3,5,.9)';
+  cell(0, () => {   // mano insanguinata
+    g.fillStyle = RED; g.beginPath(); g.ellipse(64, 86, 21, 24, 0, 0, 7); g.fill();
+    for (const [x, y, a, L] of [[41, 66, -0.38, 28], [54, 56, -0.12, 33], [68, 54, 0.06, 35], [81, 59, 0.3, 29]]) { g.save(); g.translate(x, y); g.rotate(a); g.beginPath(); g.ellipse(0, -L / 2 + 8, 6.4, L / 2, 0, 0, 7); g.fill(); g.restore(); }
+    g.save(); g.translate(87, 94); g.rotate(1.15); g.beginPath(); g.ellipse(0, -11, 6.6, 17, 0, 0, 7); g.fill(); g.restore();
+    g.strokeStyle = DRK; for (const x of [54, 66, 77]) { g.lineWidth = 3 + (x % 3); g.beginPath(); g.moveTo(x, 104); g.lineTo(x + 1, 112 + (x % 4) * 4); g.stroke(); }
+    g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < 46; i++) { g.fillStyle = 'rgba(0,0,0,' + (0.2 + R() * 0.4) + ')'; g.fillRect(28 + R() * 76, 36 + R() * 80, 1 + R() * 3, 1 + R() * 3); } g.globalCompositeOperation = 'source-over';
+  });
+  cell(1, () => {   // schizzo
+    g.fillStyle = RED; g.strokeStyle = RED; g.beginPath(); g.ellipse(64, 62, 15, 12, 0, 0, 7); g.fill();
+    for (let i = 0; i < 30; i++) { const a = R() * 6.28, d = 14 + R() * 44, r = Math.max(0.9, (1 + R() * 5) * (1 - d / 62)), x = 64 + Math.cos(a) * d, y = 62 + Math.sin(a) * d * 0.92; g.lineWidth = r * 0.7; g.beginPath(); g.moveTo(64 + Math.cos(a) * 10, 62 + Math.sin(a) * 9); g.lineTo(x, y); g.stroke(); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  });
+  cell(2, () => {   // colature
+    g.strokeStyle = RED; g.fillStyle = RED; g.lineWidth = 9; g.beginPath(); g.moveTo(6, 7); g.lineTo(122, 5); g.stroke();
+    for (let i = 0; i < 7; i++) { const x = 12 + i * 16 + R() * 6, L = 20 + R() * 82, w = 2.4 + R() * 3.6; g.lineWidth = w; g.beginPath(); g.moveTo(x, 6); g.lineTo(x + (R() - 0.5) * 3, 6 + L); g.stroke(); g.beginPath(); g.arc(x, 6 + L, w * 0.85, 0, 7); g.fill(); }
+  });
+  cell(3, () => {   // runa evocativa
+    g.strokeStyle = 'rgba(110,8,10,.92)'; g.lineWidth = 3; g.beginPath(); g.arc(64, 64, 50, 0, 7); g.stroke(); g.lineWidth = 1.6; g.beginPath(); g.arc(64, 64, 42, 0, 7); g.stroke();
+    g.lineWidth = 2.6; g.beginPath(); for (let i = 0; i < 5; i++) { const a = -1.5708 + i * 2.513, x = 64 + Math.cos(a) * 42, y = 64 + Math.sin(a) * 42; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); g.stroke();
+    g.lineWidth = 2; for (let i = 0; i < 12; i++) { const a = i * 0.5236; g.beginPath(); g.moveTo(64 + Math.cos(a) * 50, 64 + Math.sin(a) * 50); g.lineTo(64 + Math.cos(a) * 58, 64 + Math.sin(a) * 58); g.stroke(); }
+  });
+  cell(4, () => {   // graffi di artigli
+    for (let k = 0; k < 3; k++) { const x0 = 22 + k * 34 + R() * 8; for (let j = 0; j < 4; j++) { for (const [col, off] of [['rgba(22,10,6,.92)', 0], ['rgba(92,5,8,.5)', 1.6]]) { g.strokeStyle = col; g.lineWidth = 2.4 - j * 0.3; g.beginPath(); g.moveTo(x0 + j * 7 + off, 8 + (j * 5) % 7); g.bezierCurveTo(x0 + j * 7 + 4 + off, 40, x0 + j * 7 - 3 + off, 70, x0 + j * 7 + 2 + off, 100 + (j * 7) % 16); g.stroke(); } } }
+  });
+  cell(5, () => {   // pozza di sangue
+    const gr = g.createRadialGradient(64, 64, 4, 64, 64, 58); gr.addColorStop(0, 'rgba(70,2,5,.95)'); gr.addColorStop(0.75, 'rgba(96,6,9,.9)'); gr.addColorStop(1, 'rgba(96,6,9,0)'); g.fillStyle = gr;
+    g.beginPath(); for (let i = 0; i <= 24; i++) { const a = i / 24 * 6.2832, r = 34 + R() * 22 * (i % 2 ? 1 : 0.6), x = 64 + Math.cos(a) * r, y = 64 + Math.sin(a) * r * 0.9; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,200,190,.18)'; g.beginPath(); g.ellipse(52, 52, 12, 5, -0.5, 0, 7); g.fill();
+  });
+  cell(6, () => {   // ragnatela d'angolo
+    g.strokeStyle = 'rgba(235,235,225,.55)'; g.lineWidth = 0.9;
+    for (let i = 0; i <= 8; i++) { const a = i * 0.196; g.beginPath(); g.moveTo(8, 8); g.lineTo(8 + Math.cos(a) * 140, 8 + Math.sin(a) * 140); g.stroke(); }
+    for (let r = 20; r < 130; r += 17) { g.beginPath(); for (let i = 0; i <= 8; i++) { const a = i * 0.196, rr = r * (1 - 0.1 * Math.sin(i * 2.1 + r)), x = 8 + Math.cos(a) * rr, y = 8 + Math.sin(a) * rr; i ? g.quadraticCurveTo(8 + Math.cos(a - 0.098) * rr * 0.93, 8 + Math.sin(a - 0.098) * rr * 0.93, x, y) : g.moveTo(x, y); } g.stroke(); }
+  });
+  return c;
+}
+
+// materiali condivisi da tutti i modelli (si creano una volta sola)
+function t3PropKit() {
+  if (T3.pk) return T3.pk;
+  const K = T3.pk = { mat: {} }, def = { wood: [0.92, 0, 1.4], iron: [0.6, 0.2, 1.2], bone: [0.78, 0, 1.0], flesh: [0.42, 0, 1.2], stone: [0.95, 0, 1.0] };
+  for (const k in def) { const t = t3PaintTex(k); K.mat[k] = new THREE.MeshStandardMaterial({ map: t3TexL(t.c), bumpMap: t3TexL(t.b), bumpScale: def[k][2], roughness: def[k][0], metalness: def[k][1], vertexColors: true }); }
+  K.mat.decal = new THREE.MeshStandardMaterial({ map: t3TexL(t3PaintDecals(), true), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, roughness: 0.4 });
+  K.mat.glow = new THREE.MeshBasicMaterial({ vertexColors: true });                  // monete e bagliori: non dipendono dalle luci
+  K.mat.flame = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });     // fiammelle delle candele: si vedono anche da lontano, come le torce
+  return K;
+}
+
+// costruttore: raccoglie pezzi (scatole, cilindri, sfere, anelli...) con una pila di trasformazioni, divisi per materiale
+function t3PB(R) {
+  const e = new THREE.Euler(), qa = new THREE.Quaternion(), va = new THREE.Vector3(), sa = new THREE.Vector3(), st = [new THREE.Matrix4()];
+  const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], glow: [], flame: [], decal: [] } };
+  const loc = (p, r, s) => { e.set(r[0], r[1], r[2]); qa.setFromEuler(e); return new THREE.Matrix4().compose(va.set(p[0], p[1], p[2]), qa, sa.set(s[0], s[1], s[2])); };
+  B.add = (k, g, p, c, o) => { o = o || {}; B.L[k].push({ g, m: st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], o.r || [0, 0, 0], o.s || [1, 1, 1])), c: c || '#ffffff', dc: o.dc, sw: o.sw, ao: o.ao, st: o.st }); };
+  B.in = (p, r, s, f) => { st.push(st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], r || [0, 0, 0], s || [1, 1, 1]))); f(); st.pop(); };   // sotto-gruppo con la sua posizione/rotazione/scala
+  B.box = (k, d, p, c, o) => B.add(k, new THREE.BoxGeometry(d[0], d[1], d[2]), p, c, o);
+  B.cyl = (k, d, p, c, o) => B.add(k, new THREE.CylinderGeometry(d[0], d[1], d[2], d[3] || 8, 1, false, d[4] || 0, d[5] || 6.2832), p, c, o);
+  B.cone = (k, d, p, c, o) => B.add(k, new THREE.ConeGeometry(d[0], d[1], d[2] || 6), p, c, o);
+  B.sph = (k, d, p, c, o) => B.add(k, new THREE.SphereGeometry(1, (o && o.w) || 8, (o && o.h) || 6), p, c, Object.assign({}, o, { s: d.length ? d : [d, d, d] }));
+  B.tor = (k, d, p, c, o) => B.add(k, new THREE.TorusGeometry(d[0], d[1], d[2] || 5, d[3] || 12, d[4] || 6.2832), p, c, o);
+  B.lat = (k, pts, p, c, o) => B.add(k, new THREE.LatheGeometry(pts.map(a => new THREE.Vector2(a[0], a[1])), (o && o.w) || 12), p, c, o);
+  B.dec = (cell, w, h, p, r, c) => B.add('decal', new THREE.PlaneGeometry(w, h), p, c || '#ffffff', { dc: cell, ao: false, r: r || [0, 0, 0] });
+  B.seg = (k, a, b, ra, rb, c, n, o) => {   // cilindro che unisce due punti (ra al punto a, rb al punto b)
+    const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), L = d.length() || 0.001;
+    qa.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.divideScalar(L)); e.setFromQuaternion(qa);
+    B.add(k, new THREE.CylinderGeometry(rb, ra, L, n || 6), [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2], c, Object.assign({}, o, { r: [e.x, e.y, e.z] }));
+  };
+  return B;
+}
+
+// unisce i pezzi di ogni materiale in una sola geometria: UV a proiezione per asse, sporco in basso e piccole variazioni di tinta nei vertici
+function t3PBake(B, R, y0) {
+  const K = t3PropKit(), out = [], v = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3(), c = new THREE.Color(), D = 2.2;
+  for (const k in B.L) {
+    const L = B.L[k]; if (!L.length) continue;
+    const pos = [], nor = [], uv = [], col = [], idx = []; let base = 0;
+    for (const it of L) {
+      const g = it.g, P = g.attributes.position, Nn = g.attributes.normal, U = g.attributes.uv, I = g.index;
+      nm.getNormalMatrix(it.m); c.set(it.c);
+      for (let i = 0; i < P.count; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(it.m); n.fromBufferAttribute(Nn, i).applyMatrix3(nm).normalize();
+        pos.push(v.x, v.y, v.z); nor.push(n.x, n.y, n.z);
+        if (it.dc !== undefined) uv.push((it.dc & 1) * 0.5 + U.getX(i) * 0.5, 1 - ((it.dc >> 1) + 1) * 0.25 + U.getY(i) * 0.25);
+        else {
+          const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z); let a, b;
+          if (ay >= ax && ay >= az) { a = v.x; b = v.z; } else if (ax >= az) { a = v.z; b = v.y; } else { a = v.x; b = v.y; }
+          uv.push((it.sw ? b : a) * D, (it.sw ? a : b) * D);
+        }
+        let f = it.ao === false ? 1 : 0.55 + 0.45 * Math.min(1, Math.max(0, (v.y + (y0 || 0)) / 0.28));
+        if (it.st) f *= 1 - 0.2 * (Math.round(U.getX(i) * it.st) & 1);
+        f *= 0.92 + R() * 0.16;
+        col.push(c.r * f, c.g * f, c.b * f);
+      }
+      const fl = it.m.determinant() < 0;
+      for (let j = 0; j < I.count; j += 3) { const a = I.getX(j), b = I.getX(j + 1), d = I.getX(j + 2); if (fl) idx.push(base + a, base + d, base + b); else idx.push(base + a, base + b, base + d); }
+      base += P.count; g.dispose();
+    }
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); bg.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    bg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); bg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); bg.setIndex(idx);
+    out.push({ g: bg, m: K.mat[k] });
+  }
+  return out;
+}
+
+// cache dei modelli: ogni chiave si costruisce una volta sola
+function t3PropGeo(key, fn, y0) {
+  const C = T3.pg || (T3.pg = {});
+  if (!C[key]) {
+    let sd = 1013; for (let i = 0; i < key.length; i++) sd = (sd * 31 + key.charCodeAt(i)) % 2147483647; sd = sd || 7;
+    const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647), B = t3PB(R); t3Parts(B); fn(B); C[key] = t3PBake(B, R, y0);
+  }
+  return C[key];
+}
+
+// pezzi ricorrenti: teschio, mano, osso, costole, intestino, catena, candela, armi
+function t3Parts(B) {
+  const BONE = '#e2d6b6';
+  B.chain = (a, b, n, c) => {
+    const hz = Math.abs(b[0] - a[0]) > Math.abs(b[1] - a[1]);
+    for (let i = 0; i < n; i++) { const t = (i + 0.5) / n; B.tor('iron', [0.011, 0.0035, 5, 8], [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], c || '#8a7e76', { r: hz ? [(i % 2) * 1.5708, 0, 1.5708] : [0, (i % 2) * 1.5708, 0], s: [1, 1.5, 1] }); }
+  };
+  B.skull = (p, s, r, o) => {   // teschio con orbite scure, naso, denti e mandibola che puo pendere aperta
+    o = o || {}; const bc = o.c || BONE, jw = o.jaw || 0;
+    B.in(p, r, [s, s, s], () => {
+      B.sph('bone', [0.054, 0.058, 0.062], [0, 0.02, 0], bc, { w: 10, h: 8 });
+      B.box('bone', [0.07, 0.034, 0.05], [0, -0.034, 0.018], bc);
+      for (const sx of [-1, 1]) B.sph('bone', [0.017, 0.02, 0.013], [sx * 0.025, 0.003, 0.05], '#0c0806');
+      B.box('bone', [0.009, 0.015, 0.008], [0, -0.022, 0.046], '#0c0806');
+      B.box('bone', [0.003, 0.032, 0.003], [0.022, 0.05, 0.045], '#2a1c10', { r: [0, 0, 0.5] });
+      for (let i = -2; i <= 2; i++) B.box('bone', [0.0075, 0.012, 0.006], [i * 0.0095, -0.05, 0.043], '#f0e8d0');
+      B.in([0, -0.052, 0], [jw, 0, 0], null, () => {
+        B.box('bone', [0.05, 0.016, 0.04], [0, -0.01, 0.016], bc);
+        for (let i = -2; i <= 2; i++) B.box('bone', [0.0075, 0.011, 0.006], [i * 0.0095, -0.001, 0.04], '#e6dcc0');
+      });
+    });
+  };
+  B.hand = (p, r, k, c) => B.in(p, r, null, () => {   // mano con le dita piegate (punta verso +z)
+    B.box(k, [0.05, 0.014, 0.05], [0, 0, 0], c);
+    for (let i = 0; i < 4; i++) { const x = -0.018 + i * 0.012, L = 0.03 + (i === 1 || i === 2 ? 0.006 : 0); B.box(k, [0.009, 0.009, L], [x, 0, 0.025 + L / 2], c); B.in([x, 0, 0.025 + L], [0.9, 0, 0], null, () => B.box(k, [0.008, 0.008, 0.022], [0, 0, 0.011], c)); }
+    B.box(k, [0.012, 0.01, 0.03], [-0.033, 0, 0.012], c, { r: [0, -0.6, 0] });
+  });
+  B.bone = (a, b, c, th) => {   // osso lungo con le due articolazioni
+    th = th || 0.008; c = c || BONE; B.seg('bone', a, b, th, th, c, 6);
+    for (const p of [a, b]) { B.sph('bone', [th * 1.6, th * 1.6, th * 1.6], p, c, { w: 5, h: 4 }); B.sph('bone', [th * 1.2, th * 1.2, th * 1.2], [p[0], p[1] + th * 1.1, p[2]], c, { w: 5, h: 4 }); }
+  };
+  B.ribs = (p, r, n, W, c) => B.in(p, r, null, () => {   // gabbia toracica aperta sul davanti, con la colonna dietro
+    c = c || BONE;
+    B.in([0, 0, 0], [0, 4.17, 0], null, () => { for (let i = 0; i < n; i++) B.tor('bone', [W * (1 - 0.07 * Math.abs(i - (n - 1) / 2)), 0.0065, 4, 14, 5.2], [0, i * 0.036, 0], c, { r: [1.67, 0, 0], s: [1, 0.74, 1] }); });
+    for (let i = 0; i <= n; i++) B.box('bone', [0.018, 0.016, 0.02], [0, i * 0.036 - 0.018, -W * 0.74], c);
+  });
+  B.guts = (a, b, n, r) => {   // budella che penzolano
+    for (let i = 0; i < n; i++) { const t = i / (n - 1); B.sph('flesh', [r, r * 0.85, r], [a[0] + (b[0] - a[0]) * t + Math.sin(t * 9) * 0.012, a[1] + (b[1] - a[1]) * t - Math.sin(t * 3.1416) * 0.05, a[2] + (b[2] - a[2]) * t], i % 2 ? '#b8545c' : '#8a343c', { w: 6, h: 5 }); }
+  };
+  B.candle = (p, h, nf) => {   // moncone di candela con fiammella
+    B.cyl('bone', [0.011, 0.013, h, 7], [p[0], p[1] + h / 2, p[2]], '#e8dcbc');
+    B.cone('flame', [0.008, 0.026, 6], [p[0], p[1] + h + 0.012, p[2]], '#ffb040', { ao: false }); B.cone('flame', [0.004, 0.016, 5], [p[0], p[1] + h + 0.01, p[2]], '#fff0b0', { ao: false });
+    if (!nf) B.cyl('bone', [0.003, 0.003, 0.03, 4], [p[0] + 0.011, p[1] + h - 0.014, p[2]], '#e8dcbc');
+  };
+  B.sword = (x, y, z, L, rz, bl) => B.in([x, y, z], [0, 0, rz], null, () => {   // spada: origine all'elsa, lama verso l'alto
+    B.box('iron', [0.024, L, 0.006], [0, L / 2, 0], '#b8aca0'); B.box('iron', [0.006, L * 0.8, 0.0075], [0, L * 0.45, 0], '#8a7e74');
+    B.cone('iron', [0.0125, 0.04, 4], [0, L + 0.02, 0], '#b8aca0', { s: [1, 1, 0.25] });
+    if (bl) B.box('flesh', [0.0245, L * 0.5, 0.0066], [0, L * 0.3, 0], '#5a0a0c');
+    B.box('iron', [0.09, 0.012, 0.016], [0, -0.004, 0], '#6a5a50'); B.cyl('wood', [0.009, 0.009, 0.075, 6], [0, -0.045, 0], '#4a3226'); B.sph('iron', 0.014, [0, -0.088, 0], '#6a5a50', { w: 6, h: 5 });
+  });
+  B.axe = (x, y, z, L, rz) => B.in([x, y, z], [0, 0, rz], null, () => {   // ascia (o alabarda se il manico e lungo): lama a mezzaluna con il filo insanguinato
+    B.cyl('wood', [0.009, 0.01, L, 6], [0, L / 2, 0], '#9a8068');
+    B.cyl('iron', [0.055, 0.055, 0.012, 8, 0, 3.1416], [0.004, L - 0.05, 0], '#a8988a', { r: [1.5708, 0, 0] });
+    B.cyl('flesh', [0.056, 0.056, 0.0125, 8, 0, 1.2], [0.004, L - 0.05, 0], '#58080c', { r: [1.5708, 0, 0] });
+    B.cone('iron', [0.012, 0.045, 5], [-0.03, L - 0.045, 0], '#8a7a6e', { r: [0, 0, 1.5708] }); B.box('iron', [0.026, 0.02, 0.014], [0, L - 0.05, 0], '#7a6a60');
+    if (L > 0.6) B.cone('iron', [0.012, 0.06, 4], [0, L + 0.03, 0], '#a8988a');
+  });
+  B.spear = (x, y, z, L, rz, sk) => B.in([x, y, z], [0, 0, rz], null, () => {   // lancia, con o senza testa infilzata
+    B.cyl('wood', [0.009, 0.01, L, 6], [0, L / 2, 0], '#9a8068'); B.cone('iron', [0.016, 0.07, 4], [0, L + 0.03, 0], '#b0a094'); B.box('flesh', [0.03, 0.012, 0.012], [0, L - 0.01, 0], '#3a2418');
+    if (sk) B.skull([0, L - 0.02, 0], 0.62, [0, 0.4, 0], { jaw: 0.4, c: '#cbbd9c' });
+  });
+  B.mace = (x, y, z, L, rz) => B.in([x, y, z], [0, 0, rz], null, () => {   // mazza chiodata
+    B.cyl('wood', [0.01, 0.011, L, 6], [0, L / 2, 0], '#8a7058'); B.sph('iron', 0.035, [0, L + 0.02, 0], '#9a8a7e', { w: 8, h: 6 });
+    for (const r of [[0, 0, -1.5708], [0, 0, 1.5708], [1.5708, 0, 0], [-1.5708, 0, 0]]) B.cone('iron', [0.009, 0.034, 4], [-Math.sin(r[2]) * 0.04, L + 0.02, Math.sin(r[0]) * 0.04], '#8a7a6e', { r });
+    B.cone('iron', [0.009, 0.034, 4], [0, L + 0.06, 0], '#8a7a6e');
+  });
+  B.shield = (x, y, z, R, rz, k) => B.in([x, y, z], [0, 0, rz], null, () => {   // scudo rotondo: k 0 colature+teschio, 1 graffi di artigli, 2 runa
+    B.cyl('wood', [R, R, 0.02, 14], [0, 0, 0], k ? '#b89a78' : '#a88a6a', { r: [1.5708, 0, 0] }); B.tor('iron', [R, 0.008, 5, 16], [0, 0, 0.01], '#9a8a7e');
+    B.sph('iron', [0.03, 0.03, 0.02], [0, 0, 0.014], '#a89888', { w: 8, h: 5 });
+    for (let i = 0; i < 6; i++) { const a = i * 1.047; B.cone('iron', [0.007, 0.024, 5], [Math.cos(a) * R * 0.66, Math.sin(a) * R * 0.66, 0.02], '#8a7a6e', { r: [1.5708, 0, 0] }); }
+    B.dec(k === 1 ? 4 : k === 2 ? 3 : 2, R * 1.7, R * 1.7, [0, 0, 0.0115]);
+    if (k === 0) B.skull([0, -R * 0.35, 0.03], 0.36, [0, 0, 0]);
+  });
+}
+
+// cassa marcia: v 0 mano insanguinata e runa, 1 mano che esce da un varco, 2 teschio con candela, 3 catene e lucchetto
+function t3MCrate(B, v) {
+  const R = B.R, T = ['#d8c4a4', '#bca486', '#cdb494', '#a88e72'];
+  B.box('wood', [0.38, 0.36, 0.38], [0, 0.2, 0], '#120a05', { ao: false });   // il buio dentro si vede tra le assi
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.box('wood', [0.046, 0.4, 0.046], [sx * 0.195, 0.2, sz * 0.195], '#a08468', { sw: true });
+  for (let f = 0; f < 4; f++) B.in([0, 0, 0], [0, f * 1.5708, 0], null, () => {
+    for (let i = 0; i < 4; i++) {
+      if (f === 1 && i === 2) continue;                 // un'asse strappata sul retro
+      if (v === 1 && f === 0 && i === 1) continue;      // varco sul fronte
+      B.box('wood', [0.36 + R() * 0.012, 0.086, 0.016], [(R() - 0.5) * 0.01, 0.052 + i * 0.1, 0.2], T[(R() * 4) | 0], { r: [(R() - 0.5) * 0.03, 0, (R() - 0.5) * 0.05] });
+    }
+  });
+  for (let i = 0; i < 4; i++) B.box('wood', [0.4, 0.02, 0.088], [0, 0.402, -0.153 + i * 0.102], T[(R() * 4) | 0], { r: [0, (R() - 0.5) * 0.04, 0] });
+  B.box('wood', [0.46, 0.04, 0.012], [0, 0.2, 0.212], '#8e7458', { r: [0, 0, 0.78] });   // asse diagonale
+  for (const x of [-0.17, 0.17]) for (const y of [0.052, 0.152, 0.252, 0.352]) B.cyl('iron', [0.007, 0.007, 0.006, 5], [x, y, 0.206], '#6a5a50', { r: [1.5708, 0, 0] });   // chiodi
+  if (v === 0) { B.dec(0, 0.12, 0.12, [0.06, 0.24, 0.2195]); B.dec(2, 0.1, 0.2, [-0.1, 0.25, 0.2195]); B.dec(3, 0.2, 0.2, [0, 0.4125, 0], [-1.5708, 0, 0]); }
+  else if (v === 1) {
+    B.seg('flesh', [0.03, 0.15, 0.12], [0.04, 0.15, 0.24], 0.02, 0.018, '#b4a592', 6); B.hand([0.04, 0.15, 0.245], [0.8, 0, 0.05], 'flesh', '#b4a592');
+    B.dec(2, 0.14, 0.14, [0.04, 0.1, 0.2195]); B.dec(5, 0.42, 0.42, [0.05, 0.003, 0.3], [-1.5708, 0, 0]);
+  } else if (v === 2) {
+    B.skull([0.04, 0.47, 0.02], 0.95, [0, 0.5, 0.05], { jaw: 0.2 }); B.cyl('bone', [0.03, 0.03, 0.006, 8], [-0.12, 0.416, -0.08], '#e0d4b4'); B.candle([-0.12, 0.419, -0.08], 0.055);
+    B.dec(3, 0.2, 0.2, [0, 0.2, 0.2195]);
+  } else {
+    B.chain([-0.21, 0.26, 0.224], [0.21, 0.26, 0.224], 9); B.box('iron', [0.05, 0.06, 0.025], [0, 0.22, 0.235], '#a89080'); B.tor('iron', [0.018, 0.005, 4, 8, 3.1416], [0, 0.25, 0.235], '#b0a090');
+    B.dec(2, 0.1, 0.14, [0, 0.14, 0.2195]);
+  }
+}
+
+// baule: corpo aperto (dentro: ossa e un po' di oro), coperchio a parte che ruota sulla cerniera
+function t3MChest(B) {
+  const R = B.R, W = 0.46, D = 0.3, H = 0.2, T = ['#d4bea0', '#b8a084', '#c8b092'];
+  B.box('wood', [W, 0.03, D], [0, 0.015, 0], '#6a5440');
+  B.box('wood', [W, H, 0.03], [0, H / 2, D / 2 - 0.015], T[0]); B.box('wood', [W, H, 0.03], [0, H / 2, -D / 2 + 0.015], T[1]);
+  for (const sx of [-1, 1]) B.box('wood', [0.03, H, D - 0.06], [sx * (W / 2 - 0.015), H / 2, 0], T[2]);
+  B.box('wood', [W - 0.06, 0.01, D - 0.06], [0, 0.035, 0], '#0e0806', { ao: false });
+  for (let i = 0; i < 7; i++) B.cyl('glow', [0.022, 0.022, 0.006, 8], [(R() - 0.5) * 0.28, 0.045 + R() * 0.02, (R() - 0.5) * 0.14], '#b88a30', { r: [(R() - 0.5) * 0.4, 0, (R() - 0.5) * 0.4], ao: false });   // monete
+  B.skull([-0.1, 0.085, 0.03], 0.9, [0.1, 0.7, 0.2], { jaw: 0.3 }); B.bone([0.02, 0.05, -0.05], [0.16, 0.06, 0.06]);
+  for (const sx of [-1, 1]) { B.box('iron', [0.04, H + 0.004, D + 0.012], [sx * 0.15, H / 2, 0], '#bca494'); for (const sz of [-1, 1]) B.box('iron', [0.04, H + 0.006, 0.04], [sx * (W / 2 - 0.01), H / 2, sz * (D / 2 - 0.01)], '#a8907e'); }
+  for (const x of [-0.15, 0.15]) for (const y of [0.05, 0.1, 0.15]) B.sph('iron', 0.007, [x, y, D / 2 + 0.008], '#d0b8a0', { w: 5, h: 4 });   // borchie
+  B.box('iron', [0.07, 0.075, 0.012], [0, 0.145, D / 2 + 0.008], '#b09c8c'); B.skull([0, 0.15, D / 2 + 0.02], 0.33, [0, 0, 0]);   // serratura a teschio
+  B.dec(2, 0.11, 0.17, [-0.07, 0.1, D / 2 + 0.0016]); B.dec(0, 0.1, 0.1, [0.085, 0.09, D / 2 + 0.0016]); B.dec(5, 0.5, 0.5, [0, 0.003, 0.2], [-1.5708, 0, 0]);
+}
+function t3MChestLid(B) {
+  const W = 0.46, D = 0.3, r = 0.15;
+  B.box('wood', [W - 0.01, 0.025, D - 0.01], [0, 0.0125, D / 2], '#5a4632');
+  B.cyl('wood', [r, r, W, 14, 0, 3.1416], [0, 0.025, D / 2], '#c8b08e', { r: [0, 0, 1.5708], s: [0.55, 1, 1] });   // cupola
+  for (const sx of [-1, 1]) { B.cyl('iron', [r + 0.004, r + 0.004, 0.04, 14, 0, 3.1416], [sx * 0.15, 0.025, D / 2], '#b09888', { r: [0, 0, 1.5708], s: [0.555, 1, 1] }); B.box('iron', [0.05, 0.04, 0.014], [sx * 0.15, 0.02, 0.004], '#9a8678'); }
+  B.box('wood', [W, 0.032, 0.02], [0, 0.016, D - 0.01], '#a89078');
+  B.dec(4, 0.3, 0.2, [0.04, -0.0025, D / 2 + 0.02], [1.5708, 0, 0]); B.dec(0, 0.1, 0.1, [-0.12, -0.0025, D / 2 - 0.05], [1.5708, 0, 0]); B.dec(2, 0.12, 0.2, [0.15, -0.0025, D / 2], [1.5708, 0, 0]);   // dentro il coperchio: graffi e sangue
+}
+
+// barile con sangue e un morto che si aggrappa al bordo
+function t3MBarrel(B) {
+  const P = [[0.125, 0], [0.15, 0.07], [0.172, 0.2], [0.157, 0.33], [0.136, 0.4]];
+  B.lat('wood', P, [0, 0, 0], '#d0b896', { w: 12, st: 12 }); B.lat('wood', P.map(a => [a[0] - 0.012, a[1]]).reverse(), [0, 0, 0], '#6a5440', { w: 12, ao: false });
+  for (const [y, r] of [[0.075, 0.152], [0.2, 0.176], [0.33, 0.16]]) B.tor('iron', [r, 0.011, 4, 14], [0, y, 0], '#b09888', { r: [1.5708, 0, 0] });
+  B.tor('wood', [0.136, 0.012, 4, 12], [0, 0.4, 0], '#bca486', { r: [1.5708, 0, 0] });
+  B.cyl('flesh', [0.13, 0.13, 0.006, 12], [0, 0.352, 0], '#5e0a10', { ao: false });   // liquido rosso
+  B.skull([0.02, 0.375, 0.01], 0.8, [0.3, 0.9, 0.1]);
+  B.seg('flesh', [-0.06, 0.35, 0], [-0.135, 0.41, 0], 0.02, 0.017, '#a09484', 6); B.hand([-0.146, 0.412, 0], [0, -1.5708, 0], 'flesh', '#a89c8a');
+  B.cyl('iron', [0.01, 0.012, 0.04, 6], [0, 0.1, 0.17], '#8a7a70', { r: [1.5708, 0, 0] });
+  B.dec(2, 0.1, 0.22, [0.02, 0.23, 0.176]); B.dec(5, 0.55, 0.55, [0.03, 0.003, 0.04], [-1.5708, 0, 0]);
+}
+
+// mucchio d'ossa: teschi, femori, costole, vertebre e denti sparsi su una pozza di sangue
+function t3MBones(B, v) {
+  const R = B.R, P = () => [(R() - 0.5) * 0.46, (R() - 0.5) * 0.46];
+  B.dec(5, 0.56, 0.56, [0, 0.002, 0], [-1.5708, 0, 0]);
+  for (let i = 0; i < 6; i++) { const [x, z] = P(), a = R() * 6.28, L = 0.09 + R() * 0.08; B.bone([x, 0.012, z], [x + Math.cos(a) * L, 0.012 + R() * 0.02, z + Math.sin(a) * L]); }
+  for (let i = 0; i < 3 + (v === 0 ? 1 : 0); i++) { const [x, z] = P(); B.skull([x, 0.055, z], 0.8 + R() * 0.3, [(R() - 0.5) * 1.2, R() * 6.28, (R() - 0.5) * 1.4], { jaw: R() * 0.5, c: i % 2 ? '#d8cbb0' : '#e6dbbd' }); }
+  { const [x, z] = P(); B.ribs([x * 0.5, 0.06, z * 0.5], [1.2 + v * 0.3, v, 0.3], 4, 0.06); }
+  { const [x, z] = P(); for (let k = 0; k < 7; k++) B.box('bone', [0.016, 0.012, 0.018], [x + k * 0.02, 0.01, z + Math.sin(k) * 0.01], '#e2d6b6', { r: [0, k * 0.2, 0] }); }
+  for (let i = 0; i < 10; i++) { const [x, z] = P(); B.box('bone', [0.006, 0.01, 0.005], [x, 0.006, z], '#efe6cc', { r: [0, R() * 6, 0] }); }
+  { const [x, z] = P(); B.hand([x, 0.012, z], [0, R() * 6, 0], 'bone', '#d8ccb0'); }
+}
+
+// urna funeraria con teschio in rilievo, coperchio scostato, candele e cenere
+function t3MUrn(B) {
+  const ST = '#b0a090';
+  B.dec(5, 0.4, 0.4, [0, 0.002, 0.02], [-1.5708, 0, 0]);
+  B.lat('stone', [[0.06, 0], [0.095, 0.05], [0.112, 0.14], [0.1, 0.24], [0.065, 0.3], [0.068, 0.335], [0.082, 0.358]], [0, 0, 0], ST, { w: 12 });
+  B.tor('stone', [0.075, 0.008, 4, 12], [0, 0.358, 0], ST, { r: [1.5708, 0, 0] }); B.cyl('stone', [0.063, 0.063, 0.004, 12], [0, 0.352, 0], '#040201', { ao: false });
+  for (const sx of [-1, 1]) B.tor('stone', [0.045, 0.011, 5, 10, 3.1416], [sx * 0.1, 0.2, 0], '#a09080', { r: [0, 0, sx * -1.5708] });
+  B.skull([0, 0.17, 0.103], 0.55, [0, 0, 0]); B.box('stone', [0.003, 0.09, 0.003], [0.04, 0.17, 0.104], '#1a1410', { r: [0.1, 0, 0.4] });
+  B.sph('stone', [0.08, 0.032, 0.08], [0.075, 0.372, 0.045], '#a89888', { w: 10, h: 5, r: [0, 0, 0.3] });
+  B.cyl('bone', [0.025, 0.025, 0.005, 8], [-0.04, 0.36, -0.02], '#e0d4b4'); B.candle([-0.04, 0.362, -0.02], 0.05); B.candle([-0.065, 0.36, 0.03], 0.035, true);
+  B.sph('stone', [0.1, 0.012, 0.1], [0.1, 0.006, 0.08], '#6a645c', { w: 8, h: 3 }); B.bone([0.12, 0.012, 0.1], [0.2, 0.012, 0.15]);
+  for (let i = 0; i < 5; i++) B.box('bone', [0.007, 0.011, 0.006], [0.05 + i * 0.03, 0.007, 0.16 - (i % 2) * 0.05], '#efe6cc', { r: [0, i * 1.3, 0] });
+}
+
+// rastrelliera: telaio con teschi sui montanti, catene e manette, sangue; poi le armi di ogni modello
+function t3MRack(B, n) {
+  const W = '#8a7058', Wd = '#6a5240';
+  for (const sx of [-1, 1]) { B.box('wood', [0.06, 0.04, 0.24], [sx * 0.24, 0.02, 0], Wd); B.box('wood', [0.046, 0.64, 0.046], [sx * 0.24, 0.35, 0], W, { sw: true }); B.skull([sx * 0.24, 0.72, 0], 0.55, [0, sx * -0.5, 0]); }
+  B.box('wood', [0.56, 0.04, 0.05], [0, 0.62, 0], W); B.box('wood', [0.5, 0.03, 0.04], [0, 0.4, 0.035], Wd); B.box('wood', [0.5, 0.03, 0.04], [0, 0.16, 0.035], Wd);
+  for (const sx of [-1, 1]) for (const y of [0.4, 0.16]) B.box('flesh', [0.052, 0.02, 0.052], [sx * 0.24, y, 0.02], '#3a2418');
+  B.chain([0.17, 0.6, 0.03], [0.17, 0.46, 0.03], 5); B.tor('iron', [0.022, 0.006, 4, 8], [0.17, 0.43, 0.03], '#9a8a7e', { r: [0, 1.5708, 0] });
+  B.dec(2, 0.2, 0.2, [-0.12, 0.54, 0.0285]);
+  if (n === 'weaponRack') { B.sword(-0.17, 0.3, 0.012, 0.4, 0.05, true); B.sword(-0.09, 0.27, 0.012, 0.36, -0.03); B.mace(0, 0.1, 0.012, 0.42, 0.02); B.axe(0.08, 0.1, 0.012, 0.42, -0.04); B.spear(0.17, 0.1, 0.012, 0.6, 0.06, false); }
+  else if (n === 'rackAxes') { for (const [x, L, rz] of [[-0.18, 0.42, 0.05], [-0.09, 0.4, -0.04], [0, 0.44, 0.03], [0.09, 0.38, -0.05]]) B.axe(x, 0.1, 0.012, L, rz); B.skull([0.19, 0.2, 0.07], 0.8, [0.2, 0.4, 0.2], { jaw: 0.3 }); B.axe(0.19, 0.2, 0.07, 0.26, 0.45); }
+  else if (n === 'rackPolearms') { B.spear(-0.18, 0.08, 0.012, 0.72, 0.04, true); B.spear(-0.09, 0.08, 0.012, 0.68, -0.03, false); B.axe(0, 0.08, 0.012, 0.7, 0.02); B.spear(0.09, 0.08, 0.012, 0.66, -0.04, true); B.spear(0.18, 0.08, 0.012, 0.6, 0.05, false); }
+  else if (n === 'rackSwords') { for (const [x, y, L, rz, bl] of [[-0.18, 0.3, 0.42, 0.04, 1], [-0.09, 0.28, 0.4, -0.03, 0], [0, 0.3, 0.2, 0.02, 1], [0.09, 0.27, 0.36, 0.05, 0], [0.18, 0.3, 0.42, -0.04, 1]]) B.sword(x, y, 0.012, L, rz, bl); }
+  else { B.shield(-0.12, 0.28, 0.032, 0.115, 0.1, 0); B.shield(0.12, 0.28, 0.032, 0.115, -0.1, 1); B.shield(0, 0.5, 0.04, 0.095, 0.05, 2); }
+}
+
+// armature sullo stand: pezzi di ferro arrugginito su cadaveri, scheletri e ragnatele
+function t3Armor(B, n) {
+  const R = B.R, IR = '#c89a78', IR2 = '#b08a6c', IR3 = '#94785f', WD = '#8e7258', BONE = '#e2d6b6';
+  const stand = () => {
+    B.cyl('wood', [0.17, 0.19, 0.035, 10], [0, 0.0175, 0], '#8a7058'); B.box('wood', [0.04, 0.64, 0.04], [0, 0.35, -0.012], WD, { sw: true });
+    B.box('wood', [0.36, 0.03, 0.035], [0, 0.61, -0.012], WD); B.box('wood', [0.2, 0.026, 0.03], [0, 0.33, -0.012], WD);
+  };
+  const helm = (y) => {   // elmo chiuso con la feritoia nera; sotto si vede la mandibola
+    B.cyl('iron', [0.07, 0.076, 0.15, 12], [0, y, 0], IR2); B.sph('iron', [0.07, 0.045, 0.07], [0, y + 0.072, 0], IR, { w: 12, h: 6 }); B.tor('iron', [0.074, 0.006, 4, 12], [0, y - 0.074, 0], IR3, { r: [1.5708, 0, 0] });
+    B.box('iron', [0.088, 0.013, 0.012], [0, y + 0.012, 0.068], '#0a0604'); B.box('iron', [0.012, 0.08, 0.012], [0, y - 0.016, 0.071], '#0a0604');
+    for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) B.box('iron', [0.007, 0.007, 0.01], [sx * 0.03, y - 0.035 - i * 0.017, 0.073], '#0a0604');
+    B.box('bone', [0.05, 0.02, 0.04], [0, y - 0.095, 0.03], BONE); for (let i = -2; i <= 2; i++) B.box('bone', [0.0075, 0.011, 0.006], [i * 0.0095, y - 0.086, 0.052], '#efe6cc');
+  };
+  const gorget = () => B.cyl('iron', [0.05, 0.058, 0.05, 10], [0, 0.69, 0], IR3);
+  const belt = () => {
+    for (const [y, w] of [[0.385, 0.25], [0.36, 0.265], [0.335, 0.27]]) B.box('iron', [w, 0.03, 0.17], [0, y, 0], IR2);
+    B.box('flesh', [0.27, 0.022, 0.175], [0, 0.405, 0], '#3a2418'); B.box('iron', [0.04, 0.03, 0.01], [0, 0.405, 0.09], '#a89868');
+  };
+  const torso = (k) => {
+    if (k === 'plate') { B.sph('iron', [0.135, 0.17, 0.085], [0, 0.5, 0.012], IR, { w: 12, h: 8 }); B.sph('iron', [0.125, 0.165, 0.075], [0, 0.5, -0.045], IR3, { w: 12, h: 8 }); B.box('iron', [0.012, 0.28, 0.02], [0, 0.5, 0.092], IR); belt(); }
+    else if (k === 'half') {   // mezza corazza: dall'altra parte si vedono costole e cuore
+      B.sph('iron', [0.125, 0.165, 0.075], [0, 0.5, -0.045], IR3, { w: 12, h: 8 }); B.sph('iron', [0.07, 0.17, 0.085], [-0.07, 0.5, 0.012], IR, { w: 10, h: 8 });
+      B.ribs([0, 0.4, 0], [0, 0, 0], 5, 0.1); B.sph('flesh', [0.032, 0.04, 0.03], [0.025, 0.5, 0.02], '#8a2a32', { w: 7, h: 6 }); belt();
+    } else { B.ribs([0, 0.39, 0], [0, 0, 0], 6, 0.105); B.sph('flesh', [0.05, 0.06, 0.035], [0, 0.5, -0.02], '#5a1a22', { w: 7, h: 6 }); B.box('bone', [0.12, 0.03, 0.06], [0, 0.34, 0], BONE); }
+  };
+  const pauld = (spk, only) => {
+    for (const sx of [-1, 1]) {
+      if (only && sx !== only) continue;
+      B.sph('iron', [0.078, 0.056, 0.078], [sx * 0.165, 0.63, 0], IR, { w: 10, h: 6 });
+      for (let i = 0; i < 3; i++) B.box('iron', [0.15 - i * 0.012, 0.016, 0.1 - i * 0.008], [sx * (0.17 + i * 0.004), 0.605 - i * 0.02, 0], i % 2 ? IR3 : IR2, { r: [0, 0, sx * -0.3] });
+      if (spk) B.cone('iron', [0.016, 0.07, 6], [sx * 0.175, 0.69, 0], IR3, { r: [0, 0, sx * -0.25] });
+    }
+  };
+  const arm = (sx, k) => {
+    const s = [sx * 0.17, 0.62, 0], e = [sx * 0.2, 0.5, 0.02], w = [sx * 0.19, 0.38, 0.05];
+    if (k === 'plate') { B.seg('iron', s, e, 0.032, 0.028, IR2, 8); B.sph('iron', 0.03, e, IR, { w: 7, h: 5 }); B.seg('iron', e, w, 0.028, 0.025, IR3, 8); B.box('iron', [0.042, 0.04, 0.046], [w[0], w[1] - 0.02, w[2]], IR2); }
+    else { B.bone(s, e, BONE, 0.009); B.bone(e, w, BONE, 0.008); B.hand([w[0], w[1] - 0.01, w[2] + 0.005], [1.4, 0, 0], 'bone', BONE); }
+  };
+  const legs = (k) => {
+    for (const sx of [-1, 1]) {
+      const h = [sx * 0.06, 0.34, 0], kn = [sx * 0.06, 0.2, 0.01], an = [sx * 0.06, 0.06, 0.012];
+      if (k === 'greave') { B.seg('iron', h, kn, 0.046, 0.04, IR2, 8); B.sph('iron', [0.045, 0.04, 0.045], kn, IR, { w: 7, h: 5 }); B.seg('iron', kn, an, 0.04, 0.034, IR3, 8); B.box('iron', [0.064, 0.035, 0.11], [sx * 0.06, 0.05, 0.035], IR2); }
+      else { B.bone(h, kn, BONE, 0.013); B.bone(kn, an, BONE, 0.011); B.box('bone', [0.045, 0.014, 0.085], [sx * 0.06, 0.042, 0.03], BONE); }
+    }
+  };
+  stand();
+  if (n === 'armorRusty') { legs('greave'); torso('plate'); pauld(false); gorget(); arm(-1, 'plate'); arm(1, 'plate'); helm(0.76); B.dec(2, 0.11, 0.17, [0, 0.46, 0.0995]); B.dec(0, 0.09, 0.09, [-0.06, 0.53, 0.0985]); }
+  else if (n === 'armorShield') {
+    legs('greave'); torso('plate'); pauld(false); gorget(); arm(1, 'plate'); arm(-1, 'plate'); helm(0.76);
+    for (const sx of [-1, 1]) B.cone('bone', [0.018, 0.1, 6], [sx * 0.08, 0.83, 0], '#d8ccb0', { r: [0, 0, sx * -0.9] });
+    B.shield(-0.21, 0.46, 0.07, 0.12, 0.15, 0); B.sword(0.19, 0.33, 0.06, 0.28, 3.0916, true);
+  } else if (n === 'armorHalberd') {
+    legs('greave'); torso('plate'); pauld(false); gorget(); arm(-1, 'plate'); arm(1, 'plate'); helm(0.76);
+    B.axe(0.215, 0.02, 0.05, 0.78, 0); B.skull([0.215, 0.85, 0.05], 0.65, [0.2, 0.5, 0.1], { jaw: 0.5, c: '#cbbd9c' }); B.dec(2, 0.11, 0.17, [0.03, 0.46, 0.0995]);
+  } else if (n === 'armorTabard') {
+    legs('greave'); torso('plate'); pauld(false); gorget(); arm(-1, 'plate'); arm(1, 'plate');
+    B.sph('flesh', [0.085, 0.09, 0.085], [0, 0.775, -0.012], '#34241e', { w: 10, h: 8 }); B.skull([0, 0.77, 0.02], 1.05, [0, 0, 0], { jaw: 0.25 });
+    B.box('flesh', [0.17, 0.3, 0.012], [0, 0.47, 0.104], '#5e2a26');
+    for (let i = -2; i <= 2; i++) { const L = 0.06 + R() * 0.1; B.box('flesh', [0.032, L, 0.01], [i * 0.034, 0.32 - L / 2, 0.104], '#5e2a26', { r: [0, 0, (R() - 0.5) * 0.15] }); }
+    B.dec(3, 0.11, 0.11, [0, 0.5, 0.1105]); B.dec(2, 0.12, 0.16, [0.02, 0.4, 0.1108]);
+  } else if (n === 'armorPartial') {
+    legs('bone'); torso('half'); pauld(false, -1); arm(-1, 'plate'); arm(1, 'bone'); B.skull([0, 0.76, 0], 1, [0.1, 0, 0.1], { jaw: 0.5 });
+    B.guts([0.03, 0.44, 0.07], [-0.04, 0.3, 0.075], 9, 0.018); B.dec(5, 0.6, 0.6, [0, 0.003, 0.1], [-1.5708, 0, 0]);
+  } else if (n === 'armorLegs') {
+    legs('greave'); B.box('iron', [0.25, 0.03, 0.17], [0, 0.335, 0], IR2); B.box('flesh', [0.24, 0.03, 0.1], [0, 0.358, 0], '#3a2418');
+    B.cone('wood', [0.02, 0.08, 5], [0, 0.7, -0.012], WD); B.skull([0, 0.77, -0.012], 0.9, [0, 0.3, 0], { c: '#cbbd9c', jaw: 0.15 });
+    arm(1, 'plate'); B.chain([-0.17, 0.6, -0.012], [-0.17, 0.4, -0.012], 8); B.tor('iron', [0.022, 0.006, 4, 8], [-0.17, 0.375, -0.012], '#9a8a7e', { r: [0, 1.5708, 0] });
+    B.dec(5, 0.6, 0.6, [0, 0.003, 0.05], [-1.5708, 0, 0]);
+  } else if (n === 'armorShoulders') {
+    pauld(true); B.skull([0, 0.77, 0], 1.05, [0, 0, 0], { jaw: 0.1 });
+    for (let i = 0; i < 5; i++) { const L = 0.16 + R() * 0.14; B.box('flesh', [0.05, L, 0.012], [(i - 2) * 0.06, 0.6 - L / 2, 0.06], '#4a2a24', { r: [0, 0, (R() - 0.5) * 0.12] }); }
+    B.chain([-0.17, 0.58, 0.09], [0.17, 0.58, 0.09], 10); B.skull([0, 0.5, 0.1], 0.45, [0, 0, 0]);
+  } else if (n === 'armorBreast') {
+    torso('half'); B.skull([0, 0.76, 0], 1, [0, 0, 0], { jaw: 0.7 }); arm(-1, 'plate'); B.dec(2, 0.11, 0.17, [-0.07, 0.46, 0.0995]); B.dec(5, 0.5, 0.5, [0, 0.003, 0.08], [-1.5708, 0, 0]);
+  } else if (n === 'armorEmpty') {
+    B.seg('wood', [0.08, 0.6, -0.012], [0.08, 0.46, 0], 0.005, 0.005, '#a8946a', 5); B.tor('wood', [0.03, 0.005, 4, 10], [0.08, 0.43, 0], '#a8946a'); B.sph('wood', 0.012, [0.08, 0.46, 0], '#a8946a', { w: 6, h: 5 });
+    B.dec(0, 0.07, 0.07, [0, 0.45, 0.0085]); B.dec(0, 0.06, 0.06, [0.005, 0.3, 0.0085]); B.dec(5, 0.6, 0.6, [0.04, 0.003, 0.1], [-1.5708, 0, 0]);
+    for (let i = 0; i < 9; i++) B.box('bone', [0.007, 0.011, 0.006], [(R() - 0.5) * 0.4, 0.007, (R() - 0.5) * 0.4 + 0.1], '#efe6cc', { r: [0, R() * 6, 0] });
+  } else if (n === 'armorWeb') {
+    B.sph('bone', [0.1, 0.19, 0.09], [0, 0.47, 0], '#d8d4c8', { w: 10, h: 8 });
+    for (let i = 0; i < 6; i++) { const y = 0.34 + i * 0.05, r = 0.1 * Math.sqrt(Math.max(0.05, 1 - Math.pow((y - 0.47) / 0.19, 2))) + 0.004; B.tor('bone', [r, 0.004, 4, 12], [0, y, 0], '#c8c4b6', { r: [1.5708 + 0.15 * (i % 2 ? 1 : -1), 0, 0], s: [1, 0.9, 1] }); }
+    B.skull([0, 0.7, 0.015], 0.95, [0.2, 0, 0.1], { jaw: 0.2 });
+    for (const [a, b] of [[[-0.17, 0.6, -0.01], [-0.07, 0.5, 0.04]], [[0.17, 0.6, -0.01], [0.07, 0.5, 0.04]], [[-0.15, 0.04, 0.1], [-0.07, 0.38, 0.05]], [[0.15, 0.04, 0.1], [0.07, 0.38, 0.05]]]) B.seg('bone', a, b, 0.002, 0.002, '#e8e8e0', 4);
+    B.dec(6, 0.3, 0.3, [-0.03, 0.46, 0.0955]); B.add('decal', new THREE.PlaneGeometry(0.3, 0.3), [0.03, 0.46, 0.0965], '#ffffff', { dc: 6, ao: false, s: [-1, 1, 1] });
+  } else {   // armorBroken: stand spezzato e rovesciato, pezzi sparsi sul pavimento
+    B.dec(5, 0.6, 0.6, [0, 0.003, 0.05], [-1.5708, 0, 0]);
+    B.seg('wood', [-0.2, 0.04, 0.15], [0.18, 0.06, 0.28], 0.02, 0.02, WD, 6); B.box('wood', [0.3, 0.03, 0.035], [-0.05, 0.025, -0.18], WD, { r: [0, 0.5, 0.1] });
+    B.cyl('iron', [0.07, 0.076, 0.15, 12], [0.2, 0.08, -0.1], IR2, { r: [1.5708, 0.5, 0] }); B.skull([0.06, 0.05, -0.12], 0.9, [1.2, 0.8, 0.3], { jaw: 0.4 });
+    B.sph('iron', [0.135, 0.17, 0.085], [-0.14, 0.07, -0.08], IR, { w: 10, h: 8, r: [1.3, 0.2, 0.3] }); B.bone([0.0, 0.012, 0.0], [0.14, 0.012, 0.12]); B.hand([-0.1, 0.01, 0.1], [0, 0.9, 0], 'bone', BONE);
+  }
+}
+
+// lampadario: anello di ferro con candele, teschio appeso e catene (si appende al soffitto, y = 1)
+function t3MChand(B) {
+  B.chain([0, 0.88, 0], [0, 1, 0], 4, '#6a625c'); B.chain([0, 0.88, 0], [0, 0.72, 0], 7, '#6a625c');
+  B.tor('iron', [0.18, 0.012, 5, 18], [0, 0.78, 0], '#8a7a70', { r: [1.5708, 0, 0] });
+  for (let i = 0; i < 6; i++) { const a = i * 1.0472, x = Math.cos(a) * 0.18, z = Math.sin(a) * 0.18; B.seg('iron', [x, 0.78, z], [0, 0.88, 0], 0.004, 0.004, '#7a6a60', 4); B.candle([x, 0.79, z], 0.055); }
+  B.skull([0, 0.66, 0], 0.7, [0, 0.4, 0], { jaw: 0.3 });
+}
+
+function t3PropBuild(B, n, v) {
+  if (/^armor/.test(n)) t3Armor(B, n);
+  else if (/^rack|^weaponRack/.test(n)) t3MRack(B, n);
+  else if (n === 'barrel') t3MBarrel(B);
+  else if (n === 'urn') t3MUrn(B);
+  else if (n === 'bones') t3MBones(B, v);
+  else if (n === 'chest') t3MChest(B);
+  else t3MCrate(B, v);
+}
+
+function t3Props(q) {   // oggetti di scena horror: armature, rastrelliere, casse, barili, bauli, ossa, urne
+  const g = new THREE.Group(), n = q.type === 'deco' ? DECOR[0][q.k].n : q.type, hs = Math.abs(Math.floor(q.x * 7.3 + q.y * 11.1));
+  if (n === 'xbarrel') {
+    for (const [geo, c, y] of [[new THREE.CylinderGeometry(0.17, 0.17, 0.5, 10), '#8a2418', 0.25], [new THREE.CylinderGeometry(0.175, 0.175, 0.05, 10), '#e0b020', 0.3]]) { const o = new THREE.Mesh(geo, t3Mat(c)); o.position.y = y; g.add(o); }
+  } else {
+    const vr = n === 'crate' ? hs % 4 : n === 'bones' ? hs % 3 : 0;   // variante stabile per ogni oggetto
+    for (const p of t3PropGeo(n + '#' + vr, B => t3PropBuild(B, n, vr))) g.add(new THREE.Mesh(p.g, p.m));
+    if (n === 'chest') {   // il coperchio ruota sulla cerniera sul retro (t3Sync lo apre)
+      const lid = new THREE.Group(); lid.position.set(0, 0.2, -0.15);
+      for (const p of t3PropGeo('chestLid', t3MChestLid, 0.2)) lid.add(new THREE.Mesh(p.g, p.m));
+      g.add(lid); g.userData.lid = lid;
+    }
+  }
   if (q.flip) g.rotation.y = Math.PI; g.rotation.y += (q.x * 7.3 + q.y * 3.1) % 1.2;
   return g;
 }
@@ -976,7 +1468,7 @@ function t3Sync() {
   }
   // lampadari appesi al soffitto
   for (const c of chands) {
-    const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(), fl = new THREE.MeshBasicMaterial({ color: 0xffb040, fog: false }); const stem = new THREE.Mesh(t3Box(0.015, 0.2, 0.015), t3Mat('#222')); stem.position.set(0, 0.9, 0); g.add(stem); const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.015, 6, 14), t3Mat('#3a3a3a')); ring.rotation.x = Math.PI / 2; ring.position.y = 0.78; g.add(ring); for (let i = 0; i < 4; i++) { const f = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 6), fl); f.position.set(Math.cos(i * 1.57) * 0.16, 0.82, Math.sin(i * 1.57) * 0.16); g.add(f); } g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
+    const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(); for (const p of t3PropGeo('chand', t3MChand)) g.add(new THREE.Mesh(p.g, p.m)); g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
   }
   t3Stale(T3.prop);
   world1Sync3D();

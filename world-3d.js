@@ -315,7 +315,7 @@ function world1Sync3D() {
    sono veri oggetti 3D. Gli altri piani usano ancora il motore 2D.
    Se Three.js non si carica o qualcosa va storto, torna da solo al 2D.
    ====================================================================== */
-const T3 = { on: false, failed: false, sig: '', stamp: 0, mobs: new Map(), prj: new Map(), eprj: new Map(), pick: new Map(), prop: new Map(), icons: new Map(), bars: new Map(), chd: [] };
+const T3 = { on: false, failed: false, sig: '', stamp: 0, mobs: new Map(), prj: new Map(), eprj: new Map(), pick: new Map(), prop: new Map(), icons: new Map(), bars: new Map(), chd: [], deb: new Map(), shards: [], puffs: [], rubs: [] };
 
 const T3CFG = { ambient: 0.135, hand: 1.3, handDist: 6.5, torch: 1.25, torchDist: 8, fog: 0.22 };   // luminosita: alza o abbassa questi numeri
 function t3Tex(cv) { const t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; }
@@ -341,7 +341,8 @@ function t3Build() {
   const sc = T3.scene, P = PAL[0];
   if (T3.root) sc.remove(T3.root);
   const root = T3.root = new THREE.Group(); sc.add(root);
-  for (const m of [T3.mobs, T3.prj, T3.eprj, T3.pick, T3.prop, T3.bars]) m.clear();
+  for (const m of [T3.mobs, T3.prj, T3.eprj, T3.pick, T3.prop, T3.bars, T3.deb]) m.clear();
+  T3.shards.length = T3.puffs.length = T3.rubs.length = 0;
   T3.chd = [];
   const fog = new THREE.Color(fogC[0] / 255, fogC[1] / 255, fogC[2] / 255).multiplyScalar(0.4);
   sc.fog = new THREE.FogExp2(fog, T3CFG.fog); T3.gl.setClearColor(fog);
@@ -1017,7 +1018,7 @@ function t3PB(R) {
 }
 
 // unisce i pezzi di ogni materiale in una sola geometria: UV a proiezione per asse, sporco in basso e piccole variazioni di tinta nei vertici
-function t3PBake(B, R, y0) {
+function t3PBake(B, R, y0, ctr) {
   const K = t3PropKit(), out = [], v = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3(), c = new THREE.Color(), D = 2.2;
   for (const k in B.L) {
     const L = B.L[k]; if (!L.length) continue;
@@ -1027,7 +1028,7 @@ function t3PBake(B, R, y0) {
       nm.getNormalMatrix(it.m); c.set(it.c);
       for (let i = 0; i < P.count; i++) {
         v.fromBufferAttribute(P, i).applyMatrix4(it.m); n.fromBufferAttribute(Nn, i).applyMatrix3(nm).normalize();
-        pos.push(v.x, v.y, v.z); nor.push(n.x, n.y, n.z);
+        pos.push(v.x - (ctr ? ctr[0] : 0), v.y - (ctr ? ctr[1] : 0), v.z - (ctr ? ctr[2] : 0)); nor.push(n.x, n.y, n.z);
         if (it.dc !== undefined) uv.push((it.dc & 1) * 0.5 + U.getX(i) * 0.5, 1 - ((it.dc >> 1) + 1) * 0.25 + U.getY(i) * 0.25);
         else {
           const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z); let a, b;
@@ -1056,7 +1057,7 @@ function t3PropGeo(key, fn, y0) {
   const C = T3.pg || (T3.pg = {});
   if (!C[key]) {
     let sd = 1013; for (let i = 0; i < key.length; i++) sd = (sd * 31 + key.charCodeAt(i)) % 2147483647; sd = sd || 7;
-    const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647), B = t3PB(R); t3Parts(B); fn(B); C[key] = t3PBake(B, R, y0);
+    const R = () => ((sd = (sd * 16807) % 2147483647) / 2147483647), B = t3PB(R); t3Parts(B); fn(B); const out = t3PBake(B, R, y0); out.B = B; out.R = R; out.y0 = y0; C[key] = out;
   }
   return C[key];
 }
@@ -1358,6 +1359,7 @@ function t3Props(q) {   // oggetti di scena horror: armature, rastrelliere, cass
   } else {
     const vr = n === 'crate' ? hs % 4 : n === 'bones' ? hs % 3 : 0;   // variante stabile per ogni oggetto
     for (const p of t3PropGeo(n + '#' + vr, B => t3PropBuild(B, n, vr))) g.add(new THREE.Mesh(p.g, p.m));
+    g.userData.brk = n + '#' + vr; g.userData.nm = n;   // serve a spezzarlo quando viene distrutto
     if (n === 'chest') {   // il coperchio ruota sulla cerniera sul retro (t3Sync lo apre)
       const lid = new THREE.Group(); lid.position.set(0, 0.2, -0.15);
       for (const p of t3PropGeo('chestLid', t3MChestLid, 0.2)) lid.add(new THREE.Mesh(p.g, p.m));
@@ -1368,8 +1370,219 @@ function t3Props(q) {   // oggetti di scena horror: armature, rastrelliere, cass
   return g;
 }
 
+// =====================================================================================================================
+// RACCOGLIBILI 3D: medikit, munizioni (una cassetta per ogni arma), armi e armature (cuoio, ferro, oro, rubino)
+// =====================================================================================================================
+function t3PickModel(B, key) {
+  const bottle = (x, y, z, s, r, fl, lb) => B.in([x, y, z], r, [s, s, s], () => {   // bottiglia molotov: straccio nel collo, fiamma, etichetta col teschio
+    B.lat('stone', [[0.001, -0.09], [0.04, -0.09], [0.048, -0.075], [0.05, 0], [0.045, 0.03], [0.022, 0.06], [0.016, 0.075], [0.017, 0.1], [0.001, 0.1]], [0, 0, 0], '#4a9a50', { w: 10 });
+    B.cyl('flesh', [0.017, 0.015, 0.045, 6], [0, 0.11, 0], '#eadfc0');
+    if (lb) B.skull([0, -0.02, 0.05], 0.3, [0, 0, 0]);
+    if (fl) { B.cone('flame', [0.014, 0.05, 6], [0, 0.16, 0], '#ff9a20', { ao: false }); B.cone('flame', [0.007, 0.03, 5], [0, 0.155, 0], '#fff0b0', { ao: false }); }
+  });
+  const gren = (x, y, z, s) => B.in([x, y, z], null, [s, s, s], () => {   // granata a ananas con spoletta, leva e anello
+    B.sph('iron', [0.05, 0.058, 0.05], [0, 0, 0], '#7a8a5a', { w: 10, h: 8 });
+    for (const yy of [-0.03, 0, 0.03]) B.tor('iron', [0.05 * Math.sqrt(1 - Math.pow(yy / 0.058, 2)) + 0.002, 0.004, 4, 12], [0, yy, 0], '#5a6a40', { r: [1.5708, 0, 0] });
+    B.cyl('iron', [0.014, 0.016, 0.03, 8], [0, 0.065, 0], '#8a8a82'); B.box('iron', [0.012, 0.05, 0.004], [0.02, 0.055, 0], '#9a9a92', { r: [0, 0, -0.15] }); B.tor('iron', [0.014, 0.003, 4, 8], [0.032, 0.07, 0], '#c8c8c0');
+  });
+  const ammoBox = (w) => {   // cassetta di legno con fasce di ferro e, sopra, le munizioni dell'arma
+    B.box('wood', [0.17, 0.09, 0.11], [0, -0.03, 0], '#c8b090'); B.box('wood', [0.15, 0.004, 0.09], [0, 0.0155, 0], '#120a05', { ao: false });
+    for (const sx of [-1, 1]) B.box('iron', [0.012, 0.094, 0.114], [sx * 0.06, -0.03, 0], '#a08a7a');
+    B.dec(2, 0.05, 0.08, [0.03, -0.03, 0.0556]);
+    if (w === 1) { for (const x of [-0.05, 0, 0.05]) for (const z of [-0.025, 0.025]) { B.cyl('flesh', [0.011, 0.011, 0.045, 7], [x, 0.036, z], '#b8402a'); B.cyl('iron', [0.0115, 0.0115, 0.012, 7], [x, 0.016, z], '#e0b040'); } }
+    else if (w === 2) { for (const z of [-0.03, 0, 0.03]) { B.box('iron', [0.032, 0.075, 0.014], [0, 0.045, z], '#4a4a50', { r: [0, 0, 0.1] }); B.box('iron', [0.02, 0.012, 0.01], [0.007, 0.088, z], '#e0b040'); } }
+    else if (w === 3) { for (const z of [-0.026, 0.026]) { B.cyl('iron', [0.018, 0.018, 0.2, 8], [0, 0.04, z], '#7a8a62', { r: [0, 0, 1.5708] }); B.cone('iron', [0.018, 0.045, 8], [0.12, 0.04, z], '#b8402a', { r: [0, 0, -1.5708] }); B.box('iron', [0.025, 0.036, 0.003], [-0.09, 0.04, z], '#5a6a48'); B.box('iron', [0.025, 0.003, 0.036], [-0.09, 0.04, z], '#5a6a48'); } }
+    else if (w === 4) { bottle(-0.04, 0.06, 0, 0.7, null, true, true); bottle(0.04, 0.06, 0.01, 0.7, [0, 0.5, 0], false, false); }
+    else if (w === 5) { gren(-0.05, 0.045, 0, 0.7); gren(0.01, 0.045, -0.02, 0.7); gren(0.05, 0.045, 0.03, 0.7); }
+    else if (w === 6) { B.box('iron', [0.07, 0.09, 0.035], [-0.03, 0.06, 0], '#b8402a'); B.tor('iron', [0.02, 0.004, 4, 8, 3.1416], [-0.03, 0.105, 0], '#6a6a64'); B.seg('iron', [0, 0.09, 0], [0.035, 0.115, 0], 0.008, 0.006, '#8a8a82', 6); B.box('iron', [0.05, 0.07, 0.03], [0.05, 0.05, 0.015], '#a03828'); }
+    else { for (const x of [-0.05, 0, 0.05]) { B.cyl('iron', [0.018, 0.018, 0.012, 8], [x, 0.02, 0], '#3a3a44'); B.cyl('glow', [0.013, 0.013, 0.05, 8], [x, 0.05, 0], '#4dff6a', { ao: false }); B.cyl('iron', [0.018, 0.018, 0.012, 8], [x, 0.08, 0], '#3a3a44'); } }
+  };
+  const armorModel = (t) => {   // corazza con spallacci: cuoio borchiato, ferro, oro, rubino
+    const C = [['flesh', '#b07a45', '#8a5a30'], ['iron', '#d0d8e0', '#98a0a8'], ['iron', '#f4d040', '#c8a020'], ['iron', '#d04058', '#8a0f28']][t], k = C[0], c1 = C[1], c2 = C[2];
+    B.sph(k, [0.1, 0.12, 0.06], [0, 0, 0.02], c1, { w: 12, h: 8 }); B.sph(k, [0.095, 0.115, 0.05], [0, 0, -0.04], c2, { w: 12, h: 8 });
+    B.box(t >= 2 ? 'glow' : 'iron', [0.01, 0.2, 0.012], [0, 0, 0.078], t === 2 ? '#d8a820' : t === 3 ? '#a01830' : '#a8a8a0', { ao: false });
+    B.cyl(k, [0.05, 0.06, 0.04, 10], [0, 0.13, 0], c2);
+    for (const sx of [-1, 1]) {
+      B.sph(k, [0.06, 0.045, 0.06], [sx * 0.125, 0.095, 0], c1, { w: 10, h: 6 }); B.box(k, [0.1, 0.014, 0.07], [sx * 0.13, 0.065, 0], c2, { r: [0, 0, sx * -0.35] });
+      if (t === 3) B.cone('iron', [0.014, 0.06, 6], [sx * 0.14, 0.14, 0], c2, { r: [0, 0, sx * -0.3] });
+    }
+    for (const [y, w, i] of [[-0.11, 0.2, 0], [-0.14, 0.21, 1], [-0.17, 0.2, 0]]) B.box(k, [w, 0.03, 0.12], [0, y, 0], i ? c2 : c1);
+    if (t === 3) B.sph('glow', [0.02, 0.03, 0.01], [0, 0.03, 0.085], '#ff4a68', { ao: false }); else B.skull([0, 0.04, 0.088], 0.42, [0, 0, 0]);
+    if (t === 0) for (let i = 0; i < 6; i++) B.sph('iron', 0.006, [(i % 2 ? 1 : -1) * 0.05, 0.08 - Math.floor(i / 2) * 0.05, 0.078], '#a8a8a0', { w: 5, h: 4 });
+  };
+  const k = String(key);
+  if (k === 'med') {   // medikit col crocione rosso e una macchia di sangue
+    B.in([0, 0, 0], null, [1.3, 1.3, 1.3], () => {
+      B.box('bone', [0.2, 0.13, 0.1], [0, 0, 0], '#f2f2ee'); B.box('iron', [0.05, 0.012, 0.03], [0, 0.071, 0], '#8a8a82'); B.box('iron', [0.012, 0.03, 0.104], [-0.07, 0, 0], '#a8a8a0'); B.box('iron', [0.012, 0.03, 0.104], [0.07, 0, 0], '#a8a8a0');
+      for (const z of [-0.0512, 0.0512]) { B.box('glow', [0.1, 0.03, 0.004], [0, 0.005, z], '#d01818', { ao: false }); B.box('glow', [0.03, 0.1, 0.004], [0, 0.005, z], '#d01818', { ao: false }); }
+      B.dec(1, 0.08, 0.08, [0.05, -0.03, 0.0525]);
+    });
+  } else if (k.startsWith('ammo')) B.in([0, -0.02, 0], null, [1.4, 1.4, 1.4], () => ammoBox(+k.slice(4)));
+  else if (k.startsWith('arm')) B.in([0, 0, 0], null, [0.85, 0.85, 0.85], () => armorModel(+k.slice(3)));
+  else {
+    const w = +k, W = (s, dx, dy, f) => B.in([dx * s, dy * s, 0], null, [s, s, s], f);
+    if (w === 1) W(0.75, 0.05, 0, () => {   // fucile a canne mozze affiancate
+      for (const z of [-0.012, 0.012]) B.cyl('iron', [0.011, 0.011, 0.26, 8], [0.04, 0.01, z], '#8a8880', { r: [0, 0, 1.5708] });
+      B.box('iron', [0.26, 0.004, 0.01], [0.04, 0.01, 0], '#6a6a64'); B.box('iron', [0.07, 0.046, 0.04], [-0.1, 0, 0], '#6a6a64');
+      B.seg('wood', [-0.13, 0.01, 0], [-0.26, -0.03, 0], 0.018, 0.028, '#b08a60', 6); B.box('iron', [0.012, 0.07, 0.04], [-0.265, -0.03, 0], '#6a6a64', { r: [0, 0, 0.3] });
+      B.box('wood', [0.09, 0.03, 0.04], [0.02, -0.022, 0], '#b08a60'); B.tor('iron', [0.016, 0.003, 4, 8, 3.1416], [-0.085, -0.024, 0], '#6a6a64', { r: [0, 0, 3.1416] });
+      B.dec(1, 0.07, 0.07, [0.06, 0.0, 0.0262], [0, 0, 0]);
+    });
+    else if (w === 2) W(0.9, 0.015, 0, () => {   // mitra con caricatore, calcio a filo e impugnatura
+      B.box('iron', [0.16, 0.045, 0.036], [0, 0, 0], '#55555a'); B.cyl('iron', [0.008, 0.008, 0.1, 6], [0.13, 0.008, 0], '#6a6a70', { r: [0, 0, 1.5708] }); B.cyl('iron', [0.014, 0.014, 0.07, 8], [0.07, 0.008, 0], '#4a4a50', { r: [0, 0, 1.5708] });
+      B.box('iron', [0.008, 0.016, 0.006], [0.17, 0.022, 0], '#8a8a82'); B.box('iron', [0.12, 0.01, 0.02], [0, 0.026, 0], '#6a6a70');
+      for (const z of [-0.012, 0.012]) B.seg('iron', [-0.08, 0.01, z], [-0.2, -0.02, z], 0.004, 0.004, '#8a8a82', 5);
+      B.box('iron', [0.01, 0.05, 0.036], [-0.2, -0.02, 0], '#6a6a70'); B.box('iron', [0.03, 0.09, 0.024], [0.0, -0.065, 0], '#3a3a40', { r: [0, 0, 0.12] });
+      B.seg('wood', [-0.05, -0.02, 0], [-0.07, -0.08, 0], 0.014, 0.012, '#4a3226', 6); B.tor('iron', [0.016, 0.003, 4, 8, 3.1416], [-0.02, -0.024, 0], '#6a6a70', { r: [0, 0, 3.1416] });
+    });
+    else if (w === 3) W(0.72, 0.02, 0, () => {   // lanciarazzi: tubo, razzo con la punta rossa, svasatura posteriore
+      B.cyl('iron', [0.036, 0.036, 0.32, 10], [0, 0, 0], '#7a8a62', { r: [0, 0, 1.5708] }); B.cone('iron', [0.03, 0.08, 8], [0.2, 0, 0], '#b8402a', { r: [0, 0, -1.5708] });
+      B.cyl('iron', [0.046, 0.036, 0.05, 10], [-0.18, 0, 0], '#5a6a48', { r: [0, 0, 1.5708] }); B.box('iron', [0.03, 0.08, 0.03], [-0.02, -0.06, 0], '#4a4a50', { r: [0, 0, 0.2] });
+      B.box('iron', [0.05, 0.03, 0.02], [0.03, 0.05, 0], '#6a6a64'); B.tor('iron', [0.038, 0.004, 4, 12], [-0.06, 0, 0], '#4a5a3a', { r: [0, 1.5708, 0] }); B.tor('iron', [0.038, 0.004, 4, 12], [0.08, 0, 0], '#4a5a3a', { r: [0, 1.5708, 0] });
+    });
+    else if (w === 4) W(1.2, 0, -0.05, () => bottle(0, 0, 0, 1, null, true, true));
+    else if (w === 5) W(1.6, 0, -0.01, () => gren(0, 0, 0, 1));
+    else if (w === 6) W(0.8, -0.04, 0, () => {   // lanciafiamme: serbatoio rosso, ugello con fiamma pilota
+      B.cyl('iron', [0.045, 0.045, 0.2, 10], [-0.06, 0.02, 0], '#b8402a', { r: [0, 0, 1.5708] }); B.box('iron', [0.1, 0.04, 0.036], [0.06, -0.02, 0], '#4a4a50');
+      B.seg('iron', [0.11, -0.02, 0], [0.2, -0.02, 0], 0.012, 0.01, '#6a6a70', 6); B.cone('flame', [0.012, 0.04, 6], [0.225, -0.02, 0], '#ff9a20', { r: [0, 0, -1.5708], ao: false }); B.cone('flame', [0.006, 0.025, 5], [0.222, -0.02, 0], '#fff0b0', { r: [0, 0, -1.5708], ao: false });
+      for (const x of [-0.1, -0.02]) B.tor('iron', [0.046, 0.004, 4, 12], [x, 0.02, 0], '#8a8a82', { r: [0, 1.5708, 0] });
+      B.tor('iron', [0.04, 0.006, 4, 10, 3.1416], [0.0, 0.0, 0], '#2a2a2e', { r: [0, 0, 3.1416] }); B.seg('wood', [0.04, -0.04, 0], [0.03, -0.1, 0], 0.014, 0.012, '#4a3226', 6); B.cyl('iron', [0.012, 0.012, 0.02, 6], [-0.16, 0.02, 0], '#8a8a82', { r: [0, 0, 1.5708] });
+    });
+    else W(1.15, -0.05, 0, () => {   // pistola al plasma: cella verde luminosa, bobine sulla canna
+      B.box('iron', [0.15, 0.05, 0.04], [0, 0, 0], '#3a3a44'); B.cyl('iron', [0.014, 0.018, 0.1, 8], [0.12, 0, 0], '#2a2a32', { r: [0, 0, 1.5708] });
+      for (const x of [0.09, 0.12, 0.15]) B.tor('glow', [0.02, 0.004, 4, 10], [x, 0, 0], '#4dff6a', { r: [0, 1.5708, 0], ao: false });
+      B.sph('glow', 0.012, [0.178, 0, 0], '#9dffb0', { w: 6, h: 5, ao: false }); B.cyl('glow', [0.022, 0.022, 0.08, 8], [-0.01, 0.04, 0], '#4dff6a', { r: [0, 0, 1.5708], ao: false });
+      for (const x of [-0.05, 0.03]) B.cyl('iron', [0.026, 0.026, 0.01, 8], [x, 0.04, 0], '#2a2a32', { r: [0, 0, 1.5708] });
+      B.box('iron', [0.035, 0.08, 0.03], [-0.04, -0.06, 0], '#2a2a32', { r: [0, 0, 0.2] }); for (let i = 0; i < 3; i++) B.box('iron', [0.012, 0.01, 0.042], [-0.02 + i * 0.02, -0.02, 0], '#6a6a70');
+    });
+  }
+}
+function t3Pickup(key) {
+  const g = new THREE.Group();
+  for (const p of t3PropGeo('pk_' + key, B => t3PickModel(B, key), 0.5)) g.add(new THREE.Mesh(p.g, p.m));
+  if (typeof SH !== 'undefined' && SH.haloW) {   // alone luminoso (verde per il medikit, oro per il resto): resta visibile anche da lontano
+    const tx = T3.haloTex || (T3.haloTex = new THREE.CanvasTexture(SH.haloW)), hl = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, color: key === 'med' ? 0x50ff78 : 0xffc83c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0.45 }));
+    hl.scale.set(0.6, 0.6, 1); g.add(hl); g.userData.halo = hl;
+  }
+  return g;
+}
+
+// =====================================================================================================================
+// ROTTURA DEGLI OGGETTI DI SCENA: i pezzi del modello volano via, nuvole di polvere, macerie sul pavimento, schegge del gioco
+// =====================================================================================================================
+function t3MRubble(B, c) {   // macerie per categoria (legno, botte, armatura, rastrelliera, ossa, urna)
+  const R = B.R, P = (r) => { const a = R() * 6.28, d = Math.sqrt(R()) * r; return [Math.cos(a) * d, Math.sin(a) * d]; };
+  const pl = (k, d, col, r) => { const [x, z] = P(r); B.box(k, d, [x, d[1] / 2 + R() * 0.006, z], col, { r: [0, R() * 6.28, (R() - 0.5) * 0.5] }); };
+  const WD = ['#d8c4a4', '#bca486', '#a88e72'], IR = ['#c89a78', '#94785f', '#b08a6c'], bn = (r) => { const [x, z] = P(r), a = R() * 6.28; B.bone([x, 0.01, z], [x + Math.cos(a) * 0.09, 0.012, z + Math.sin(a) * 0.09]); };
+  const teeth = (n) => { for (let i = 0; i < n; i++) { const [x, z] = P(0.22); B.box('bone', [0.007, 0.011, 0.006], [x, 0.006, z], '#efe6cc', { r: [0, R() * 6, 0] }); } };
+  if (c === 'armor') {
+    for (let i = 0; i < 5; i++) pl('iron', [0.05 + R() * 0.05, 0.012, 0.04 + R() * 0.04], IR[i % 3], 0.22);
+    { const [x, z] = P(0.18); B.sph('iron', [0.06, 0.035, 0.06], [x, 0.02, z], '#b08a6c', { w: 8, h: 4, r: [0.5, R() * 6, 0.3] }); }
+    bn(0.2); bn(0.2); { const [x, z] = P(0.15); B.skull([x, 0.035, z], 0.7, [R() - 0.5, R() * 6, R() - 0.5], { jaw: 0.4 }); }
+    pl('wood', [0.2, 0.02, 0.03], WD[0], 0.2); B.dec(5, 0.45, 0.45, [0, 0.002, 0], [-1.5708, 0, 0]);
+  } else if (c === 'barrel') {
+    for (let i = 0; i < 6; i++) pl('wood', [0.02 + R() * 0.01, 0.014, 0.15 + R() * 0.08], WD[i % 3], 0.2);
+    for (const x of [-0.06, 0.07]) B.tor('iron', [0.15, 0.011, 4, 14], [x, 0.014, (R() - 0.5) * 0.1], '#b09888', { r: [1.5708 + (R() - 0.5) * 0.2, 0, (R() - 0.5) * 0.2] });
+    B.dec(5, 0.5, 0.5, [0, 0.002, 0], [-1.5708, 0, 0]);
+  } else if (c === 'rack') {
+    for (let i = 0; i < 4; i++) pl('wood', [0.14 + R() * 0.1, 0.016, 0.035], WD[i % 3], 0.2);
+    pl('wood', [0.04, 0.04, 0.2], '#8a7058', 0.15); pl('iron', [0.14, 0.006, 0.024], '#b8aca0', 0.2); pl('iron', [0.09, 0.006, 0.024], '#b8aca0', 0.2);
+    { const [x, z] = P(0.15); B.skull([x, 0.035, z], 0.55, [R() - 0.5, R() * 6, R() - 0.5]); } B.dec(2, 0.2, 0.2, [0, 0.002, 0], [-1.5708, 0, 0]);
+  } else if (c === 'bones') {
+    for (let i = 0; i < 5; i++) bn(0.2); { const [x, z] = P(0.16); B.box('bone', [0.05, 0.016, 0.04], [x, 0.01, z], '#e2d6b6', { r: [0, R() * 6, 0] }); }
+    for (let i = 0; i < 2; i++) { const [x, z] = P(0.15); B.sph('bone', [0.04, 0.03, 0.04], [x, 0.016, z], '#d8cbb0', { w: 7, h: 4, r: [R(), R() * 6, 0] }); }
+    teeth(8); B.cyl('stone', [0.12, 0.12, 0.004, 10], [0, 0.002, 0], '#8a847c', { ao: false });
+  } else if (c === 'urn') {
+    for (let i = 0; i < 8; i++) pl('stone', [0.04 + R() * 0.03, 0.008, 0.03 + R() * 0.03], '#b0a090', 0.2);
+    B.sph('stone', [0.1, 0.014, 0.1], [0.02, 0.007, 0.02], '#6a645c', { w: 8, h: 3 }); bn(0.18); teeth(5);
+    { const [x, z] = P(0.14); B.cyl('bone', [0.011, 0.012, 0.04, 6], [x, 0.012, z], '#e8dcbc', { r: [1.5708, R() * 6, 0] }); }
+  } else {
+    for (let i = 0; i < 6; i++) pl('wood', [0.12 + R() * 0.1, 0.014, 0.03 + R() * 0.02], WD[i % 3], 0.22);
+    for (let i = 0; i < 5; i++) pl('wood', [0.02, 0.01, 0.035], WD[(i + 1) % 3], 0.2);
+    for (let i = 0; i < 3; i++) { const [x, z] = P(0.2); B.cyl('iron', [0.004, 0.004, 0.03, 4], [x, 0.004, z], '#6a5a50', { r: [1.5708, R() * 3, 0] }); }
+  }
+}
+
+function t3PropShards(key) {   // spezza il modello in blocchi di pezzi vicini (si calcola una volta sola, alla prima rottura)
+  const src = T3.pg && T3.pg[key]; if (!src || !src.B) return [];
+  const C = T3.ps || (T3.ps = {}); if (C[key]) return C[key];
+  const cells = new Map();
+  for (const k in src.B.L) {
+    if (k === 'decal') continue;
+    for (const it of src.B.L[k]) {
+      const e = it.m.elements, id = Math.floor((e[12] + 0.4) / 0.27) + ',' + Math.floor(e[13] / 0.3) + ',' + Math.floor((e[14] + 0.4) / 0.27);
+      let c = cells.get(id); if (!c) { c = { n: 0, p: [0, 0, 0], L: {} }; cells.set(id, c); }
+      (c.L[k] = c.L[k] || []).push(it); c.n++; c.p[0] += e[12]; c.p[1] += e[13]; c.p[2] += e[14];
+    }
+  }
+  const out = [];
+  for (const c of cells.values()) {
+    const ctr = [c.p[0] / c.n, c.p[1] / c.n, c.p[2] / c.n], B2 = { L: { wood: [], iron: [], bone: [], flesh: [], stone: [], glow: [], flame: [], decal: [] } };
+    for (const k in c.L) B2.L[k] = c.L[k];
+    const parts = t3PBake(B2, src.R, src.y0, ctr); let ext = 0;
+    for (const p of parts) { const A = p.g.attributes.position.array; for (let i = 0; i < A.length; i++) ext = Math.max(ext, Math.abs(A[i])); }
+    out.push({ ctr, parts, h: Math.min(0.08, ext * 0.5) });
+  }
+  return C[key] = out;
+}
+
+function t3Puff(x, y, z, col, sc) {   // nuvola di polvere (sprite che si allarga e svanisce)
+  if (typeof SH === 'undefined' || !SH.smoke) return;
+  const tx = T3.smokeTex || (T3.smokeTex = new THREE.CanvasTexture(SH.smoke)), sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, color: col, transparent: true, depthWrite: false, opacity: 0.5 }));
+  sp.position.set(x, y, z); sp.scale.set(0.15, 0.15, 1); T3.root.add(sp);
+  T3.puffs.push({ sp, t: 0, sc, vx: (Math.random() - 0.5) * 0.5, vy: 0.2 + Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.5 });
+}
+
+function t3Shatter(m, q) {   // l'oggetto e stato distrutto: i suoi pezzi esplodono, resta un mucchio di macerie
+  const u = m.userData, P = m.position, ry = m.rotation.y, cs = Math.cos(ry), sn = Math.sin(ry), mat = q.mat || 'wood';
+  const far = Math.hypot(q.x - player.x, q.y - player.y) > 22;
+  const dust = { wood: 0x8a7a68, rust: 0x8a6a58, stone: 0x9a9488, bone: 0xcfc8b4, metal: 0x909090 }[mat] || 0x8a8070;
+  if (!far) {
+    for (const s of t3PropShards(u.brk)) {
+      const o = s.ctr, wx = o[0] * cs + o[2] * sn, wz = -o[0] * sn + o[2] * cs, g = new THREE.Group();
+      for (const p of s.parts) g.add(new THREE.Mesh(p.g, p.m));
+      g.position.set(P.x + wx, P.y + o[1], P.z + wz); g.rotation.y = ry; T3.root.add(g);
+      const d = Math.hypot(wx, wz) || 1, sp = 0.4 + Math.random() * 1.2;
+      T3.shards.push({ g, vx: wx / d * sp + (Math.random() - 0.5) * 0.7, vz: wz / d * sp + (Math.random() - 0.5) * 0.7, vy: 1 + Math.random() * 1.8 + o[1] * 1.5, wx: (Math.random() - 0.5) * 12, wy: (Math.random() - 0.5) * 8, wz: (Math.random() - 0.5) * 12, t: 0, fl: P.y + Math.max(0.015, s.h) });
+    }
+    for (let i = 0; i < 6; i++) t3Puff(P.x + (Math.random() - 0.5) * 0.3, P.y + 0.08 + Math.random() * 0.25, P.z + (Math.random() - 0.5) * 0.3, dust, 0.35 + Math.random() * 0.25);
+  }
+  const nm = u.nm || '', cat = /^armor/.test(nm) ? 'armor' : /^rack|^weaponRack/.test(nm) ? 'rack' : (nm === 'barrel' || nm === 'bones' || nm === 'urn') ? nm : 'wood';
+  const rg = new THREE.Group(), vr = Math.abs(Math.floor(q.x * 3.7 + q.y * 5.9)) % 3;
+  for (const p of t3PropGeo('rubble_' + cat + '#' + vr, B => t3MRubble(B, cat), 0.15)) rg.add(new THREE.Mesh(p.g, p.m));
+  rg.position.set(P.x, P.y, P.z); rg.rotation.y = (q.x * 5.1 + q.y * 2.3) % 6.28; rg.scale.setScalar(0.2); T3.root.add(rg);
+  T3.rubs.push({ g: rg, t: 0 }); if (T3.rubs.length > 60) T3.root.remove(T3.rubs.shift().g);
+}
+
+function t3Chip(d) {   // scheggia lanciata dal gioco quando un oggetto si rompe (legno, ferro, pietra, osso)
+  const CH = { wood: ['wood', [0.07, 0.012, 0.02], '#c8b08e'], rust: ['iron', [0.04, 0.01, 0.045], '#b08a6c'], metal: ['iron', [0.04, 0.01, 0.045], '#a8a8a0'], stone: ['stone', [0.035, 0.03, 0.03], '#b0a090'], bone: ['bone', [0.012, 0.012, 0.065], '#e2d6b6'], glass: ['bone', [0.03, 0.006, 0.03], '#cfe0e0'] };
+  const mt = CH[d.mat] ? d.mat : 'wood', c = CH[mt], p = t3PropGeo('chip_' + mt, B => B.box(c[0], c[1], [0, 0, 0], c[2], { ao: false }), 0)[0], m = new THREE.Mesh(p.g, p.m);
+  m.userData.sc = 0.8 + Math.random() * 0.8; m.userData.sd = Math.random() * 6.28; return m;
+}
+
+function t3BreakStep(dt) {   // fa avanzare pezzi, polvere e crescita delle macerie
+  const S = T3.shards;
+  for (let i = S.length - 1; i >= 0; i--) {
+    const s = S[i], g = s.g; s.t += dt; s.vy -= 9 * dt;
+    const nx = g.position.x + s.vx * dt, nz = g.position.z + s.vz * dt;
+    if (!isWall(nx, nz)) { g.position.x = nx; g.position.z = nz; } else { s.vx *= -0.3; s.vz *= -0.3; }
+    g.position.y += s.vy * dt;
+    if (g.position.y < s.fl) { g.position.y = s.fl; if (Math.abs(s.vy) > 0.5) s.vy *= -0.32; else s.vy = 0; s.vx *= 0.55; s.vz *= 0.55; s.wx *= 0.5; s.wy *= 0.5; s.wz *= 0.5; }
+    g.rotation.x += s.wx * dt; g.rotation.y += s.wy * dt; g.rotation.z += s.wz * dt;
+    g.scale.setScalar(s.t > 1.2 ? Math.max(0.001, 1 - (s.t - 1.2) / 0.4) : 1);
+    if (s.t > 1.6) { T3.root.remove(g); S.splice(i, 1); }
+  }
+  for (let i = T3.puffs.length - 1; i >= 0; i--) {
+    const p = T3.puffs[i]; p.t += dt; const k = p.t / 0.9;
+    if (k >= 1) { T3.root.remove(p.sp); p.sp.material.dispose(); T3.puffs.splice(i, 1); continue; }
+    p.sp.position.x += p.vx * dt; p.sp.position.y += p.vy * dt * (1 - k); p.sp.position.z += p.vz * dt;
+    const s = p.sc * (0.5 + k); p.sp.scale.set(s, s, 1); p.sp.material.opacity = 0.5 * (1 - k) * (1 - k);
+  }
+  for (const r of T3.rubs) if (r.t < 1) { r.t = Math.min(1, r.t + dt / 0.45); r.g.scale.setScalar(0.2 + 0.8 * (1 - Math.pow(1 - r.t, 3))); }
+}
+
 // ---------- aggiorna la scena a ogni fotogramma ----------
-function t3Stale(map) { for (const [k, m] of map) if (m.userData.f !== T3.stamp) { T3.root.remove(m); map.delete(k); } }
+function t3Stale(map) { for (const [k, m] of map) if (m.userData.f !== T3.stamp) { T3.root.remove(m); map.delete(k); if (m.userData.brk && k.hp <= 0) t3Shatter(m, k); } }
 function t3Get(map, key, make) { let m = map.get(key); if (!m) { m = make(); map.set(key, m); T3.root.add(m); } m.userData.f = T3.stamp; return m; }
 
 // ---------- effetti: gli stessi sprite del motore 2D (pushFxSprites), qui come sprite additivi in 3D, piu vere luci ----------
@@ -1453,24 +1666,35 @@ function t3Sync() {
   t3Stale(T3.mobs); t3Stale(T3.bars);
   // colpi, fiamme, esplosioni e bagliori (sprite additivi + luci dinamiche)
   t3Fx(); t3FxLights();
-  // raccoglibili: cubetti con l'icona, che ruotano e fluttuano
+  // raccoglibili: modelli 3D (medikit, munizioni, armi, armature) che ruotano e fluttuano, con un alone luminoso
   for (const q of pickups) {
     if (q.taken) continue;
-    const key = q.kind === 'arm' ? 'arm' + q.t : q.kind;
-    const m = t3Get(T3.pick, q, () => { let tx = T3.icons.get(key); if (!tx && pickupIcons[key]) { tx = t3Tex(pickupIcons[key]); T3.icons.set(key, tx); } return new THREE.Mesh(t3Box(0.18, 0.18, 0.18), new THREE.MeshBasicMaterial({ map: tx, transparent: true, fog: false })); });
-    m.position.set(q.x, 0.2 + world1H(q.x, q.y) + Math.sin(tNow * 2.5 + q.x) * 0.03, q.y); m.rotation.y = tNow * 1.5;
+    const key = q.kind === 'arm' ? 'arm' + q.t : q.kind === 'ammo' ? 'ammo' + q.w : q.kind;
+    const m = t3Get(T3.pick, q, () => t3Pickup(key));
+    m.position.set(q.x, 0.22 + world1H(q.x, q.y) + Math.sin(tNow * 2.5 + q.x) * 0.03, q.y); m.rotation.y = tNow * 1.5;
+    if (m.userData.halo) m.userData.halo.material.opacity = 0.4 + 0.12 * Math.sin(tNow * 4 + q.x * 2);
   }
   t3Stale(T3.pick);
   // oggetti di scena
   for (const q of props) {
     const m = t3Get(T3.prop, q, () => { const o = t3Props(q); o.position.set(q.x, world1H(q.x, q.y), q.y); return o; });
     if (m.userData.lid) m.userData.lid.rotation.x = q.open ? -1.2 : 0;
+    const u = m.userData;   // colpito: il modello trema per un attimo
+    if (u.hp === undefined) u.hp = q.hp; if (q.hp < u.hp) u.shake = 0.3; u.hp = q.hp;
+    if (u.shake > 0) { u.shake -= T3.dt; const k = Math.max(0, u.shake) / 0.3; m.rotation.x = Math.sin(tNow * 70) * 0.06 * k; m.rotation.z = Math.cos(tNow * 63) * 0.06 * k; }
+    else if (m.rotation.x || m.rotation.z) m.rotation.x = m.rotation.z = 0;
   }
   // lampadari appesi al soffitto
   for (const c of chands) {
     const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(); for (const p of t3PropGeo('chand', t3MChand)) g.add(new THREE.Mesh(p.g, p.m)); g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
   }
   t3Stale(T3.prop);
+  for (const d of debris) {   // schegge lanciate dalla rottura
+    const m = t3Get(T3.deb, d, () => t3Chip(d));
+    m.position.set(d.x, world1H(d.x, d.y) + d.z, d.y); m.rotation.set(tNow * 9 + m.userData.sd, tNow * 7, m.userData.sd * 3); m.scale.setScalar(m.userData.sc * Math.min(1, d.life / 0.25));
+  }
+  t3Stale(T3.deb);
+  t3BreakStep(T3.dt);
   world1Sync3D();
 }
 

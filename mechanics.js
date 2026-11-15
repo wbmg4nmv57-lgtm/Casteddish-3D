@@ -63,7 +63,7 @@ function fireWeapon(pw) {
 function damageEnemy(e, d, silent) {
   if (!e.alive) return;
   e.hp -= d; if (!silent) sfxAt('hit_flesh', e.x, e.y, 14, 0.8, false);
-  if (e.hp <= 0) { e.alive = false; e.state = 'die'; player.kills++; enemyVoice(e, 'death'); }
+  if (e.hp <= 0) { e.alive = false; e.state = 'die'; player.kills++; enemyVoice(e, 'death'); if (e.tc === 'bloat') bloatBurst(e); }
   else if (e.vC <= 0) { e.vC = silent ? 1.5 : 0.7; enemyVoice(e, 'hurt'); }
 }
 
@@ -402,8 +402,8 @@ function spawnPair() {
    (duel).
    ====================================================================== */
 
-// ---- Friendly fire: the shots of a monster hit whoever stands in their way, and 1 time in 5 the two start fighting each other ----
-const FF_CHANCE = 0.2, FF_TIME = 14;   // chance of a fight per friendly hit; longest a fight lasts (seconds)
+// ---- Friendly fire: the shots of a monster hit whoever stands in their way, and the two start fighting each other to the death ----
+const FF_CHANCE = 1, FF_TIME = 600;   // ogni colpo amico scatena la rissa, che dura finche uno dei due muore (o finche non riescono a raggiungersi)
 function infight(a, b) {   // bosses keep their own AI and never take part
   if (!a || !b || a === b || !a.alive || !b.alive || TYPES[a.type].boss || TYPES[b.type].boss) return;
   let began = false;
@@ -411,6 +411,12 @@ function infight(a, b) {   // bosses keep their own AI and never take part
   if (!b.foe || !b.foe.alive) { b.foe = a; b.foeT = FF_TIME; b.hitT = 0; b.stk = 0; began = true; }
   if (!began) return;
   for (const q of [a, b]) { ringFx(q.x, q.y, 1.1, 'R'); enemyVoice(q, 'hurt'); }
+}
+function bloatBurst(e) {   // il demone gonfio scoppia: ondata tossica che ferisce il giocatore e i mostri vicini, e puo farne scoppiare altri a catena
+  const R = 2.8; ringFx(e.x, e.y, R, 'R'); sfxAt('explosion', e.x, e.y, 20, 0.9);
+  const d = dstP(e); if (d < R) hurt(8 + 22 * (1 - d / R));
+  if (d < 9) { shake.a = Math.max(shake.t > 0 ? shake.a : 0, 9); shake.t = shake.max = 0.4; }
+  for (const q of enemies) { if (q === e || !q.alive || TYPES[q.type].boss) continue; const dq = Math.hypot(q.x - e.x, q.y - e.y); if (dq < R) damageEnemy(q, 45 * (1 - 0.6 * dq / R), true); }
 }
 function shootFoe(e, f) {   // the attack of a monster against its rival: same shots it would throw at the player
   const dx = f.x - e.x, dy = f.y - e.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
@@ -448,7 +454,8 @@ function duel(e, dt) {
     e.state = e.cast > 0 ? 'attack' : 'walk'; e.stk = 0;
     return true;
   }
-  if (d > 0.95) {
+  const rc = Math.max(0.95, (e.cr || 0.4) + (f.cr || 0.4) + 0.2);   // distanza di combattimento: i corpi grossi non si avvicinano oltre la loro larghezza
+  if (d > rc) {
     const mv = steer(e, f.x, f.y, spd, dt);
     e.state = 'walk'; e.stk = mv < spd * dt * 0.3 ? e.stk + dt : 0;
     e.sd = (e.sd || 0) + mv;

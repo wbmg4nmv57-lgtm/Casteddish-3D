@@ -768,21 +768,82 @@ function t3Weapon(B, kind, o) {
   }
 }
 
+// =====================================================================================================================
+// ASPETTO DISTINTIVO DEI DEMONI: ogni variante ha pelle, ossa e occhi di un altro colore e i suoi ornamenti
+// (corna, spuntoni, placche d'osso, bolle, sacche di plasma). I numeri di forma (altezza, larghezza, arti) stanno in VARS.
+// =====================================================================================================================
+//  skin/keep: tinta della pelle e quanto del colore originale resta (0 = tutta nuova); bone: ossa e corna; glow: crepe incandescenti;
+//  eye: colore degli occhi; halo: alone degli occhi
+const T3LOOK = [
+  { skin: '#e0583c', keep: 0.75, bone: '#e0c4a8', glow: '#ff3010', eye: '#ff5a38', halo: '#ff3a1a' },   // 0 bruto: rosso sangue
+  { skin: '#8fb0ea', keep: 0.05, bone: '#e4ecf4', glow: '#40c0ff', eye: '#d8fff0', halo: '#7affd8' },   // 1 lama: grigio-azzurro cinereo
+  { skin: '#b080e8', keep: 0.1, bone: '#ece4f4', glow: '#c060ff', eye: '#ffffff', halo: '#fff070' },    // 2 astuto: viola
+  { skin: '#9a9288', keep: 0.0, bone: '#a8a090', glow: '#ff7a18', eye: '#ff9040', halo: '#ff7a20' },    // 3 colosso: grigio pietra
+  { skin: '#b8d060', keep: 0.05, bone: '#e4ecb4', glow: '#a8e820', eye: '#c8ff40', halo: '#b8ff30' },   // 4 gonfio: giallo-verde malato
+  { skin: '#d8d4c0', keep: 0.1, bone: '#f2ecda', glow: '#ffb040', eye: '#ff4040', halo: '#ff2828' },    // 5 cecchino: pallido, occhi rossi
+  { skin: '#c08850', keep: 0.3, bone: '#dcc49c', glow: '#ff8040', eye: '#ffb060', halo: '#ffa040' },    // 6 lanciatore: bruno-arancio
+  { skin: '#58c0b0', keep: 0.1, bone: '#dcf2e4', glow: '#a050ff', eye: '#ff7058', halo: '#b060ff' }     // 7 sputaplasma: verde acqua con luce viola
+];
+function t3Tint(m, hex, keep, id) {   // cambia il colore (non solo lo scurisce): tiene il chiaroscuro della texture e ci mette sopra la tinta
+  const c = new THREE.Color(hex);
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTint = { value: new THREE.Vector3(c.r, c.g, c.b) }; sh.uniforms.uKeep = { value: keep };
+    sh.fragmentShader = 'uniform vec3 uTint;\nuniform float uKeep;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n  float lum_ = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));\n  diffuseColor.rgb = mix(vec3(lum_) * uTint * 2.4, diffuseColor.rgb, uKeep);');
+  };
+  m.customProgramCacheKey = () => 'tint' + id;
+}
+function t3Extras(v) {   // ornamenti 3D di ogni variante: geometrie da attaccare a testa, torace, corpo e avambracci
+  const sp = t3Spike, ho = t3Horn, S = [-1, 1], X = { head: [], chest: [], chestSkin: [], bodySkin: [], fore: [], foreBoth: false, sacs: [], eye3: false };
+  if (v === 0) {   // BRUTO: corna d'ariete, spuntoni sulle spalle e lungo la schiena
+    for (const s of S) { X.head.push({ g: ho(0.5, 0.06, 0.3, 2.3, 0.9), p: [s * 0.075, 0.09, -0.02], s: [s, 1, 1] }); X.chest.push({ g: sp(0.2, 0.045, { bend: 0.25 }), p: [s * 0.3, 0.3, -0.02], r: [0, 0, -s * 0.7] }, { g: sp(0.13, 0.035), p: [s * 0.34, 0.24, 0.03], r: [0.2, 0, -s * 1.3] }); }
+    for (let i = 0; i < 4; i++) X.chest.push({ g: sp(0.17 - i * 0.015, 0.04 - i * 0.004, { bend: 0.3 }), p: [0, 0.3 - i * 0.1, -0.13], r: [-1.9 + i * 0.1, 0, 0] });
+  } else if (v === 1) {   // LAMA: corna lunghe e sottili all'indietro, pinna dorsale e lame sugli avambracci
+    for (const s of S) X.head.push({ g: ho(0.6, 0.026, 0.15, 1.1, 0.25), p: [s * 0.05, 0.1, -0.03], s: [s, 1, 1] });
+    for (let i = 0; i < 6; i++) X.chest.push({ g: sp(0.2 - i * 0.015, 0.012, { bend: 0.1 }), p: [0, 0.34 - i * 0.075, -0.115], r: [-1.6, 0, 0] });
+    X.fore.push({ g: sp(0.3, 0.02, { bend: 0.05 }), p: [0, -0.06, -0.05], r: [-1.9, 0, 0] }); X.foreBoth = true;
+  } else if (v === 2) {   // ASTUTO: grandi orecchie a pipistrello, cornetti sulla fronte e un terzo occhio
+    for (const s of S) { X.head.push({ g: sp(0.2, 0.07, { fl: 0.3 }), p: [s * 0.1, 0.07, -0.03], r: [0.1, 0, -s * 1.15] }, { g: ho(0.12, 0.018, 0.4, 0.8, 0.3), p: [s * 0.03, 0.115, 0.07], s: [s, 1, 1] }); }
+    X.eye3 = true;
+  } else if (v === 3) {   // COLOSSO: corona d'osso, spallacci a lama, dorso corazzato e borchie sugli avambracci
+    for (let i = 0; i < 7; i++) { const a = i * 0.9; X.head.push({ g: sp(0.09, 0.02), p: [Math.cos(a) * 0.07, 0.115, Math.sin(a) * 0.07 - 0.03], r: [Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5] }); }
+    for (const s of S) X.chest.push({ g: sp(0.16, 0.12, { fl: 0.4 }), p: [s * 0.32, 0.3, 0], r: [0, 0, -s * 1.0] }, { g: sp(0.12, 0.05), p: [s * 0.36, 0.26, 0.02], r: [0, 0, -s * 1.4] });
+    for (let i = 0; i < 5; i++) X.chest.push({ g: sp(0.2 - i * 0.02, 0.05 - i * 0.005, { bend: 0.2 }), p: [(i % 2 ? 1 : -1) * 0.05, 0.33 - i * 0.1, -0.14], r: [-1.8, 0, 0] });
+    for (let i = 0; i < 3; i++) X.fore.push({ g: sp(0.07, 0.03), p: [0, -0.08 - i * 0.1, -0.07], r: [-2.2, 0, 0] }); X.foreBoth = true;
+  } else if (v === 4) {   // GONFIO: bolle sul ventre e sulla schiena, corna basse e cadenti
+    [[-0.1, 0.0, 0.19, 0.06], [0.12, -0.08, 0.18, 0.05], [0.02, 0.1, 0.2, 0.045], [-0.16, -0.09, 0.13, 0.05], [0.17, 0.04, 0.12, 0.04], [-0.04, -0.14, 0.2, 0.04]].forEach(([x, y, z, r]) => X.bodySkin.push({ g: t3Blob(r, r * 0.9, r), p: [x, y, z] }));
+    [[0.1, 0.12, -0.1, 0.055], [-0.08, 0.04, -0.12, 0.05], [0.15, 0.2, -0.08, 0.04]].forEach(([x, y, z, r]) => X.chestSkin.push({ g: t3Blob(r, r, r), p: [x, y, z] }));
+    for (const s of S) X.head.push({ g: ho(0.2, 0.03, 0.7, 2.0, 0.5), p: [s * 0.08, 0.1, 0.0], s: [s, 1, 1] });
+  } else if (v === 5) {   // CECCHINO: cresta di spuntoni sulla testa e un corno spezzato
+    for (let i = 0; i < 6; i++) X.head.push({ g: sp(0.12 - i * 0.01, 0.02), p: [0, 0.125 - i * 0.008, 0.02 - i * 0.045], r: [-1.0 - 0.12 * i, 0, 0] });
+    X.head.push({ g: ho(0.12, 0.04, 0.3, 1, 0.4), p: [-0.075, 0.09, -0.02], s: [-1, 1, 1] });
+  } else if (v === 6) {   // LANCIATORE: borchie sul braccio gigante e grosso spallaccio a spuntoni
+    for (let i = 0; i < 4; i++) X.fore.push({ g: sp(0.08, 0.035, { bend: 0.2 }), p: [0, -0.1 - i * 0.07, -0.07], r: [-2.2, 0, 0] });
+    X.chest.push({ g: sp(0.2, 0.06), p: [0.33, 0.28, 0], r: [0, 0, -0.8] }, { g: sp(0.14, 0.045), p: [0.36, 0.22, 0.03], r: [0.2, 0, -1.3] }, { g: sp(0.14, 0.045), p: [0.34, 0.24, -0.05], r: [-0.3, 0, -1.1] });
+    X.head.push({ g: ho(0.3, 0.05, 0.2, 1.4, 0.0), p: [0, 0.12, 0.02] });
+  } else if (v === 7) {   // SPUTAPLASMA: sacche di plasma luminose sulla gobba e spine dorsali
+    X.sacs = [[0.08, 0.24, -0.13, 0.065], [-0.06, 0.18, -0.12, 0.05], [0.15, 0.14, -0.1, 0.045]];
+    for (let i = 0; i < 4; i++) X.chest.push({ g: sp(0.11 - i * 0.01, 0.018), p: [-0.05, 0.1 + i * 0.07, -0.12], r: [-1.7, 0, 0] });
+  }
+  const mg = (a) => a.length ? t3Merge(a) : null;
+  return { head: mg(X.head), chest: mg(X.chest), chestSkin: mg(X.chestSkin), bodySkin: mg(X.bodySkin), fore: mg(X.fore), foreBoth: X.foreBoth, sacs: X.sacs, eye3: X.eye3 };
+}
+
 function t3Mob(e) {
   t3SkinTex();
   const gc = T3.gc = T3.gc || {}, G = (k, f) => gc[k] || (gc[k] = f());
   const S = STY[e.type] || STY.demon, T = TYPES[e.type] || TYPES.demon, mo = (VARS[e.type] && VARS[e.type][e.v | 0] && VARS[e.type][e.v | 0][2]) || {};
   const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, mc = T3.mc = T3.mc || {};
   const isD = e.type === 'demon', vr = isD ? (VARS.demon[e.v | 0] || VARS.demon[0]) : null;   // forme e armi delle varianti (per ora solo i demoni)
+  const mkey = isD ? 'demon#' + (e.v | 0) : e.type;   // ogni variante ha i suoi materiali (colori)
   const kwA = isD ? (mo.lw || 7) / 7 : 1, kwR = isD ? (mo.lwR || mo.lw || 7) / 7 : 1, kwL = isD ? ((mo.lw || 7) + 1) / 8 : 1, akL = isD ? mo.armL || 1 : 1, akR = isD ? mo.armR || 1 : 1;
-  if (!mc[e.type]) {
+  if (!mc[mkey]) {
     const ec = S.eye || '#ffe000';
     if (!T3.eyeGlow) {   // alone degli occhi: bianco al centro, sfuma a zero (il colore lo da il materiale)
       const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), r = x.createRadialGradient(32, 32, 0, 32, 32, 32);
       r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,0.8)'); r.addColorStop(0.5, 'rgba(255,255,255,0.22)'); r.addColorStop(1, 'rgba(255,255,255,0)');
       x.fillStyle = r; x.fillRect(0, 0, 64, 64); T3.eyeGlow = new THREE.CanvasTexture(c);
     }
-    mc[e.type] = {
+    mc[mkey] = {
       skin: new THREE.MeshStandardMaterial({ map: T3.skinTex, bumpMap: T3.skinBump, bumpScale: 1.6, vertexColors: true, emissive: 0xff4a10, emissiveMap: T3.glowTex, emissiveIntensity: 0.5, roughness: 0.58, metalness: 0.05 }),
       bone: new THREE.MeshStandardMaterial({ map: T3.boneTex, bumpMap: T3.boneBump, bumpScale: 1.2, vertexColors: true, roughness: 0.5 }),
       flesh: new THREE.MeshStandardMaterial({ color: 0x8a1822, vertexColors: true, roughness: 0.28, emissive: 0x2a0204, emissiveIntensity: 0.6 }),
@@ -791,10 +852,11 @@ function t3Mob(e) {
       eye: new THREE.MeshBasicMaterial({ map: T3.eyeTex, fog: false }),
       glow: new THREE.SpriteMaterial({ map: T3.eyeGlow, color: ec, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
     };
-    if (S.alpha) for (const k in mc[e.type]) if (k !== 'eye' && k !== 'glow') { mc[e.type][k].transparent = true; mc[e.type][k].opacity = S.alpha; }
+    if (S.alpha) for (const k in mc[mkey]) if (k !== 'eye' && k !== 'glow') { mc[mkey][k].transparent = true; mc[mkey][k].opacity = S.alpha; }
+    if (isD) { const LK = T3LOOK[e.v | 0] || T3LOOK[0], q = mc[mkey]; t3Tint(q.skin, LK.skin, LK.keep, mkey + 's'); t3Tint(q.bone, LK.bone, 0.3, mkey + 'b'); q.skin.emissive.set(LK.glow); q.eye.color.set(LK.eye); q.glow.color.set(LK.halo); q.plasma = new THREE.MeshBasicMaterial({ color: LK.halo }); }   // colori della variante
   }
   const D = G('demon', t3DemonGeos), eyeGeo = G('eye', () => new THREE.SphereGeometry(0.5, 16, 12));
-  const M = mc[e.type], g = new THREE.Group(), det = [], all = [], eyes = [];
+  const M = mc[mkey], g = new THREE.Group(), det = [], all = [], eyes = [];
   const mesh = (geo, mat, p, o) => { const m = new THREE.Mesh(geo, mat); (p || g).add(m); if (!(o && o.keep)) all.push(m); if (o && o.det) det.push(m); return m; };
   const grp = (p, x, y, z) => { const o = new THREE.Group(); o.position.set(x, y, z); p.add(o); return o; };
   const body = grp(g, 0, 0.45, 0); mesh(D.pelvis, M.skin, body);
@@ -821,6 +883,16 @@ function t3Mob(e) {
     const wg = grp(elbows[1], 0, -0.32 * akR, 0.035 * kwR), wo = vr[1] || {};
     wg.rotation.x = gun ? 2.85 : 1.45; wg.scale.setScalar(0.85 * (wo.sc || 1) * (0.8 + 0.2 * akR));
     for (const p of t3PropGeo('wp_' + e.type + '_' + (e.v | 0), B => t3Weapon(B, vr[0], wo), 0.5)) mesh(p.g, p.m, wg);
+  }
+  if (isD) {   // ornamenti della variante: corna, spuntoni, placche, bolle, sacche di plasma, terzo occhio
+    const XT = G('xt' + (e.v | 0), () => t3Extras(e.v | 0));
+    if (XT.head) mesh(XT.head, M.bone, head);
+    if (XT.chest) mesh(XT.chest, M.bone, chest).scale.x = wsc;
+    if (XT.chestSkin) mesh(XT.chestSkin, M.skin, chest).scale.x = wsc;
+    if (XT.bodySkin) mesh(XT.bodySkin, M.skin, body).scale.x = wsc;
+    if (XT.fore) for (const el of XT.foreBoth ? elbows : [elbows[1]]) mesh(XT.fore, M.bone, el);
+    for (const [x, y, z, r] of XT.sacs) { const sac = mesh(G('sac', () => new THREE.SphereGeometry(1, 10, 8)), M.plasma, chest); sac.position.set(x * wsc, y, z); sac.scale.setScalar(r); }
+    if (XT.eye3) { const eye = mesh(eyeGeo, M.eye, head, { keep: true }); eye.position.set(0, 0.125, 0.15); eye.scale.set(0.045, 0.045, 0.04); eye.userData.by = 0.045; const gl = new THREE.Sprite(M.glow); gl.position.set(0, 0.125, 0.172); head.add(gl); eyes.push([eye, gl]); }
   }
   const knees = [], ankles = [], legs = [-1, 1].map(s => {
     const l = grp(g, s * 0.12, 0.44, 0); mesh(D.thigh, M.skin, l).scale.set(kwL, 1, kwL);
@@ -1709,7 +1781,7 @@ function t3Sync() {
     m.visible = d2 < 2025; u.px = e.x; u.py = e.y; if (!m.visible) continue;   // da lontano si vedono solo gli occhi
     m.position.set(e.x, world1H(e.x, e.y) + (T.lift ? T.lift + Math.sin(tNow * 3 + e.x) * 0.04 : 0), e.y);
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
-    if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss)) u.hd = Math.atan2(px - e.x, py - e.y);
+    if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss || e.fc)) u.hd = Math.atan2(px - e.x, py - e.y);
     t3Anim(m, e, mv, d2);
     // barra vita: compare solo dopo il primo colpo
     const show = e.alive && e.hp < e.mhp && d2 < 144, b = t3Get(T3.bars, e, () => { const g = new THREE.Group(), mk = (c, z) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.04), new THREE.MeshBasicMaterial({ color: c, fog: false })); o.position.z = z; g.add(o); return o; }; mk(0x000000, 0); g.userData.fg = mk(0xdd2222, 0.001); return g; });

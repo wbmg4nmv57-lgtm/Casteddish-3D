@@ -32,9 +32,9 @@ const TYPES = {
 };
 const mkEnemy = (x, y, type) => {
   const T = TYPES[type], z0 = T.lift || 0, v = Math.floor(Math.random() * VARS[type].length), hs = (VARS[type][v][2] && VARS[type][v][2].hs) || 1;
-  const mo = VARS[type][v][2] || {}, roll = Math.random(), bh = mo.abil ? 'normal' : type === 'demon' ? (roll < 0.35 ? 'normal' : roll < 0.65 ? 'flank' : roll < 0.85 ? 'feint' : 'arc') : type === 'ghoul' || type === 'witch' ? (roll < 0.33 ? 'normal' : roll < 0.55 ? 'flank' : roll < 0.7 ? 'feint' : roll < 0.84 ? 'arc' : 'coward') : type === 'wraith' ? (roll < 0.45 ? 'normal' : roll < 0.75 ? 'flank' : 'arc') : type === 'skel' ? (roll < 0.5 ? 'normal' : roll < 0.8 ? 'arc' : 'flank') : 'normal';
-  return { x, y, type, hp: T.hp * DIFF.hp, alive: true, state: 'walk', frame: 0, animTimer: 0, deathTimer: 0,
-    r: T.r || 0.45, z0, z1: z0 + T.sc * hs + 0.1, shotT: 1 + Math.random(), cast: 0, t: 0, waves: 0, sumT: 0, mhp: T.hp * DIFF.hp, vT: 1 + Math.random() * 3, vC: 0, v, hs, bh, bs: 'idle', bt: 0, act: false, back: false, sp: mo.sp || 1, pw: mo.pw || 1, abil: mo.abil || null, ai: null, side: Math.random() < 0.5 ? 1 : -1, escT: 0, path: null, pi: 0 };
+  const mo = VARS[type][v][2] || {}, roll = Math.random(), bh = mo.bh ? mo.bh : mo.abil || mo.tc ? 'normal' : type === 'demon' ? (roll < 0.35 ? 'normal' : roll < 0.65 ? 'flank' : roll < 0.85 ? 'feint' : 'arc') : type === 'ghoul' || type === 'witch' ? (roll < 0.33 ? 'normal' : roll < 0.55 ? 'flank' : roll < 0.7 ? 'feint' : roll < 0.84 ? 'arc' : 'coward') : type === 'wraith' ? (roll < 0.45 ? 'normal' : roll < 0.75 ? 'flank' : 'arc') : type === 'skel' ? (roll < 0.5 ? 'normal' : roll < 0.8 ? 'arc' : 'flank') : 'normal';
+  return { x, y, type, hp: T.hp * DIFF.hp * (mo.hpm || 1), alive: true, state: 'walk', frame: 0, animTimer: 0, deathTimer: 0,
+    r: (T.r || 0.45) * (type === 'demon' ? Math.max(0.7, hs) : 1), z0, z1: z0 + T.sc * hs + 0.1, shotT: 1 + Math.random(), cast: 0, t: 0, waves: 0, sumT: 0, mhp: T.hp * DIFF.hp * (mo.hpm || 1), vT: 1 + Math.random() * 3, vC: 0, v, hs, bh, bs: 'idle', bt: 0, act: false, back: false, sp: mo.sp || 1, pw: mo.pw || 1, tc: mo.tc || null, kd: mo.kd || 0, sn: mo.sn || 1, reach: type === 'demon' ? 0.4 + 0.4 * hs * (mo.rch || 1) : 0, abil: mo.abil || null, ai: null, side: Math.random() < 0.5 ? 1 : -1, escT: 0, path: null, pi: 0 };
 };
 
 /* ======================================================================
@@ -222,15 +222,15 @@ function head(c, cx, cy, tilt, jaw, st, back, glow) {
 // Shape: hs height, ws width, belly, lw / lwR limb widths, armL / armR arm lengths, headS head size, hump back lump, bend lean, limp dragging leg.
 // Game effects: pw = damage multiplier (fat), sp = speed multiplier (thin 2x, cripples slower), abil = special attack of the cripples.
 const VARS = {
-  demon: [
-    ['axe2'],
-    ['mace', { blade: '#bfc6cc' }, { ws: 0.78, lw: 4.5, hs: 1.04, sp: 1.6 }],                                                   // thin: the fastest, still just under the player's speed
-    ['trident', { blade: '#d86a2a', dark: '#8a2a0a' }, { ws: 1.2, belly: 10, lw: 9, hs: 0.95, pw: 2 }],                           // fat: twice as strong
-    ['scimitar', {}, { hs: 1.2, lw: 6, ws: 0.92 }],
-    ['halberd', { handle: '#3a2a22' }, { hs: 0.8, ws: 1.08, headS: 1.12 }],
-    ['shotgun', {}, { limp: 1, bend: -0.06, sp: 0.6, abil: 'gun' }],                                                              // limping gunner
-    ['hammer', { sc: 0.95 }, { armR: 1.5, lwR: 12, armL: 0.6, ws: 1.05, sp: 0.6, abil: 'throw' }],                                // giant arm throws rocks and props
-    ['cleaver', { rust: 1, blade: '#a9a29a' }, { hump: 12, headS: 1.35, hunch: 8, bend: 0.1, hs: 0.92, sp: 0.6, abil: 'plasma' }]  // spits purple plasma
+  demon: [   // 8 demoni diversi per corpo, arma, forza e tattica (tc): hpm vita, sp velocita', pw forza, rch portata, sn quanto da lontano si accorge di te
+    ['axe2', {}, { ws: 1.32, lw: 9, hs: 1.12, sp: 0.8, pw: 1.5, hpm: 2.2, tc: 'brute', rch: 1.15, sn: 0.8 }],                                  // BRUTO: massiccio e forte, carica a testa bassa e dopo meta' vita va in furia
+    ['scimitar', { blade: '#d8e0e8' }, { ws: 0.64, lw: 3.6, hs: 1.22, armL: 1.25, armR: 1.25, bend: 0.08, sp: 1.6, pw: 0.75, hpm: 0.55, tc: 'skirm', rch: 1.3, sn: 1.2 }],   // LAMA: alto, magro e velocissimo, colpisce e scappa
+    ['cleaver', { rust: 1, blade: '#b9c4d0' }, { ws: 0.9, lw: 5, hs: 0.72, headS: 1.45, sp: 1.35, pw: 0.8, hpm: 0.6, tc: 'smart', bh: 'flank', sn: 1.7 }],   // ASTUTO: piccolo, schiva i colpi, avvisa il branco e attacca alle spalle
+    ['hammer', { sc: 1.1 }, { ws: 1.6, lw: 12, hs: 1.2, headS: 0.8, armL: 1.1, armR: 1.15, sp: 0.5, pw: 2.2, hpm: 3.2, tc: 'slam', rch: 1.2, sn: 0.9 }],      // COLOSSO: enorme e lentissimo, scuote il terreno e ferisce anche i compagni
+    ['trident', { blade: '#d86a2a', dark: '#8a2a0a' }, { ws: 1.35, belly: 16, lw: 9, hs: 1.0, sp: 0.7, hpm: 1.7, tc: 'bloat' }],                      // GONFIO: tenace, quando muore scoppia e ferisce chi gli sta vicino
+    ['shotgun', {}, { limp: 1, bend: -0.06, hunch: 5, sp: 0.7, hpm: 0.9, abil: 'gun', tc: 'kite', kd: 5 }],                                       // CECCHINO: zoppo, tiene le distanze e spara a ventaglio
+    ['mace', { blade: '#bfc6cc' }, { armR: 1.5, lwR: 12, armL: 0.6, ws: 1.1, hs: 1.08, sp: 0.6, hpm: 1.6, abil: 'throw', tc: 'siege' }],            // LANCIATORE: braccio gigante, resta fermo a tirare sassi e oggetti
+    ['halberd', { handle: '#3a2a22' }, { hump: 12, headS: 1.35, hunch: 8, bend: 0.1, hs: 0.95, sp: 0.75, hpm: 0.8, abil: 'plasma', tc: 'kite', kd: 3.5 }]   // SPUTAPLASMA: gobbuto, sputa plasma viola da media distanza
   ],
   ghoul: [
     ['club'],

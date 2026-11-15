@@ -335,6 +335,95 @@ function settleBlastFx(dt) {
 }
 // Piano 1: i demoni non si compenetrano. Ogni coppia troppo vicina viene spinta in direzioni opposte (chi e piu lontano dal giocatore cede di piu),
 // senza mai entrare nei muri: se uno dei due e bloccato, l'altro si sposta di piu.
+// =====================================================================================================================
+// TATTICHE DEI DEMONI: ogni tipo combatte a modo suo (e.tc, assegnato da VARS)
+//   brute  carica dritto, va in furia sotto meta' vita (piu' veloce e forte)       skirm colpisce e scappa, poi riparte da un altro lato
+//   smart  avvisa il branco, schiva i colpi, aggira in coppia e colpisce alle spalle  slam  carica un colpo al suolo che ferisce anche i compagni
+//   kite   i tiratori tengono la distanza, indietreggiano e si spostano di lato        siege resta fermo a tirare finche non ti avvicini
+//   bloat  (in mechanics.js) quando muore scoppia
+// fase 0: prima dei movimenti normali; fase 1: dopo le abilita a distanza. Restituisce true se ha gestito il turno.
+// =====================================================================================================================
+function alertPack(e, r) {   // il grido di un demone sveglia i compagni vicini
+  for (const q of enemies) if (q !== e && q.alive && q.type === 'demon' && !q.act && Math.hypot(q.x - e.x, q.y - e.y) < r) { q.act = true; q.vT = Math.min(q.vT, 0.2); }
+}
+function colossusSlam(e) {   // pugno sul pavimento: onda d'urto che ferisce il giocatore e i mostri attorno (che poi si picchiano con lui)
+  const R = 2.7; ringFx(e.x, e.y, R, 'W'); sfxAt('explosion', e.x, e.y, 20, 0.9);
+  const d = dstP(e); if (d < R) hurt(14 * e.pw * (1 - 0.4 * d / R));
+  if (d < 10) { shake.a = Math.max(shake.t > 0 ? shake.a : 0, 11); shake.t = shake.max = 0.45; }
+  for (const q of enemies) {
+    if (q === e || !q.alive || TYPES[q.type].boss) continue;
+    const dq = Math.hypot(q.x - e.x, q.y - e.y);
+    if (dq < R - 0.5) { damageEnemy(q, 30, true); if (q.alive && Math.random() < FF_CHANCE) infight(e, q); }
+  }
+}
+function tactic(e, dt, dist, ph) {
+  if (e.type !== 'demon') return false;
+  const T = TYPES.demon, spd = T.spd * e.sp, see = dist < 14 && los(e.x, e.y, player.x, player.y);
+  const ux = (player.x - e.x) / (dist || 1), uy = (player.y - e.y) / (dist || 1), px = -uy, py = ux;   // verso il giocatore e perpendicolare
+  const run = (k) => { e.animTimer += dt * k; if (e.animTimer > 0.15) { e.frame = (e.frame + 1) % 8; e.animTimer = 0; } e.state = 'walk'; };
+  const stride = () => { const SD = STRIDE.demon; if (e.sd >= SD) { e.sd -= SD; enemyStep(e); } };
+  const moved = (mv) => { e.sd = (e.sd || 0) + mv; stride(); };
+  e.fc = false;
+  if (ph === 0) {
+    if (e.tc === 'brute') {
+      const rage = e.hp < e.mhp * 0.5;
+      if (rage && !e.rage) { e.rage = true; ringFx(e.x, e.y, 1.5, 'R'); enemyVoice(e, 'hurt'); }
+      e.spdK = rage ? 1.6 : 1; e.dmgK = rage ? 1.35 : 1; return false;
+    }
+    if (e.tc === 'slam') {
+      e.sk = (e.sk || 0) - dt; e.dmgK = 0.45;   // il corpo a corpo e' debole: l'arma vera e' il colpo al suolo
+      if (e.sl > 0) { e.sl -= dt; e.state = 'attack'; e.fc = true; if (e.sl <= 0) { colossusSlam(e); e.sk = 2.4; } return true; }
+      if (e.sk <= 0 && dist < 2.7 && see) { e.sl = 0.75; e.state = 'attack'; e.fc = true; enemyVoice(e, 'hurt'); return true; }
+      return false;
+    }
+    if (e.tc === 'skirm') {
+      if (!e.ts) e.ts = 'close';
+      if (e.ts === 'close') {
+        if (dist <= e.reach) { e.ts = 'hit'; e.tt = 0.4; e.hd = false; return true; }
+        run(1.2);
+        if (dist > 5 || !see) { chase(e, dt, spd * 1.05, dist); stride(); }
+        else moved(steer(e, player.x + px * (e.side || 1) * 1.6, player.y + py * (e.side || 1) * 1.6, spd * 1.15, dt));   // arriva di lato, mai dritto
+        return true;
+      }
+      if (e.ts === 'hit') {   // fendente rapido
+        e.state = 'attack'; e.fc = true; e.tt -= dt;
+        if (!e.hd && e.tt < 0.2) { e.hd = true; if (dist < e.reach + 0.5) { hurt(T.dmg * 2.2 * e.pw); sfxAt('hit_flesh', player.x, player.y, 10, 0.9, false); } }
+        if (e.tt <= 0) { e.ts = 'away'; e.tt = 0.9 + Math.random() * 0.6; e.side = -(e.side || 1); }
+        return true;
+      }
+      run(1.5); e.back = true;   // ritirata di corsa, poi riparte da un altro lato
+      if (!fleeStep(e, dt, spd * 1.25)) e.tt = 0;
+      if ((e.tt -= dt) <= 0) e.ts = 'close';
+      return true;
+    }
+    if (e.tc === 'smart') {
+      if (!e.al && dist < 11 && see) { e.al = true; alertPack(e, 13); enemyVoice(e, 'hurt'); }
+      e.dg = (e.dg || 0) - dt; e.dc = (e.dc || 0) - dt;
+      if (e.dg <= 0 && e.dc <= 0 && isFiring && see && dist > 1.8 && -(player.dirX * ux + player.dirY * uy) > 0.985) { e.dg = 0.4; e.dc = 1.3; e.ds = Math.random() < 0.5 ? 1 : -1; }   // mira su di lui: scatta di lato
+      if (e.dg > 0) { run(1.6); e.fc = true; moved(steer(e, e.x + px * e.ds, e.y + py * e.ds, spd * 2.1, dt)); return true; }
+      if (e.bs === 'flank' && e.fp === 0 && !e.pc) {   // in coppia: sceglie il lato opposto a quello di un compagno che sta aggirando
+        e.pc = true; for (const q of enemies) if (q !== e && q.alive && q.tc && q.bs === 'flank' && Math.hypot(q.x - e.x, q.y - e.y) < 9) { e.side = -(q.side || 1); break; }
+      }
+      e.dmgK = (player.dirX * ux + player.dirY * uy) > 0.3 ? 1.7 : 1;   // alle spalle del giocatore fa molto piu' male
+      return false;
+    }
+    return false;
+  }
+  if (e.tc === 'kite') {
+    const kd = e.kd || 4.5;
+    const ideal = kd + 3;
+    if (!see || dist > ideal + 1) return false;   // lontano o fuori vista: avanza fino alla distanza giusta per sparare
+    if (dist < kd) { if (fleeStep(e, dt, spd * 1.15)) { run(1.3); e.back = true; return true; } return false; }   // troppo vicino: indietreggia; se e' alle strette combatte
+    e.ks = (e.ks || 0) - dt; if (e.ks <= 0) { e.ks = 0.9 + Math.random() * 1.2; e.side = -(e.side || 1); }
+    e.fc = true; run(1); moved(steer(e, e.x + px * e.side, e.y + py * e.side, spd * 0.8, dt)); return true;   // si sposta di lato mentre ricarica
+  }
+  if (e.tc === 'siege') {
+    if (see && dist > 3.4 && dist < Math.min(ABIL[e.abil][1], 8.5)) { e.fc = true; e.state = 'walk'; e.frame = 0; return true; }   // fermo, di fronte a te
+    return false;
+  }
+  return false;
+}
+
 function separateDemons() {
   if (curFloor !== 0) return;
   const ds = [];
@@ -587,12 +676,14 @@ function update(dt) {
     } else e.near = false;
     const T = TYPES[e.type], dx = player.x - e.x, dy = player.y - e.y, dist = Math.hypot(dx, dy);
     if (e.foe && duel(e, dt)) continue;   // fighting another monster
-    if (e.type !== 'boss' && e.hp >= e.mhp && !e.act && field[(e.y | 0) * N + (e.x | 0)] >= 18) { wander(e, dt); continue; }
+    if (e.type !== 'boss' && e.hp >= e.mhp && !e.act && field[(e.y | 0) * N + (e.x | 0)] >= 18 * (e.sn || 1)) { wander(e, dt); continue; }
+    if (e.tc && tactic(e, dt, dist, 0)) continue;   // tattiche dei demoni
     if (e.bh !== 'normal' && e.bs !== 'normal' && behave(e, dt, dist)) continue;
     e.animTimer += dt * Math.max(0.6, Math.min(2, e.sp));
     if (e.animTimer > 0.15) { e.frame = (e.frame + 1) % 8; e.animTimer = 0; }
     if (T.boss) { bossAI(e, dt, dist); continue; }
     if (e.abil && special(e, dt, dist)) continue;
+    if (e.tc && tactic(e, dt, dist, 1)) continue;
     if (e.type === 'witch' && !e.abil) {
       e.shotT -= dt; e.cast -= dt;
       if (dist < 12 && los(e.x, e.y, player.x, player.y)) {
@@ -603,13 +694,13 @@ function update(dt) {
         if (dist < 4.5) { e.state = e.cast > 0 ? 'attack' : 'walk'; continue; }
       }
     }
-    if (dist > (T.r || 0.4) + 0.4) {
+    if (dist > (e.reach || (T.r || 0.4) + 0.4)) {
       e.state = e.type === 'witch' && e.cast > 0 ? 'attack' : 'walk';
-      chase(e, dt, T.spd * e.sp, dist);
+      chase(e, dt, T.spd * e.sp * (e.spdK || 1), dist);
       const SD = STRIDE[e.type];
       if (SD && e.sd >= SD) { e.sd -= SD; enemyStep(e); }
     } else {
-      e.state = 'attack'; hurt(T.dmg * dt * e.pw);
+      e.state = 'attack'; hurt(T.dmg * dt * e.pw * (e.dmgK || 1));
     }
   }
   separateDemons();

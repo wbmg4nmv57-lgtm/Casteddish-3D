@@ -398,12 +398,15 @@ function renderGun() {
   CVBOX.gun = { cx: gx + sz / 2, cy: gy + sz / 2, w: sz, h: sz };
   const FLASH = [['#ffcc00', 15, 12], ['#ffcc00', 15, 8], ['#ffcc00', 15, 4], ['#ff6a00', 20, 6], null, null, ['#ff8a20', 17, 4], ['#4dff6a', 13, 18]][cur];
   const mzK = isFiring && FLASH ? (cur === 6 ? 1 : cur === 7 ? [0, 1, 0.75, 0.4][fireAnimFrame] || 0 : [0, 1, 0.45, 0][fireAnimFrame] || 0) : 0;   // the flash dies out over the first frames
+  const gun3D = typeof T3 !== 'undefined' && T3.vmOn;   // se braccio e arma sono disegnati in 3D (world-3d.js), qui non si disegna lo sprite 2D
   if (mzK > 0) muzzleCast(mzK);
   const lyG = layoutBegin('gun', gx + sz / 2, gy + sz / 2);
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(gunArt[cur], gx, gy, sz, sz);
-  ctx.imageSmoothingEnabled = false;
-  if (mzK > 0) muzzleFlash(gx + sz * 0.5, gy + FLASH[2] * sz / 128, FLASH[1], mzK, gx, gy, sz);
+  if (!gun3D) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(gunArt[cur], gx, gy, sz, sz);
+    ctx.imageSmoothingEnabled = false;
+    if (mzK > 0) muzzleFlash(gx + sz * 0.5, gy + FLASH[2] * sz / 128, FLASH[1], mzK, gx, gy, sz);
+  }
   layoutEnd(lyG);
   ctx.font = 'bold 12px monospace';
   const txt = (t, x, y, col, al) => {

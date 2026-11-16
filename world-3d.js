@@ -1003,7 +1003,8 @@ function t3PaintTex(kind) {
     iron: ['#8a8680', ['#4a3a30', '#8a4e2a', '#2e2a28', '#9a6034', '#3a2a24'], 6],
     bone: ['#d6c8a4', ['#a48a64', '#8a7250', '#e6dcc0', '#6a5238', '#b09a76'], 3],
     flesh: ['#9a5a50', ['#5a2a28', '#7a3a34', '#3a1a1a', '#b07a68', '#4a2020'], 4],
-    stone: ['#8a847c', ['#5a554e', '#6a6a60', '#3a3632', '#9a958a', '#4e5a4a'], 5]
+    stone: ['#8a847c', ['#5a554e', '#6a6a60', '#3a3632', '#9a958a', '#4e5a4a'], 5],
+    skin: ['#d4ae9a', ['#8a4a40', '#a06a5a', '#6a3a40', '#e0c0ae', '#5a3038'], 4]
   }[kind];
   g.fillStyle = S[0]; g.fillRect(0, 0, N, N); h.fillStyle = '#808080'; h.fillRect(0, 0, N, N);
   const wr = (f) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { g.save(); h.save(); g.translate(ox, oy); h.translate(ox, oy); f(); h.restore(); g.restore(); } };
@@ -1038,13 +1039,13 @@ function t3PaintTex(kind) {
   } else if (kind === 'bone') {
     for (let i = 0; i < 36; i++) { const x = R() * N, y = R() * N, L = 14 + R() * 40, a = 1.4 + (R() - 0.5) * 0.5; wr(() => { line(g, x, y, L, a, 1.2, 'rgba(110,90,60,.25)'); line(h, x, y, L, a, 1.4, 'rgba(0,0,0,.3)'); }); }
     crack(8, 'rgba(40,25,15,.6)', 1);
-  } else if (kind === 'flesh') {
+  } else if (kind === 'flesh' || kind === 'skin') {
     for (let i = 0; i < 16; i++) {   // vene
       const pts = [[R() * N, R() * N]]; for (let k = 0; k < 6; k++) pts.push([pts[k][0] + (R() - 0.5) * 36, pts[k][1] + (R() - 0.5) * 36]); const lw = 1.2 + R() * 1.4;
       wr(() => { for (const [c, col] of [[g, 'rgba(70,16,44,.5)'], [h, 'rgba(255,255,255,.2)']]) { c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); pts.forEach((p, k) => k ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.stroke(); } });
     }
-    for (let y = 0; y < N; y += 3) { g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, y, N, 1); }   // trama di stoffa / cuoio
-    for (let x = 0; x < N; x += 3) { g.fillStyle = 'rgba(0,0,0,.05)'; g.fillRect(x, 0, 1, N); }
+    if (kind === 'flesh') { for (let y = 0; y < N; y += 3) { g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(0, y, N, 1); }   // trama di stoffa / cuoio
+      for (let x = 0; x < N; x += 3) { g.fillStyle = 'rgba(0,0,0,.05)'; g.fillRect(x, 0, 1, N); } }
     for (let i = 0; i < 260; i++) { const x = R() * N, y = R() * N, r = 1 + R() * 3; h.fillStyle = 'rgba(255,255,255,.14)'; h.beginPath(); h.arc(x, y, r, 0, 7); h.fill(); }
     crack(4, 'rgba(30,8,8,.6)', 1);
   } else {
@@ -1111,7 +1112,7 @@ function t3PaintDecals() {
 // materiali condivisi da tutti i modelli (si creano una volta sola)
 function t3PropKit() {
   if (T3.pk) return T3.pk;
-  const K = T3.pk = { mat: {} }, def = { wood: [0.92, 0, 1.4], iron: [0.6, 0.2, 1.2], bone: [0.78, 0, 1.0], flesh: [0.42, 0, 1.2], stone: [0.95, 0, 1.0] };
+  const K = T3.pk = { mat: {} }, def = { wood: [0.92, 0, 1.4], iron: [0.6, 0.2, 1.2], bone: [0.78, 0, 1.0], flesh: [0.42, 0, 1.2], stone: [0.95, 0, 1.0], skin: [0.55, 0, 1.0] };
   for (const k in def) { const t = t3PaintTex(k); K.mat[k] = new THREE.MeshStandardMaterial({ map: t3TexL(t.c), bumpMap: t3TexL(t.b), bumpScale: def[k][2], roughness: def[k][0], metalness: def[k][1], vertexColors: true }); }
   K.mat.decal = new THREE.MeshStandardMaterial({ map: t3TexL(t3PaintDecals(), true), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, roughness: 0.4 });
   K.mat.glow = new THREE.MeshBasicMaterial({ vertexColors: true });                  // monete e bagliori: non dipendono dalle luci
@@ -1122,7 +1123,7 @@ function t3PropKit() {
 // costruttore: raccoglie pezzi (scatole, cilindri, sfere, anelli...) con una pila di trasformazioni, divisi per materiale
 function t3PB(R) {
   const e = new THREE.Euler(), qa = new THREE.Quaternion(), va = new THREE.Vector3(), sa = new THREE.Vector3(), st = [new THREE.Matrix4()];
-  const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], glow: [], flame: [], decal: [] } };
+  const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], skin: [], glow: [], flame: [], decal: [] } };
   const loc = (p, r, s) => { e.set(r[0], r[1], r[2]); qa.setFromEuler(e); return new THREE.Matrix4().compose(va.set(p[0], p[1], p[2]), qa, sa.set(s[0], s[1], s[2])); };
   B.add = (k, g, p, c, o) => { o = o || {}; B.L[k].push({ g, m: st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], o.r || [0, 0, 0], o.s || [1, 1, 1])), c: c || '#ffffff', dc: o.dc, sw: o.sw, ao: o.ao, st: o.st, b: o.b }); };
   B.in = (p, r, s, f) => { st.push(st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], r || [0, 0, 0], s || [1, 1, 1]))); f(); st.pop(); };   // sotto-gruppo con la sua posizione/rotazione/scala
@@ -1828,9 +1829,244 @@ function t3Tag(s) {   // scritta in alto: versione e motore usato
 }
 
 // Chiamata da render(): restituisce true se il fotogramma e stato disegnato in 3D
+// =====================================================================================================================
+// BRACCIO E ARMI IN PRIMA PERSONA (3D)
+// Una scena separata, disegnata sopra il mondo con la profondita azzerata (l'arma non entra mai nei muri): braccio martoriato
+// (pelle con vene, manica di cuoio a brandelli, bende, muscolo scoperto, suture, manetta con catena) e le 8 armi in versione horror.
+// Rinculo, ondeggio del passo, ritardo nelle rotazioni, cambio arma, carica del lancio e lampi di bocca sono animati.
+// =====================================================================================================================
+const VMW = [   // s: scala; zg: distanza dell'impugnatura dalla camera; gx: posizione orizzontale sullo schermo (-1..1); top: altezza massima sopra l'impugnatura; gy: altezza sullo schermo (se manca, si ricava da top);
+                // muz: bocca; fr: raggio del lampo; lc: colore della luce; rec: rinculo (m); rise: impennata (rad). L'arma punta sempre verso il mirino.
+  { s: 1.15, zg: 0.40, gx: 0.24, top: 0.09, muz: [0, 0.055, -0.205], fr: 0.075, lc: 0xffb050, rec: 0.045, rise: 0.12 },   // 0 pistola
+  { s: 0.85, zg: 0.38, gx: 0.26, top: 0.07, muz: [0, 0.03, -0.53], fr: 0.12, lc: 0xffb050, rec: 0.08, rise: 0.2 },      // 1 fucile
+  { s: 0.8, zg: 0.42, gx: 0.24, top: 0.13, muz: [0, 0.03, -0.47], fr: 0.08, lc: 0xffb050, rec: 0.02, rise: 0.04 },      // 2 mitra
+  { s: 0.7, zg: 0.42, gx: 0.24, top: 0.11, muz: [0, 0.03, -0.66], fr: 0.13, lc: 0xff7a20, rec: 0.075, rise: 0.12 },     // 3 razzi
+  { s: 0.8, zg: 0.44, gx: 0.3, top: 0.27, gy: -0.62, muz: null, fr: 0, lc: 0xff9a30, rec: -0.07, rise: -0.25 },          // 4 molotov
+  { s: 1.0, zg: 0.4, gx: 0.28, top: 0.1, gy: -0.6, muz: null, fr: 0, lc: 0xffffff, rec: -0.07, rise: -0.25 },            // 5 granata
+  { s: 0.85, zg: 0.4, gx: 0.24, top: 0.06, muz: [0, 0.03, -0.44], fr: 0.11, lc: 0xff7a20, rec: 0.012, rise: 0.02 },     // 6 lanciafiamme
+  { s: 1.1, zg: 0.42, gx: 0.24, top: 0.11, muz: [0, 0.035, -0.34], fr: 0.1, lc: 0x4dff6a, rec: 0.03, rise: 0.08 }      // 7 plasma
+];
+for (const W of VMW) {   // posizione e orientamento: impugnatura in basso a destra, canna verso il mirino a 2 m
+  const tf = 0.4663, X = W.gx * W.zg * tf * 2, Y = W.gy !== undefined ? W.gy * W.zg * tf : -0.2 * W.zg * tf - W.s * W.top;
+  W.pos = [X, Y, -W.zg]; W.ry = Math.atan2(X, 2 - W.zg); W.rx = Math.atan2(-Y, 2 - W.zg);
+}
+
+const t3Eul = (f, d) => { const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(f[0], f[1], f[2]), new THREE.Vector3(d[0], d[1], d[2]).normalize()), e = new THREE.Euler().setFromQuaternion(q); return [e.x, e.y, e.z]; };
+
+function t3VMHand(B, p, r, left, R) {   // mano che stringe un'impugnatura (asse y, raggio R); palmo dietro, dita che girano davanti, pollice sul lato; left = speculare
+  R = R || 0.02; const SK = '#d9b3a0', SD = '#b88672', NL = '#2e2018';
+  B.in(p, r, left ? [-1, 1, 1] : null, () => {
+    B.sph('skin', [0.05, 0.042, 0.024], [0, 0.004, R + 0.04], SK, { w: 10, h: 7 }); B.sph('skin', [0.042, 0.034, 0.03], [0, -0.01, R + 0.026], SD, { w: 8, h: 6 });   // dorso e palmo
+    for (let i = 0; i < 4; i++) B.sph('skin', 0.0118, [0.034 + (i % 2) * 0.002, 0.028 - i * 0.021, R + 0.022], SD, { w: 6, h: 5 });   // nocche
+    for (let i = 0; i < 4; i++) {
+      const y = 0.028 - i * 0.021, w = 0.0105 - i * 0.0004, P = [[R + 0.012, y, R + 0.016], [R + 0.019, y, 0.002], [R * 0.7, y, -(R + 0.012)], [-(R + 0.004), y, -(R + 0.008)]];
+      for (let j = 0; j < 3; j++) { B.seg('skin', P[j], P[j + 1], w, w * 0.95, SK, 6); B.sph('skin', w * 1.1, P[j + 1], SD, { w: 6, h: 5 }); }
+      B.box('iron', [0.007, 0.006, 0.008], [P[3][0] - 0.004, y, P[3][2]], NL, { ao: false });   // unghie nere di sporco
+    }
+    B.seg('skin', [-0.03, 0.012, R + 0.03], [-(R + 0.03), 0.045, R * 0.3], 0.017, 0.0135, SK, 7); B.seg('skin', [-(R + 0.03), 0.045, R * 0.3], [-(R + 0.02), 0.066, -(R + 0.012)], 0.0135, 0.0105, SK, 7);
+    B.sph('skin', 0.0105, [-(R + 0.02), 0.068, -(R + 0.014)], SD, { w: 6, h: 5 }); B.box('iron', [0.008, 0.006, 0.007], [-(R + 0.02), 0.07, -(R + 0.022)], NL, { ao: false });
+    B.dec(1, 0.07, 0.07, [0, 0.004, R + 0.0642]);   // sangue secco sul dorso della mano
+  });
+}
+
+function t3VMForearm(B, a, b) {   // avambraccio martoriato: pelle e vene, manica di cuoio a brandelli, bende, muscolo scoperto con tendini, osso che spunta, suture, manetta con catena
+  const SK = '#d9b3a0', CL = '#5e4232', d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], L = Math.hypot(d[0], d[1], d[2]), n = d.map(v => v / L);
+  const at = (t, o) => [a[0] + d[0] * t + (o ? o[0] : 0), a[1] + d[1] * t + (o ? o[1] : 0), a[2] + d[2] * t + (o ? o[2] : 0)];
+  const u = t3nm(t3cr(n, [0, 1, 0])), up = t3nm(t3cr(u, n)), mul = (v, k) => [v[0] * k, v[1] * k, v[2] * k], add = (v, w) => [v[0] + w[0], v[1] + w[1], v[2] + w[2]];
+  const ey = t3Eul([0, 1, 0], n), ez = t3Eul([0, 0, 1], n);
+  B.seg('skin', a, b, 0.027, 0.043, SK, 8);
+  B.seg('wood', at(0.42), at(1), 0.047, 0.058, CL, 9);   // manica di cuoio
+  for (let i = 0; i < 8; i++) { const ang = i * 0.8, o = add(mul(u, Math.cos(ang) * 0.049), mul(up, Math.sin(ang) * 0.049)); B.box('wood', [0.016, 0.05, 0.004], at(0.4 - 0.025 * (i % 2), o), CL, { r: ey }); }   // brandelli
+  for (let i = 0; i < 3; i++) B.tor('bone', [0.033 + i * 0.0015, 0.0075, 4, 12], at(0.08 + i * 0.075), i === 1 ? '#8a5a48' : '#b8a888', { r: ez });   // bende sporche
+  B.sph('flesh', [0.03, 0.018, 0.055], at(0.26, mul(up, 0.027)), '#8a2a32', { w: 9, h: 6, r: ez });   // muscolo scoperto
+  for (let i = 0; i < 4; i++) { const o = add(mul(up, 0.04), mul(u, -0.012 + 0.008 * i)); B.seg('flesh', at(0.2, o), at(0.34, o), 0.0035, 0.0035, '#e0a8a0', 4); }   // tendini
+  B.cone('bone', [0.011, 0.05, 6], at(0.52, add(mul(up, 0.04), mul(u, 0.012))), '#e6dcc0', { r: t3Eul([0, 1, 0], add(up, mul(n, -0.3))) });   // osso che spunta
+  B.box('flesh', [0.05, 0.003, 0.004], at(0.72, mul(up, 0.048)), '#2a1410', { r: t3Eul([1, 0, 0], u) });   // cicatrice cucita
+  for (let i = 0; i < 6; i++) B.box('flesh', [0.003, 0.004, 0.016], at(0.72, add(mul(up, 0.048), mul(u, -0.02 + i * 0.008))), '#1a0c0a', { r: ez });
+  B.seg('skin', at(0.04, mul(up, 0.027)), at(0.38, mul(up, 0.033)), 0.0025, 0.0025, '#6a4670', 4); B.seg('skin', at(0.06, add(mul(up, 0.024), mul(u, 0.014))), at(0.3, add(mul(up, 0.03), mul(u, 0.016))), 0.002, 0.002, '#5a3a60', 4);   // vene
+  B.tor('iron', [0.036, 0.008, 5, 12], at(0.02), '#7a746c', { r: ez }); B.chain(at(0.02, mul(u, 0.04)), add(at(0.02, mul(u, 0.04)), [0.0, -0.075, 0.01]), 4);   // manetta con catena spezzata
+  B.dec(1, 0.06, 0.06, add(at(0.45, mul(up, 0.058)), [0, 0, 0]), [-1.5708, 0, 0]);
+}
+
+function t3VMArms(B, hands, arms) {   // hands: [[p, r, left, R]...]; arms: [[a, b]...]
+  for (const h of hands) t3VMHand(B, h[0], h[1], h[2], h[3]);
+  for (const a of arms) t3VMForearm(B, a[0], a[1]);
+}
+
+const VMB = [   // corpi delle armi: origine nell'impugnatura, canna verso -z
+  (B) => {   // 0 PISTOLA: carrello di ferro corroso, volata nera, impugnatura di legno con un teschio
+    B.box('iron', [0.034, 0.034, 0.21], [0, 0.055, -0.075], '#a8a29a', { b: 1.15 });
+    for (let i = 0; i < 6; i++) B.box('iron', [0.0348, 0.03, 0.003], [0, 0.056, 0.012 + i * 0.0065], '#26262a');
+    B.box('iron', [0.026, 0.024, 0.18], [0, 0.034, -0.09], '#6e6a62'); B.cyl('iron', [0.0105, 0.0105, 0.03, 10], [0, 0.056, -0.19], '#1a1a1e', { r: [1.5708, 0, 0] });
+    B.box('iron', [0.004, 0.011, 0.005], [0, 0.079, -0.18], '#d8d2c8'); B.box('iron', [0.016, 0.01, 0.006], [0, 0.077, 0.02], '#2a2a2e');
+    B.box('iron', [0.006, 0.03, 0.006], [0, 0.005, -0.07], '#5a564e'); B.box('iron', [0.006, 0.006, 0.05], [0, -0.01, -0.045], '#5a564e'); B.box('iron', [0.005, 0.016, 0.005], [0, 0.02, -0.03], '#3a3630');
+    B.seg('wood', [0, 0.025, 0.012], [0, -0.09, 0.034], 0.022, 0.02, '#5a3a22', 8); B.skull([0, -0.1, 0.034], 0.38, [0.5, 0, 0]);
+    B.dec(1, 0.05, 0.08, [0, 0.0725, -0.06], [-1.5708, 0, 0]);
+  },
+  (B) => {   // 1 FUCILE: doppietta con filo spinato attorno alle canne, castello annerito, calcio di legno
+    for (const s of [-1, 1]) { B.cyl('iron', [0.0175, 0.0175, 0.48, 12], [s * 0.0185, 0.03, -0.28], '#74706a', { r: [1.5708, 0, 0], b: 1.1 }); B.cyl('iron', [0.0185, 0.0185, 0.012, 12], [s * 0.0185, 0.03, -0.52], '#1a1a1e', { r: [1.5708, 0, 0] }); B.cyl('iron', [0.0125, 0.0125, 0.004, 10], [s * 0.0185, 0.03, -0.527], '#030303', { r: [1.5708, 0, 0], ao: false }); B.box('iron', [0.012, 0.03, 0.012], [s * 0.018, 0.055, 0.0], '#3a3630', { r: [0.5, 0, 0] }); }
+    B.box('iron', [0.012, 0.007, 0.46], [0, 0.0535, -0.28], '#5a564e'); B.sph('iron', 0.006, [0, 0.0585, -0.51], '#d8d2c8', { w: 5, h: 4 });
+    B.box('iron', [0.074, 0.06, 0.13], [0, 0.012, -0.06], '#4c4842'); B.dec(1, 0.06, 0.1, [0, 0.0425, -0.06], [-1.5708, 0, 0]);
+    B.seg('wood', [0, 0.0, 0.03], [0, -0.025, 0.11], 0.034, 0.042, '#5e4026', 8);
+    for (const z of [-0.38, -0.45]) { B.tor('iron', [0.042, 0.0028, 4, 18], [0, 0.03, z], '#8a8a82', { s: [1, 0.62, 1] }); for (let i = 0; i < 8; i++) { const a = i * 0.785; B.cone('iron', [0.004, 0.014, 4], [Math.cos(a) * 0.044, 0.03 + Math.sin(a) * 0.028, z], '#9a9a92', { r: [0, 0, a - 1.5708] }); } }
+  },
+  (B) => {   // 2 MITRA: cassa con nastro di proiettili, teschio sul castello, maniglia, impugnature; le canne ruotanti sono a parte
+    B.box('iron', [0.088, 0.082, 0.17], [0, 0.02, -0.07], '#3c3c42'); B.box('iron', [0.092, 0.012, 0.172], [0, 0.065, -0.07], '#2a2a30');
+    B.box('iron', [0.075, 0.09, 0.105], [-0.088, -0.004, -0.04], '#4a4a38'); B.box('iron', [0.077, 0.01, 0.107], [-0.088, 0.044, -0.04], '#3a3a2c');
+    for (let i = 0; i < 9; i++) { const t = i / 8; B.cyl('iron', [0.0058, 0.0058, 0.034, 6], [-0.055 + t * 0.03, 0.048 + Math.sin(t * 3.14) * 0.03, -0.04 - t * 0.04], '#e6c458', { r: [1.5708, 0.2, 0.3], b: 1.5 }); }
+    for (const z of [-0.01, -0.12]) B.box('iron', [0.012, 0.05, 0.012], [0, 0.1, z], '#5a564e'); B.box('iron', [0.012, 0.012, 0.13], [0, 0.126, -0.065], '#5a564e');
+    B.skull([0, 0.075, -0.135], 0.32, [0.2, 0, 0]); B.chain([0.044, 0.06, -0.08], [0.06, -0.05, -0.04], 6); B.dec(1, 0.07, 0.1, [0, 0.0715, -0.07], [-1.5708, 0, 0]);
+    B.seg('wood', [0, -0.025, 0.0], [0, -0.095, 0.03], 0.021, 0.02, '#4a3020', 8); B.seg('wood', [0, -0.02, -0.3], [0, -0.09, -0.3], 0.019, 0.019, '#4a3020', 8); B.box('iron', [0.05, 0.03, 0.05], [0, -0.01, -0.3], '#3c3c42');
+  },
+  (B) => {   // 3 RAZZI: tubo verde arrugginito con cinghie di cuoio e catene, ogiva rossa, mirino, teschio dipinto
+    const r = { r: [1.5708, 0, 0] };
+    B.cyl('iron', [0.048, 0.048, 0.62, 16], [0, 0.03, -0.22], '#7a8a62', r); B.cyl('iron', [0.064, 0.05, 0.07, 16], [0, 0.03, 0.115], '#5a6a48', r); B.cyl('iron', [0.05, 0.05, 0.022, 16], [0, 0.03, -0.54], '#363c2c', r);
+    B.cyl('iron', [0.036, 0.036, 0.08, 14], [0, 0.03, -0.565], '#d8d0b0', r); B.cone('iron', [0.038, 0.1, 14], [0, 0.03, -0.655], '#b8402a', { r: [-1.5708, 0, 0] });
+    for (const z of [-0.05, -0.3, -0.44]) B.tor('flesh', [0.05, 0.008, 4, 16], [0, 0.03, z], '#3a2418'); for (const z of [-0.12, -0.38]) B.tor('iron', [0.051, 0.005, 4, 16], [0, 0.03, z], '#8a8a82');
+    B.cyl('iron', [0.014, 0.014, 0.09, 10], [0, 0.098, -0.2], '#2a2a30', r); B.box('iron', [0.02, 0.025, 0.012], [0, 0.088, -0.17], '#3a3a40');
+    B.seg('wood', [0, 0.0, 0.0], [0, -0.085, 0.02], 0.02, 0.019, '#4a3020', 8); B.seg('wood', [0, -0.01, -0.22], [0, -0.09, -0.22], 0.019, 0.019, '#4a3020', 8);
+    B.skull([0, 0.085, -0.34], 0.5, [0, 0, 0]); B.dec(1, 0.09, 0.12, [0, 0.0785, -0.12], [-1.5708, 0, 0]); B.chain([-0.05, 0.0, -0.1], [-0.06, -0.06, -0.2], 5);
+  },
+  null, null,   // 4 molotov e 5 granata: solo oggetto in mano (vedi VMI)
+  (B) => {   // 6 LANCIAFIAMME: tubo con alette, ugello, serbatoio rosso con teschio e tubo flessibile
+    const r = { r: [1.5708, 0, 0] };
+    B.cyl('iron', [0.026, 0.026, 0.4, 14], [0, 0.03, -0.2], '#6a665e', r); B.cyl('iron', [0.034, 0.028, 0.06, 14], [0, 0.03, -0.41], '#3a3630', r);
+    for (let i = 0; i < 5; i++) B.tor('iron', [0.029, 0.004, 4, 14], [0, 0.03, -0.08 - i * 0.06], '#4a4640');
+    B.cyl('iron', [0.052, 0.052, 0.3, 16], [-0.08, -0.045, -0.08], '#b8402a', r); for (const z of [-0.18, -0.02]) B.tor('iron', [0.054, 0.006, 4, 16], [-0.08, -0.045, z], '#7a746c');
+    B.cyl('iron', [0.054, 0.054, 0.02, 16], [-0.08, -0.045, 0.075], '#8a2a1c', r); B.skull([-0.08, -0.045, 0.092], 0.55, [0, 0, 0]);
+    B.seg('iron', [-0.08, -0.02, -0.235], [-0.015, 0.02, -0.06], 0.008, 0.008, '#1a1c20', 6); B.seg('wood', [0, 0.0, 0.0], [0, -0.085, 0.02], 0.02, 0.019, '#4a3020', 8);
+    B.box('iron', [0.03, 0.03, 0.07], [0, 0.025, -0.02], '#3a3630'); B.dec(1, 0.05, 0.1, [-0.08, 0.0075, -0.08], [-1.5708, 0, 0]);
+  },
+  (B) => {   // 7 PLASMA: corpo biomeccanico con vertebre, costole aperte, teschio dagli occhi verdi, anelli di energia
+    const r = { r: [1.5708, 0, 0] };
+    B.box('iron', [0.07, 0.075, 0.2], [0, 0.035, -0.09], '#4a6a5a'); B.box('iron', [0.074, 0.02, 0.204], [0, 0.07, -0.09], '#2a3a32'); B.cyl('iron', [0.026, 0.034, 0.13, 12], [0, 0.035, -0.255], '#2a3a32', r);
+    for (const z of [-0.2, -0.235, -0.27, -0.305]) B.tor('glow', [0.034, 0.0045, 4, 14], [0, 0.035, z], '#4dff6a', { ao: false });
+    for (let i = 0; i < 4; i++) for (const s of [-1, 1]) B.cone('bone', [0.005, 0.07, 5], [s * 0.04, 0.045, -0.05 - i * 0.04], '#e0d4b4', { r: [0, 0, -s * 1.1] });
+    B.skull([0, 0.085, -0.2], 0.42, [0, 0, 0]); for (const s of [-1, 1]) B.sph('glow', 0.006, [s * 0.0105, 0.0862, -0.1795], '#7dffa0', { w: 5, h: 4, ao: false });
+    B.seg('bone', [0, 0.0, 0.0], [0, -0.085, 0.02], 0.02, 0.019, '#5a6a5a', 8); B.dec(1, 0.06, 0.1, [0, 0.0805, -0.09], [-1.5708, 0, 0]);
+  }
+];
+
+const VMA = [   // mani e avambracci di ogni arma
+  (B) => t3VMArms(B, [[[0, -0.005, 0]]], [[[0, -0.002, 0.075], [0.13, -0.15, 0.34]]]),
+  (B) => t3VMArms(B, [[[0, -0.005, 0]], [[0, -0.01, -0.3], [1.5708, 0, 0], true, 0.03]], [[[0, -0.002, 0.075], [0.13, -0.15, 0.34]], [[0, -0.12, -0.3], [-0.13, -0.2, -0.05]]]),
+  (B) => t3VMArms(B, [[[0, -0.03, 0]], [[0, -0.04, -0.3], null, true]], [[[0, -0.032, 0.075], [0.13, -0.17, 0.34]], [[0, -0.042, -0.225], [-0.15, -0.2, 0.02]]]),
+  (B) => t3VMArms(B, [[[0, -0.035, 0]], [[0, -0.045, -0.22], null, true]], [[[0, -0.037, 0.075], [0.13, -0.16, 0.34]], [[0, -0.047, -0.145], [-0.14, -0.2, 0.08]]]),
+  (B) => t3VMArms(B, [[[0, -0.015, 0], null, false, 0.06]], [[[0, -0.012, 0.125], [0.12, -0.16, 0.38]]]),
+  (B) => t3VMArms(B, [[[0, -0.01, 0], null, false, 0.05]], [[[0, -0.007, 0.115], [0.12, -0.16, 0.38]]]),
+  (B) => t3VMArms(B, [[[0, -0.03, 0]]], [[[0, -0.032, 0.075], [0.13, -0.17, 0.34]]]),
+  (B) => t3VMArms(B, [[[0, -0.03, 0]]], [[[0, -0.032, 0.075], [0.13, -0.17, 0.34]]])
+];
+
+const VMI = {   // oggetti da lanciare (nascosti dopo il lancio) e parti mobili
+  4: (B) => {   // straccio nel collo e teschio sull'etichetta (il vetro e il liquido sono a parte)
+    B.cyl('flesh', [0.02, 0.016, 0.07, 8], [0, 0.145, 0], '#e8dcc0'); B.cyl('flesh', [0.021, 0.021, 0.012, 8], [0, 0.115, 0], '#6a4a38');
+    B.skull([0, 0.045, 0.05], 0.42, [-0.3, 0, 0]);
+    B.tor('iron', [0.063, 0.0025, 4, 18], [0, -0.05, 0], '#8a8a82', { r: [1.5708, 0, 0] });
+    for (let i = 0; i < 10; i++) { const a = i * 0.628; B.cone('iron', [0.003, 0.012, 4], [Math.cos(a) * 0.064, -0.05, Math.sin(a) * 0.064], '#9a9a92', { r: [Math.sin(a) * 1.5708, 0, -Math.cos(a) * 1.5708] }); }
+  },
+  5: (B) => {   // granata: bomba rugosa con teschio inciso, spoletta, leva e anello
+    B.sph('iron', [0.058, 0.068, 0.058], [0, 0, 0], '#7a8a5a', { w: 12, h: 9 });
+    for (const yy of [-0.04, -0.013, 0.013, 0.04]) B.tor('iron', [0.058 * Math.sqrt(1 - Math.pow(yy / 0.068, 2)) + 0.002, 0.004, 4, 14], [0, yy, 0], '#5a6a40', { r: [1.5708, 0, 0] });
+    B.cyl('iron', [0.016, 0.018, 0.034, 8], [0, 0.078, 0], '#8a8a82'); B.box('iron', [0.012, 0.075, 0.005], [0.024, 0.062, 0], '#9a9a92', { r: [0, 0, -0.15] }); B.tor('iron', [0.016, 0.003, 4, 8], [0.038, 0.088, 0], '#c8c8c0');
+    B.skull([0, 0.035, 0.05], 0.45, [-0.3, 0, 0]); B.dec(1, 0.07, 0.07, [0, 0.0, 0.0585]);
+  },
+  2: (B) => {   // canne ruotanti della mitra (asse z, origine al centro)
+    for (let i = 0; i < 3; i++) { const a = i * 2.094 + 1.57, x = Math.cos(a) * 0.027, y = Math.sin(a) * 0.027; B.cyl('iron', [0.0135, 0.0135, 0.4, 10], [x, y, 0], '#706c66', { r: [1.5708, 0, 0], b: 1.1 }); B.cyl('iron', [0.0145, 0.0145, 0.012, 10], [x, y, -0.2], '#1a1a1e', { r: [1.5708, 0, 0] }); B.cyl('iron', [0.009, 0.009, 0.004, 8], [x, y, -0.206], '#030303', { r: [1.5708, 0, 0], ao: false }); }
+    B.cyl('iron', [0.018, 0.018, 0.4, 8], [0, 0, 0], '#4a4640', { r: [1.5708, 0, 0] }); for (const z of [-0.14, 0.0, 0.14]) B.cyl('iron', [0.05, 0.05, 0.012, 14], [0, 0, z], '#58544e', { r: [1.5708, 0, 0] });
+  },
+  1: (B) => {   // fusto di legno del fucile (scorre all'indietro quando si ricarica)
+    B.box('wood', [0.066, 0.05, 0.19], [0, 0, 0], '#6e4c2c'); for (const z of [-0.055, 0.0, 0.055]) B.box('bone', [0.068, 0.004, 0.022], [0, 0.0255, z], '#d6c8a4');
+    B.box('flesh', [0.07, 0.054, 0.012], [0, 0, 0.045], '#3a2418'); for (const x of [-0.025, 0, 0.025]) B.sph('iron', 0.004, [x, 0.0, 0.0525], '#a8a8a0', { w: 5, h: 4 }); B.dec(1, 0.06, 0.15, [0, 0.0255, 0], [-1.5708, 0, 0]);
+  },
+  7: (B) => B.cyl('glow', [0.015, 0.015, 0.12, 10], [0, 0, 0], '#4dff6a', { r: [1.5708, 0, 0], ao: false })   // cella di energia che pulsa
+};
+
+function t3VMTex(kind) {   // 'star' lampo di bocca, 'flame' fiammella, 'halo' alone morbido
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  if (kind === 'flame') {
+    const gr = g.createRadialGradient(64, 84, 2, 64, 78, 58); gr.addColorStop(0, 'rgba(255,255,230,1)'); gr.addColorStop(0.3, 'rgba(255,200,70,.95)'); gr.addColorStop(0.7, 'rgba(255,100,20,.55)'); gr.addColorStop(1, 'rgba(255,60,0,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(64, 4); g.quadraticCurveTo(110, 70, 90, 100); g.quadraticCurveTo(64, 126, 38, 100); g.quadraticCurveTo(18, 70, 64, 4); g.fill();
+  } else {
+    const gl = g.createRadialGradient(64, 64, 0, 64, 64, 64); gl.addColorStop(0, 'rgba(255,255,255,1)'); gl.addColorStop(0.18, 'rgba(255,240,180,.95)'); gl.addColorStop(0.5, 'rgba(255,160,60,.32)'); gl.addColorStop(1, 'rgba(255,100,20,0)');
+    g.fillStyle = gl; g.fillRect(0, 0, 128, 128);
+    if (kind === 'star') for (let i = 0; i < 8; i++) { const a = i * 0.785 + 0.2, L = 34 + (i % 3) * 12; g.fillStyle = 'rgba(255,248,210,.9)'; g.beginPath(); g.moveTo(64 + Math.cos(a + 1.5708) * 3, 64 + Math.sin(a + 1.5708) * 3); g.lineTo(64 + Math.cos(a) * L, 64 + Math.sin(a) * L); g.lineTo(64 + Math.cos(a - 1.5708) * 3, 64 + Math.sin(a - 1.5708) * 3); g.closePath(); g.fill(); }
+  }
+  return new THREE.CanvasTexture(c);
+}
+function t3VMInit() {
+  const V = T3.vm = { scene: new THREE.Scene(), cam: new THREE.PerspectiveCamera(T3.cam.fov, T3.cam.aspect, 0.02, 5), w: [], cur: -1, rec: 0, shots: 0, tShot: 9, sw: 1, it: 1, yaw: 0, lx: 0, ly: 0, spin: 0, spinV: 0, ch: 0, tex: { star: t3VMTex('star'), flame: t3VMTex('flame') } };
+  V.scene.add(new THREE.AmbientLight(0xb8a090, 0.62));
+  const key = new THREE.DirectionalLight(0xffe0c0, 0.95); key.position.set(-0.5, 0.8, 0.6); V.scene.add(key);
+  const rim = new THREE.DirectionalLight(0x6a80ff, 0.28); rim.position.set(0.8, 0.2, -0.8); V.scene.add(rim);
+  V.light = new THREE.PointLight(0xffb050, 0, 1.4, 1.6); V.scene.add(V.light);
+  V.mat = { glass: new THREE.MeshStandardMaterial({ color: 0x4a9a50, transparent: true, opacity: 0.5, roughness: 0.12, metalness: 0.1, depthWrite: false }), liquid: new THREE.MeshBasicMaterial({ color: 0xc8701c }) };
+  return V;
+}
+function t3VMWeapon(k) {   // costruisce braccio + arma k
+  const V = T3.vm, W = VMW[k], g = new THREE.Group(), o = { g, k };
+  const part = (key, fn, parent) => { const p = new THREE.Group(); for (const q of t3PropGeo('vm_' + key, fn, 0.5)) p.add(new THREE.Mesh(q.g, q.m)); (parent || g).add(p); return p; };
+  const spr = (tex, col, sc) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: col, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 })); s.scale.set(sc, sc, 1); return s; };
+  if (VMB[k]) o.body = part('w' + k, VMB[k]);
+  o.arm = part('a' + k, VMA[k]);
+  if (k === 1) { o.pump = part('w1p', VMI[1]); o.pump.position.set(0, -0.005, -0.3); }
+  if (k === 2) { o.spin = part('w2s', VMI[2]); o.spin.position.set(0, 0.03, -0.26); }
+  if (k === 7) { o.core = part('w7c', VMI[7]); o.core.position.set(0, 0.088, -0.12); }
+  if (k === 4 || k === 5) {
+    o.item = part('i' + k, VMI[k]);
+    if (k === 4) {
+      const prof = (a, s) => a.map(p => new THREE.Vector2(p[0] * s, p[1] * s));
+      const outer = new THREE.Mesh(new THREE.LatheGeometry(prof([[0.001, -0.1], [0.05, -0.1], [0.06, -0.085], [0.062, 0], [0.056, 0.04], [0.028, 0.075], [0.02, 0.095], [0.021, 0.125], [0.001, 0.125]], 1), 14), V.mat.glass), liq = new THREE.Mesh(new THREE.LatheGeometry(prof([[0.001, -0.092], [0.044, -0.092], [0.053, -0.078], [0.055, 0], [0.049, 0.034], [0.001, 0.045]], 1), 12), V.mat.liquid);
+      o.item.add(liq); o.item.add(outer);
+      o.flame = spr(V.tex.flame, 0xffa030, 0.16); o.flame.position.set(0, 0.2, 0); o.item.add(o.flame);
+    }
+  }
+  if (W.muz) {
+    o.muz = new THREE.Group(); o.muz.position.set(W.muz[0], W.muz[1], W.muz[2]); g.add(o.muz);
+    o.flash = spr(V.tex.star, k === 7 ? 0x70ff90 : k === 3 || k === 6 ? 0xff8a30 : 0xffc860, W.fr); o.flash.renderOrder = 10; o.muz.add(o.flash);
+    if (k === 6) { o.pilot = spr(V.tex.flame, 0xffa030, 0.05); o.pilot.position.set(0, 0.012, -0.012); o.muz.add(o.pilot); o.jet = []; for (let i = 0; i < 5; i++) { const s = spr(V.tex.flame, 0xff9a30, 0.1); s.renderOrder = 10; o.muz.add(s); o.jet.push(s); } }
+  }
+  V.scene.add(g); g.visible = false; return o;
+}
+function t3VMUpdate(dt) {   // posizione, rinculo, ondeggio, cambio arma, lampi: ogni fotogramma
+  const V = T3.vm, W = VMW[cur] || VMW[0];
+  if (V.cur !== cur) { if (V.w[V.cur]) V.w[V.cur].g.visible = false; V.cur = cur; V.sw = 0; if (!V.w[cur]) V.w[cur] = t3VMWeapon(cur); V.w[cur].g.visible = true; V.it = 1; }
+  const o = V.w[cur], g = o.g, k = cur;
+  V.sw = Math.min(1, V.sw + dt / 0.28); const swE = 1 - Math.pow(1 - V.sw, 3);
+  if (stats.shots !== V.shots) { V.shots = stats.shots; V.rec = Math.min(1.5, V.rec + 1); V.tShot = 0; } V.tShot += dt; V.rec *= Math.exp(-dt * (k === 6 || k === 2 ? 16 : 9));
+  const mv = Math.min(1, Math.hypot(joy.x, joy.y) + (input.fwd || input.back ? 1 : 0));
+  const yaw = Math.atan2(player.dirY, player.dirX); let dy = yaw - V.yaw; if (dy > Math.PI) dy -= 2 * Math.PI; if (dy < -Math.PI) dy += 2 * Math.PI; V.yaw = yaw;
+  const av = Math.max(-4, Math.min(4, dy / Math.max(dt, 0.001))); V.lx += (-av * 0.009 - V.lx) * Math.min(1, dt * 9);   // l'arma resta un po' indietro quando giri
+  const ch = (thr && thr.shown) ? Math.min(1, Math.max(0, thr.p)) : 0; V.ch += (ch - V.ch) * Math.min(1, dt * 12);
+  const ax = W.pos[0] + V.lx + Math.sin(tNow * 9) * 0.006 * mv + Math.sin(tNow * 1.1) * 0.0015;
+  const ay = W.pos[1] - Math.abs(Math.cos(tNow * 9)) * 0.005 * mv + Math.sin(tNow * 1.7) * 0.002 - (1 - swE) * 0.28 + V.ch * 0.035;
+  const az = W.pos[2] + V.rec * W.rec + V.ch * 0.09 + (1 - swE) * 0.06;
+  g.position.set(ax, ay, az); g.rotation.set(W.rx + V.rec * W.rise + (1 - swE) * -0.5 - V.ch * 0.35, W.ry - V.lx * 1.5, V.lx * 2);
+  const lay = (typeof LAYOUT !== 'undefined' && LAYOUT.gun) || null, vk = typeof viewK === 'function' ? viewK() : 1;
+  if (lay) { const wh = 2 * 0.45 * Math.tan(V.cam.fov * Math.PI / 360); g.position.x += ((lay.dx || 0) / vk) / RENDER_WIDTH * wh * V.cam.aspect; g.position.y -= ((lay.dy || 0) / vk) / RENDER_HEIGHT * wh; g.scale.setScalar(W.s * (lay.s || 1)); } else g.scale.setScalar(W.s);
+  const mzK = isFiring && W.fr ? (k === 6 ? 1 : k === 7 ? [0, 1, 0.75, 0.4][fireAnimFrame] || 0 : [0, 1, 0.45, 0][fireAnimFrame] || 0) : 0, fl = 0.85 + 0.15 * Math.sin(tNow * 31) * Math.sin(tNow * 13);
+  if (o.flash) { o.flash.material.opacity = mzK * (k === 6 ? 0.55 : 1); const s = W.fr * (0.5 + 1.1 * mzK); o.flash.scale.set(s, s, 1); o.flash.material.rotation = (V.shots * 2.399) % 6.283; }
+  let lit = mzK * 2.6;
+  if (o.spin) { V.spinV += (((isFiring || V.rec > 0.15) ? 30 : 0) - V.spinV) * Math.min(1, dt * 5); o.spin.rotation.z += V.spinV * dt; }
+  if (o.pump) o.pump.position.z = -0.3 + 0.05 * Math.sin(Math.PI * Math.min(1, Math.max(0, (V.tShot - 0.25) / 0.3)));
+  if (o.core) { const s = 1 + 0.1 * Math.sin(tNow * 7) + mzK * 0.35; o.core.scale.set(s, s, 1); lit += 0.4 + 0.15 * Math.sin(tNow * 7); }
+  if (o.item) { const want = fireCooldown > 0.5 ? 0 : 1; V.it += (want - V.it) * Math.min(1, dt * 7); o.item.visible = V.it > 0.05; o.item.position.y = -0.2 * (1 - V.it); }
+  if (o.flame) { const s = 0.15 + 0.03 * Math.sin(tNow * 23) + 0.02 * Math.sin(tNow * 41); o.flame.scale.set(s * 0.8, s, 1); o.flame.material.opacity = o.item.visible ? 0.95 : 0; lit += o.item.visible ? 0.5 * fl : 0; }
+  if (o.pilot) { o.pilot.material.opacity = 0.85; o.pilot.scale.set(0.034 + 0.008 * fl, 0.05 + 0.012 * fl, 1); }
+  if (o.jet) o.jet.forEach((s, i) => { const on = mzK > 0 ? 1 : 0, t = (tNow * 14 + i * 0.7) % 1; s.material.opacity = on * 0.8 * (1 - t * 0.6); const z = -0.03 - t * 0.28 - i * 0.02, sc = 0.07 + t * 0.12; s.position.set((i - 2) * 0.006 * t, 0.012 + t * 0.02, z); s.scale.set(sc * 0.8, sc * 1.2, 1); });
+  V.light.color.setHex(W.lc); V.light.intensity = lit * fl;
+  if (o.muz) V.light.position.set(g.position.x + o.muz.position.x, g.position.y + o.muz.position.y, g.position.z + o.muz.position.z); else V.light.position.set(g.position.x, g.position.y + 0.15, g.position.z);
+}
+function t3VMRender() {   // disegna la scena dell'arma sopra il mondo (profondita azzerata)
+  const V = T3.vm || t3VMInit(); const c = V.cam, m = T3.cam;
+  if (c.fov !== m.fov || c.aspect !== m.aspect) { c.fov = m.fov; c.aspect = m.aspect; c.updateProjectionMatrix(); }
+  t3VMUpdate(T3.dt || 0.016);
+  const gl = T3.gl; gl.autoClear = false; gl.clearDepth(); gl.render(V.scene, c); gl.autoClear = true;
+}
+
 function render3D() {
   if (T3.failed || typeof THREE === 'undefined' || curFloor !== 0 || !gameStarted) {
-    if (T3.cv) T3.cv.style.display = 'none';
+    T3.vmOn = false; if (T3.cv) T3.cv.style.display = 'none';
     t3Tag(gameStarted && curFloor === 0 ? (T3.failed ? '2D, errore 3D: ' + T3.err : 'Three.js non caricato') : '');
     return false;
   }
@@ -1842,7 +2078,9 @@ function render3D() {
     if (sig !== T3.sig) { T3.sig = sig; t3Build(); }
     flick = (0.9 + 0.1 * Math.sin(tNow * 17) * Math.sin(tNow * 5.3) + (Math.random() - 0.5) * 0.06) * powerK;
     t3Sync(); T3.gl.render(T3.scene, T3.cam);
-    ctx.clearRect(0, 0, RENDER_WIDTH, RENDER_HEIGHT);   // il canvas 2D resta sopra: arma, mirino e scritte
+    T3.vmOn = false;   // braccio e arma in 3D sopra il mondo; se qualcosa va storto resta l'arma 2D
+    if (!T3.vmFailed) { try { t3VMRender(); T3.vmOn = true; } catch (err) { console.error('Arma 3D disattivata, uso quella 2D:', err); T3.vmFailed = true; T3.gl.autoClear = true; } }
+    ctx.clearRect(0, 0, RENDER_WIDTH, RENDER_HEIGHT);   // il canvas 2D resta sopra: mirino e scritte (e l'arma 2D solo se quella 3D non c'e)
     renderGun();
     if (mm.t > 0 || mm.goal || (frameCount & 3) === 0) renderMinimap();
     return true;

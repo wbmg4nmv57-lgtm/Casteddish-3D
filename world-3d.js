@@ -1115,6 +1115,12 @@ function t3PropKit() {
   const K = T3.pk = { mat: {} }, def = { wood: [0.92, 0, 1.4], iron: [0.6, 0.2, 1.2], bone: [0.78, 0, 1.0], flesh: [0.42, 0, 1.2], stone: [0.95, 0, 1.0], skin: [0.55, 0, 1.0] };
   for (const k in def) { const t = t3PaintTex(k); K.mat[k] = new THREE.MeshStandardMaterial({ map: t3TexL(t.c), bumpMap: t3TexL(t.b), bumpScale: def[k][2], roughness: def[k][0], metalness: def[k][1], vertexColors: true }); }
   K.mat.decal = new THREE.MeshStandardMaterial({ map: t3TexL(t3PaintDecals(), true), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, roughness: 0.4 });
+  {   // pelle pulita della mano e dell'avambraccio: colore dai vertici e una grana finissima (niente macchie ne sangue della texture 'skin')
+    const N = 128, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d'), im = g.createImageData(N, N); let sd = 4242;
+    for (let i = 0; i < N * N; i++) { sd = (sd * 16807) % 2147483647; const v = 120 + (sd % 17); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+    g.putImageData(im, 0, 0);
+    K.mat.hand = new THREE.MeshStandardMaterial({ bumpMap: t3TexL(c), bumpScale: 0.3, roughness: 0.6, metalness: 0, vertexColors: true });
+  }
   K.mat.glow = new THREE.MeshBasicMaterial({ vertexColors: true });                  // monete e bagliori: non dipendono dalle luci
   K.mat.flame = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false });     // fiammelle delle candele: si vedono anche da lontano, come le torce
   return K;
@@ -1123,7 +1129,7 @@ function t3PropKit() {
 // costruttore: raccoglie pezzi (scatole, cilindri, sfere, anelli...) con una pila di trasformazioni, divisi per materiale
 function t3PB(R) {
   const e = new THREE.Euler(), qa = new THREE.Quaternion(), va = new THREE.Vector3(), sa = new THREE.Vector3(), st = [new THREE.Matrix4()];
-  const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], skin: [], glow: [], flame: [], decal: [] } };
+  const B = { R, L: { wood: [], iron: [], bone: [], flesh: [], stone: [], skin: [], hand: [], glow: [], flame: [], decal: [] } };
   const loc = (p, r, s) => { e.set(r[0], r[1], r[2]); qa.setFromEuler(e); return new THREE.Matrix4().compose(va.set(p[0], p[1], p[2]), qa, sa.set(s[0], s[1], s[2])); };
   B.add = (k, g, p, c, o) => { o = o || {}; B.L[k].push({ g, m: st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], o.r || [0, 0, 0], o.s || [1, 1, 1])), c: c || '#ffffff', dc: o.dc, sw: o.sw, ao: o.ao, st: o.st, b: o.b, nz: o.nz, uk: o.uk }); };
   B.in = (p, r, s, f) => { st.push(st[st.length - 1].clone().multiply(loc(p || [0, 0, 0], r || [0, 0, 0], s || [1, 1, 1]))); f(); st.pop(); };   // sotto-gruppo con la sua posizione/rotazione/scala
@@ -1857,17 +1863,16 @@ const t3Eul = (f, d) => { const q = new THREE.Quaternion().setFromUnitVectors(ne
 // MANO 3D IN PRIMA PERSONA
 // Costruita per la mano destra attorno a un manico verticale (asse y, raggio R): palmo e dorso dietro (z+), quattro dita con tre falangi
 // che partono dalle nocche sul lato destro (x+) e avvolgono il manico, pollice a sinistra; la mano sinistra e la stessa, specchiata.
-// Tutto e fatto di tubi lisci (vmhTube): dorso a cuneo con tendini e vene, nocche, giunture con pieghe, polpastrelli, unghie sporche
-// e rotte, ferita cucita. Per cambiare l'aspetto: lunghezze e larghezze delle dita sono in VMH.F, il pollice in VMH.TH.
+// Tutto e fatto di tubi lisci (vmhTube): dorso a cuneo con tendini, nocche, giunture con pieghe, polpastrelli e unghie.
+// Pelle pulita e normale (materiale 'hand'). Lunghezze e larghezze delle dita sono in VMH.F, il pollice in VMH.TH, il colore in VMH.SK.
 // ---------------------------------------------------------------------------------------------------------------------------------
 const VMH = {
-  SK: '#d9b3a0', XK: 0.036, YC: -0.003,   // colore pelle; x delle nocche; y del centro del dorso
-  P: [[-0.056, 0.006, 0.016], [-0.05, 0.016, 0.027], [-0.044, 0.025, 0.032], [-0.034, 0.036, 0.036], [-0.022, 0.046, 0.039], [-0.01, 0.054, 0.0405], [0, 0.056, 0.0415],
-    [0.01, 0.052, 0.0425], [0.02, 0.044, 0.0435], [0.03, 0.034, 0.0435], [0.037, 0.026, 0.043], [0.043, 0.018, 0.0405], [0.048, 0.008, 0.032]],   // dorso: x, spessore, semilarghezza
-  F: [   // dita (indice, medio, anulare, mignolo): L = tre falangi, w = semilarghezza alla base, nail = stato dell'unghia, blood = punta sporca di sangue
-    { L: [0.04, 0.024, 0.02], w: 0.0097, nail: 'ok', blood: 0.6 }, { L: [0.044, 0.027, 0.021], w: 0.01, nail: 'dark', blood: 0.35 },
-    { L: [0.041, 0.025, 0.02], w: 0.0094, nail: 'bruise' }, { L: [0.033, 0.019, 0.018], w: 0.0084, nail: 'torn', blood: 0.7 }],
-  TH: [[0, 0.02, 0.021], [0.12, 0.0165, 0.0185], [0.28, 0.0125, 0.014], [0.4, 0.0108, 0.0123], [0.52, 0.0104, 0.0118], [0.62, 0.0112, 0.0122], [0.72, 0.0102, 0.0112], [0.9, 0.0092, 0.0106], [1, 0.0086, 0.01]]   // pollice: u, raggio radiale, semilarghezza
+  SK: '#e3baa3', XK: 0.036, YC: -0.003,   // colore pelle; x delle nocche; y del centro del dorso
+  P: [[-0.056, 0.004, 0.016], [-0.05, 0.011, 0.027], [-0.044, 0.017, 0.032], [-0.034, 0.025, 0.036], [-0.022, 0.032, 0.039], [-0.01, 0.037, 0.0405], [0, 0.039, 0.0415],
+    [0.01, 0.037, 0.0425], [0.02, 0.032, 0.0435], [0.03, 0.026, 0.0435], [0.037, 0.021, 0.043], [0.043, 0.015, 0.0405], [0.048, 0.007, 0.032]],   // dorso: x, spessore, semilarghezza
+  F: [   // dita (indice, medio, anulare, mignolo): L = lunghezza delle tre falangi, w = semilarghezza alla base
+    { L: [0.04, 0.024, 0.02], w: 0.0097 }, { L: [0.044, 0.027, 0.021], w: 0.01 }, { L: [0.041, 0.025, 0.02], w: 0.0094 }, { L: [0.033, 0.019, 0.018], w: 0.0084 }],
+  TH: [[0, 0.022, 0.023], [0.12, 0.018, 0.0205], [0.28, 0.0138, 0.0155], [0.4, 0.0119, 0.0135], [0.52, 0.0114, 0.013], [0.62, 0.0123, 0.0134], [0.72, 0.0112, 0.0123], [0.9, 0.0101, 0.0117], [1, 0.0095, 0.011]]   // pollice: u, raggio radiale, semilarghezza
 };
 
 const vmhInt = (tb, x) => {   // interpolazione lineare su una tabella [[x, v1, v2...]...]
@@ -1878,7 +1883,8 @@ const vmhInt = (tb, x) => {   // interpolazione lineare su una tabella [[x, v1, 
 const vmhG = (s, j, k) => Math.exp(-Math.pow((s - j) / k, 2));   // gobba morbida attorno a j
 const vmhSm = (t) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
 const vmhZin = (x, R) => { const rr = R + 0.004, t = Math.max(-1, Math.min(1, x / (rr * 1.9))); return rr * (0.5 + 0.5 * Math.cos(Math.PI * t)); };   // dove il palmo poggia sul manico
-const vmhSurf = (x, y, R) => { const p = vmhInt(VMH.P, x), q = Math.min(1, Math.abs((y - VMH.YC) / p[1])), a = p[0] / 2; return vmhZin(x, R) + a + a * Math.pow(1 - Math.pow(q, 2.6), 1 / 2.6); };   // quota del dorso in (x, y)
+const vmhPr = (x, R) => { const p = vmhInt(VMH.P, x); return [p[0] + 0.35 * (vmhZin(0, R) - vmhZin(x, R)), p[1]]; };   // spessore e semilarghezza del dorso: piu spesso dove il palmo si allontana dal manico, cosi il dorso resta piatto
+const vmhSurf = (x, y, R) => { const p = vmhPr(x, R), q = Math.min(1, Math.abs((y - VMH.YC) / p[1])), a = p[0] / 2; return vmhZin(x, R) + a + a * Math.pow(1 - Math.pow(q, 2.6), 1 / 2.6); };   // quota del dorso in (x, y)
 
 function vmhTube(rs, seg, n) {   // tubo liscio lungo una spezzata. Anello: { c: centro, d: verso del "dorso", a: raggio lungo d, b: raggio laterale, sh: ombra, t: tinta [r,g,b], o: [spostamento lungo d, laterale] }
   seg = seg || 12; n = n || 2.2;
@@ -1926,83 +1932,60 @@ function vmhPoly(pts, step) {   // punti equidistanti lungo una spezzata [[x, y]
 
 function vmhOnBack(B, R, pts, o) {   // tubo sottile che segue la superficie del dorso: pts [[x, y]...]; o: { k: materiale, c: colore, a, b: raggi, lift: altezza }
   const rs = pts.map(q => ({ c: [q[0], q[1], vmhSurf(q[0], q[1], R) + o.lift], d: [0, 0, 1], a: o.a, b: o.b || o.a }));
-  B.add(o.k || 'skin', vmhTube(rs, o.seg || 6, 2), [0, 0, 0], o.c, { ao: false, nz: 0.3, uk: 6 });
+  B.add('hand', vmhTube(rs, o.seg || 6, 2), [0, 0, 0], o.c, { ao: false, nz: 0.12, uk: 10 });
 }
 
 function vmhFinger(B, R, i) {   // un dito: tre falangi che avvolgono il manico, giunture con pieghe, polpastrello, unghia
   const F = VMH.F[i], y = 0.0275 - 0.0205 * i, SK = VMH.SK, XK = VMH.XK;
-  const zk = vmhZin(XK, R) + vmhInt(VMH.P, XK)[0] / 2, path = vmhPath([XK, zk], R + 0.0072 * F.w / 0.0097);
+  const zk = vmhZin(XK, R) + vmhPr(XK, R)[0] / 2, path = vmhPath([XK, zk], R + 0.0072 * F.w / 0.0097);
   const j1 = F.L[0], j2 = j1 + F.L[1], Lt = j2 + F.L[2], w1 = F.w * 0.78, cap = 0.0065;
   const prof = (s) => {   // forma del dito alla distanza s dalla nocca: raggi, gobbe alle giunture, pieghe e colore
     const w = F.w + (w1 - F.w) * Math.max(0, Math.min(1, s / Lt)), bump = 1 + 0.11 * vmhG(s, j1, 0.005) + 0.075 * vmhG(s, j2, 0.0042);
     const gr = Math.max(Math.exp(-Math.pow((Math.abs(s - j1) - 0.0042) / 0.0013, 2)), Math.exp(-Math.pow((Math.abs(s - j2) - 0.0038) / 0.0012, 2)));
-    const jt = Math.max(vmhG(s, j1, 0.006), vmhG(s, j2, 0.005)), pad = vmhSm((s - j2 - 0.002) / 0.012), bl = F.blood ? F.blood * vmhSm((s - Lt + 0.012) / 0.01) : 0;
-    const t = [1 + 0.03 * pad, 1 - 0.07 * jt - 0.07 * pad, 1 - 0.09 * jt - 0.08 * pad];
-    return { a: 0.86 * w * bump * (1 - 0.05 * gr), b: w * bump * (1 - 0.05 * gr), sh: 1 - 0.2 * gr, a0: 0.86 * w * bump, t: [t[0] + (0.62 - t[0]) * bl, t[1] + (0.33 - t[1]) * bl, t[2] + (0.31 - t[2]) * bl] };
+    const jt = Math.max(vmhG(s, j1, 0.006), vmhG(s, j2, 0.005)), pad = vmhSm((s - j2 - 0.002) / 0.012);
+    return { a: 0.86 * w * bump * (1 - 0.04 * gr), b: w * bump * (1 - 0.04 * gr), sh: 1 - 0.1 * gr, a0: 0.86 * w * bump, t: [1, 1 - 0.03 * jt - 0.02 * pad, 1 - 0.04 * jt - 0.03 * pad] };
   };
   const rs = [], ring = (s, k) => { const q = path(s), p = prof(Math.max(0, s)); rs.push({ c: [q.p[0], y, q.p[1]], d: [q.n[0], 0, q.n[1]], a: p.a * k, b: p.b * k, sh: p.sh, t: p.t }); };
   for (let s = -0.007; s < Lt - 0.001; s += 0.0032) ring(s, 1);
   ring(Lt, 1);
   for (const f of [0.35, 0.7, 1.0, 1.25, 1.42, 1.53]) ring(Lt + cap * Math.sin(f), Math.cos(f));   // punta arrotondata
-  B.add('skin', vmhTube(rs, 12, 2.2), [0, 0, 0], SK, { ao: false, nz: 0.35, uk: 6 });
-  B.sph('skin', [0.0108, 0.0102, 0.0108], [XK + 0.004, y, zk + 0.004], '#cfa08c', { w: 12, h: 8, ao: false, nz: 0.35, uk: 6 });   // nocca
-  if (i === 0 || i === 2) B.sph('flesh', 0.0028, [XK + 0.0102, y + 0.001, zk + 0.0102], '#5a1218', { w: 6, h: 5, ao: false });   // crosta sulla nocca
-  const bw = 0.0052 * F.w / 0.0097, dirt = (u, k) => { const d = vmhSm((u - 0.7) / 0.3) * k; return [1.03 - 0.5 * d, 0.95 - 0.45 * d, 0.9 - 0.42 * d]; };
-  const nail = (mat, col, s0, s1, w, th, tint) => {   // unghia: guscio sottile sopra la punta del dito
-    const n = Math.max(2, Math.round((s1 - s0) / 0.0022)), nr = [];
-    for (let k = 0; k <= n; k++) { const u = k / n, s = s0 + (s1 - s0) * u, q = path(s), p = prof(s); nr.push({ c: [q.p[0], y, q.p[1]], d: [q.n[0], 0, q.n[1]], a: th, b: w * (0.8 + 0.2 * vmhSm(u * 3)) * (k === n ? 0.82 : 1), o: [p.a0 + 0.0001, 0], t: tint(u) }); }
-    B.add(mat, vmhTube(nr, 10, 2.6), [0, 0, 0], col, { ao: false, nz: 0.2 });
-  };
-  if (F.nail === 'ok') nail('bone', '#d3c1b1', Lt - 0.0125, Lt - 0.0005, bw, 0.0012, u => dirt(u, 0.8));
-  else if (F.nail === 'dark') nail('bone', '#6e5a4c', Lt - 0.0125, Lt - 0.0005, bw, 0.0015, u => dirt(u, 0.4));   // unghia annerita
-  else if (F.nail === 'bruise') nail('bone', '#58384a', Lt - 0.0125, Lt - 0.0005, bw, 0.0013, u => dirt(u, 0.3));   // livida
-  else {   // strappata: letto dell'unghia scoperto e un moncone vicino alla cuticola
-    nail('flesh', '#a8363c', Lt - 0.0125, Lt - 0.0004, bw * 0.95, 0.0009, () => [1, 1, 1]);
-    nail('bone', '#cdb9a6', Lt - 0.0128, Lt - 0.0068, bw, 0.0014, u => dirt(u, 0.9));
-  }
+  B.add('hand', vmhTube(rs, 12, 2.2), [0, 0, 0], SK, { ao: false, nz: 0.12, uk: 10 });
+  B.sph('hand', [0.0108, 0.0102, 0.0108], [XK + 0.004, y, zk + 0.004], SK, { w: 12, h: 8, ao: false, nz: 0.12, uk: 10 });   // nocca
+  const bw = 0.0052 * F.w / 0.0097, nr = [];   // unghia pulita: guscio sottile sopra la punta del dito, rosata alla base e piu chiara al bordo
+  const s0 = Lt - 0.0125, s1 = Lt - 0.0005, n = Math.round((s1 - s0) / 0.0022);
+  for (let k = 0; k <= n; k++) { const u = k / n, s = s0 + (s1 - s0) * u, q = path(s), p = prof(s); nr.push({ c: [q.p[0], y, q.p[1]], d: [q.n[0], 0, q.n[1]], a: 0.0012, b: bw * (0.8 + 0.2 * vmhSm(u * 3)) * (k === n ? 0.82 : 1), o: [p.a0 + 0.0001, 0], t: [1.02 + 0.03 * u, 0.98 + 0.03 * u, 0.97 + 0.03 * u] }); }
+  B.add('hand', vmhTube(nr, 10, 2.6), [0, 0, 0], '#f3d3c6', { ao: false, nz: 0.05 });
 }
 
 function vmhThumb(B, R) {   // pollice: parte dal rilievo del palmo (tenar) e sale lungo il lato sinistro del manico
-  const SK = VMH.SK, rt = R + 0.0105, dA = 0.044 / (R + 0.016), a0 = -0.55;
-  const P = (u) => { const a = a0 - dA * Math.pow(u, 0.85), r = rt + 0.011 * Math.pow(1 - u, 1.6); return { c: [r * Math.sin(a), 0.002 + 0.066 * u, r * Math.cos(a)], d: [Math.sin(a), 0, Math.cos(a)] }; };
+  const SK = VMH.SK, rt = R + 0.0105, dA = 0.06 / (R + 0.016), a0 = -0.55;
+  const P = (u) => { const a = a0 - dA * Math.pow(u, 0.85), r = rt + 0.011 * Math.pow(1 - u, 1.6); return { c: [r * Math.sin(a), 0.016 + 0.05 * u, r * Math.cos(a)], d: [Math.sin(a), 0, Math.cos(a)] }; };
   const prof = (u) => {
     const q = vmhInt(VMH.TH, Math.min(1, u)), bump = 1 + 0.1 * vmhG(u, 0.62, 0.05) + 0.06 * vmhG(u, 0.34, 0.05), gr = Math.exp(-Math.pow((Math.abs(u - 0.62) - 0.05) / 0.016, 2)), jt = vmhG(u, 0.62, 0.07);
-    return { a: q[0] * bump * (1 - 0.05 * gr), b: q[1] * bump * (1 - 0.05 * gr), a0: q[0] * bump, sh: 1 - 0.2 * gr, t: [1, 1 - 0.07 * jt, 1 - 0.09 * jt] };
+    return { a: q[0] * bump * (1 - 0.04 * gr), b: q[1] * bump * (1 - 0.04 * gr), a0: q[0] * bump, sh: 1 - 0.1 * gr, t: [1, 1 - 0.03 * jt, 1 - 0.04 * jt] };
   };
   const rs = [], n = 24;
   for (let k = 0; k <= n; k++) { const u = k / n, q = P(u), p = prof(u); rs.push({ c: q.c, d: q.d, a: p.a, b: p.b, sh: p.sh, t: p.t }); }
   const e = P(1), e0 = P(0.96), T = t3nm([e.c[0] - e0.c[0], e.c[1] - e0.c[1], e.c[2] - e0.c[2]]), pe = prof(1);
-  for (const f of [0.35, 0.7, 1.0, 1.25, 1.42, 1.53]) { const L = 0.0075 * Math.sin(f), k = Math.cos(f); rs.push({ c: [e.c[0] + T[0] * L, e.c[1] + T[1] * L, e.c[2] + T[2] * L], d: e.d, a: pe.a * k, b: pe.b * k, sh: 1, t: [0.92, 0.8, 0.78] }); }
-  B.add('skin', vmhTube(rs, 12, 2.2), [0, 0, 0], SK, { ao: false, nz: 0.35, uk: 6 });
+  for (const f of [0.35, 0.7, 1.0, 1.25, 1.42, 1.53]) { const L = 0.0075 * Math.sin(f), k = Math.cos(f); rs.push({ c: [e.c[0] + T[0] * L, e.c[1] + T[1] * L, e.c[2] + T[2] * L], d: e.d, a: pe.a * k, b: pe.b * k, sh: 1, t: [1, 0.98, 0.97] }); }
+  B.add('hand', vmhTube(rs, 12, 2.2), [0, 0, 0], SK, { ao: false, nz: 0.12, uk: 10 });
   const nr = [];   // unghia del pollice
-  for (let k = 0; k <= 7; k++) { const u = 0.8 + 0.185 * k / 7, q = P(u), p = prof(u), d = Math.max(0, (k / 7 - 0.7) / 0.3); nr.push({ c: q.c, d: q.d, a: 0.0013, b: 0.0072 * (0.8 + 0.2 * vmhSm(k / 7 * 3)) * (k === 7 ? 0.85 : 1), o: [p.a0 + 0.0001, 0], t: [1.03 - 0.5 * d, 0.95 - 0.45 * d, 0.9 - 0.42 * d] }); }
-  B.add('bone', vmhTube(nr, 10, 2.6), [0, 0, 0], '#d3c1b1', { ao: false, nz: 0.2 });
+  for (let k = 0; k <= 7; k++) { const u = 0.8 + 0.185 * k / 7, q = P(u), p = prof(u); nr.push({ c: q.c, d: q.d, a: 0.0013, b: 0.0072 * (0.8 + 0.2 * vmhSm(k / 7 * 3)) * (k === 7 ? 0.85 : 1), o: [p.a0 + 0.0001, 0], t: [1.02 + 0.03 * k / 7, 0.98 + 0.03 * k / 7, 0.97 + 0.03 * k / 7] }); }
+  B.add('hand', vmhTube(nr, 10, 2.6), [0, 0, 0], '#f3d3c6', { ao: false, nz: 0.05 });
 }
 
-function vmhBack(B, R) {   // dettagli sul dorso: tendini, vene, ferita cucita, sangue
-  for (let i = 0; i < 4; i++) {   // tendini estensori: dal polso a ogni nocca
+function vmhBack(B, R) {   // dettagli sul dorso: tendini estensori, dal polso a ogni nocca (appena accennati)
+  for (let i = 0; i < 4; i++) {
     const yk = 0.0275 - 0.0205 * i, pts = []; for (let k = 0; k <= 5; k++) { const x = -0.012 + k * 0.0092; pts.push([x, VMH.YC + (yk - VMH.YC) * (0.55 + 0.45 * k / 5)]); }
-    vmhOnBack(B, R, pts, { c: '#e0bfae', a: 0.0024, b: 0.0026, lift: 0.0004 });
+    vmhOnBack(B, R, pts, { c: VMH.SK, a: 0.0021, b: 0.0024, lift: 0.0003 });
   }
-  const veins = [[[-0.03, -0.02], [-0.016, -0.012], [-0.002, -0.004], [0.01, 0.002], [0.022, 0], [0.031, -0.004]], [[-0.034, 0.012], [-0.02, 0.016], [-0.006, 0.02], [0.008, 0.024], [0.02, 0.0195], [0.03, 0.0175]],
-    [[-0.028, -0.034], [-0.012, -0.03], [0.004, -0.025], [0.018, -0.02], [0.028, -0.0225]], [[-0.002, -0.004], [0.004, -0.014], [0.012, -0.024], [0.02, -0.03]]];
-  veins.forEach((v, k) => vmhOnBack(B, R, v, { c: '#7e7092', a: 0.0015 + 0.0002 * (k % 2), b: 0.0019, lift: 0.0002 }));
-  const sc = [[0.022, 0.03], [0.011, 0.018], [0.001, 0.007], [-0.009, -0.006], [-0.017, -0.019], [-0.022, -0.03]], wp = vmhPoly(sc, 0.008);   // ferita cucita
-  vmhOnBack(B, R, wp.map(q => q.p), { k: 'flesh', c: '#7a1a20', a: 0.0013, b: 0.003, lift: 0.0006 });
-  for (const sd of [-1, 1]) vmhOnBack(B, R, wp.map(q => [q.p[0] - q.t[1] * 0.0042 * sd, q.p[1] + q.t[0] * 0.0042 * sd]), { c: '#e2a398', a: 0.0016, b: 0.0016, lift: 0.0003 });   // bordi gonfi
-  for (const q of vmhPoly(sc, 0.0058)) {   // punti di sutura
-    const ax = -q.t[1], ay = q.t[0], p1 = [q.p[0] + ax * 0.0062, q.p[1] + ay * 0.0062], p2 = [q.p[0] - ax * 0.0062, q.p[1] - ay * 0.0062];
-    B.seg('flesh', [p1[0], p1[1], vmhSurf(p1[0], p1[1], R) + 0.0012], [p2[0], p2[1], vmhSurf(p2[0], p2[1], R) + 0.0012], 0.0006, 0.0006, '#1a0c0c', 4, { ao: false });
-    B.sph('flesh', 0.0011, [p1[0], p1[1], vmhSurf(p1[0], p1[1], R) + 0.0014], '#1a0c0c', { w: 4, h: 3, ao: false });
-  }
-  B.dec(1, 0.05, 0.06, [-0.006, 0.006, vmhSurf(-0.006, 0.006, R) + 0.0009]);   // sangue secco sul dorso
 }
 
 function t3VMHand(B, p, r, left, R) {   // mano che stringe un'impugnatura (asse y, raggio R); palmo dietro, dita che girano davanti, pollice sul lato; left = speculare
   R = R || 0.02;
   B.in(p, r, left ? [-1, 1, 1] : null, () => {
-    const rs = VMH.P.map(q => ({ c: [q[0], VMH.YC, vmhZin(q[0], R) + q[1] / 2], d: [0, 0, 1], a: q[1] / 2, b: q[2], sh: (q[0] < -0.044 || q[0] > 0.043) ? 0.93 : 1 }));
-    B.add('skin', vmhTube(rs, 18, 2.6), [0, 0, 0], VMH.SK, { ao: false, nz: 0.35, uk: 6 });   // palmo e dorso
+    const rs = VMH.P.map(q => { const T = vmhPr(q[0], R)[0]; return { c: [q[0], VMH.YC, vmhZin(q[0], R) + T / 2], d: [0, 0, 1], a: T / 2, b: q[2], sh: (q[0] < -0.044 || q[0] > 0.043) ? 0.96 : 1 }; });
+    B.add('hand', vmhTube(rs, 18, 2.6), [0, 0, 0], VMH.SK, { ao: false, nz: 0.12, uk: 10 });   // palmo e dorso
     for (let i = 0; i < 4; i++) vmhFinger(B, R, i);
     vmhThumb(B, R); vmhBack(B, R);
   });
@@ -2013,8 +1996,8 @@ function t3VMForearm(B, a, b) {   // avambraccio martoriato: pelle e vene, manic
   const at = (t, o) => [a[0] + d[0] * t + (o ? o[0] : 0), a[1] + d[1] * t + (o ? o[1] : 0), a[2] + d[2] * t + (o ? o[2] : 0)];
   const u = t3nm(t3cr(n, [0, 1, 0])), up = t3nm(t3cr(u, n)), mul = (v, k) => [v[0] * k, v[1] * k, v[2] * k], add = (v, w) => [v[0] + w[0], v[1] + w[1], v[2] + w[2]];
   const ey = t3Eul([0, 1, 0], n), ez = t3Eul([0, 0, 1], n);
-  const FT = [[-0.06, 0.0255, 0.0225], [0, 0.0275, 0.0235], [0.06, 0.0268, 0.0232], [0.12, 0.0275, 0.0245], [0.2, 0.03, 0.0275], [0.3, 0.0335, 0.032], [0.42, 0.0365, 0.0355], [0.55, 0.039, 0.039], [0.7, 0.041, 0.041], [0.85, 0.0425, 0.0425], [1, 0.043, 0.043]];
-  B.add('skin', vmhTube(FT.map(q => ({ c: at(q[0]), d: [0, 1, 0], a: q[1], b: q[2], sh: 1 - 0.12 * vmhG(q[0], 0.02, 0.025), t: [1, 1 - 0.04 * vmhG(q[0], 0.25, 0.2), 1 - 0.05 * vmhG(q[0], 0.25, 0.2)] })), 16, 2.2), [0, 0, 0], SK, { ao: false, nz: 0.35, uk: 6 });   // pelle: tubo ovale al polso che si allarga verso il gomito; parte dentro la mano
+  const FT = [[-0.1, 0.0255, 0.0225], [-0.06, 0.0255, 0.0225], [0, 0.0275, 0.0235], [0.06, 0.0268, 0.0232], [0.12, 0.0275, 0.0245], [0.2, 0.03, 0.0275], [0.3, 0.0335, 0.032], [0.42, 0.0365, 0.0355], [0.55, 0.039, 0.039], [0.7, 0.041, 0.041], [0.85, 0.0425, 0.0425], [1, 0.043, 0.043]];
+  B.add('hand', vmhTube(FT.map(q => ({ c: at(q[0]), d: [0, 1, 0], a: q[1], b: q[2], sh: 1 - 0.06 * vmhG(q[0], 0.02, 0.025) })), 16, 2.2), [0, 0, 0], VMH.SK, { ao: false, nz: 0.12, uk: 10 });   // pelle: tubo ovale al polso che si allarga verso il gomito; parte dentro la mano
   B.seg('wood', at(0.42), at(1), 0.047, 0.058, CL, 14);   // manica di cuoio
   for (let i = 0; i < 8; i++) { const ang = i * 0.8, o = add(mul(u, Math.cos(ang) * 0.049), mul(up, Math.sin(ang) * 0.049)); B.box('wood', [0.016, 0.05, 0.004], at(0.4 - 0.025 * (i % 2), o), CL, { r: ey }); }   // brandelli
   for (let i = 0; i < 3; i++) B.tor('bone', [0.033 + i * 0.0015, 0.0075, 4, 12], at(0.08 + i * 0.075), i === 1 ? '#8a5a48' : '#b8a888', { r: ez });   // bende sporche

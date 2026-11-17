@@ -1868,6 +1868,7 @@ const t3Eul = (f, d) => { const q = new THREE.Quaternion().setFromUnitVectors(ne
 // ---------------------------------------------------------------------------------------------------------------------------------
 const VMH = {
   SK: '#e3baa3', XK: 0.036, YC: -0.003,   // colore pelle; x delle nocche; y del centro del dorso
+  TURN: 0.785,   // rotazione della mano attorno al manico: 0 = palmo dritto dietro, 0.785 = palmo sul lato destro del manico (impugnatura vera); la mano sinistra e speculare
   P: [[-0.056, 0.004, 0.016], [-0.05, 0.011, 0.027], [-0.044, 0.017, 0.032], [-0.034, 0.025, 0.036], [-0.022, 0.032, 0.039], [-0.01, 0.037, 0.0405], [0, 0.039, 0.0415],
     [0.01, 0.037, 0.0425], [0.02, 0.032, 0.0435], [0.03, 0.026, 0.0435], [0.037, 0.021, 0.043], [0.043, 0.015, 0.0405], [0.048, 0.007, 0.032]],   // dorso: x, spessore, semilarghezza
   F: [   // dita (indice, medio, anulare, mignolo): L = lunghezza delle tre falangi, w = semilarghezza alla base
@@ -1983,12 +1984,12 @@ function vmhBack(B, R) {   // dettagli sul dorso: tendini estensori, dal polso a
 
 function t3VMHand(B, p, r, left, R) {   // mano che stringe un'impugnatura (asse y, raggio R); palmo dietro, dita che girano davanti, pollice sul lato; left = speculare
   R = R || 0.02;
-  B.in(p, r, left ? [-1, 1, 1] : null, () => {
+  B.in(p, r, left ? [-1, 1, 1] : null, () => B.in([0, 0, 0], [0, VMH.TURN, 0], null, () => {
     const rs = VMH.P.map(q => { const T = vmhPr(q[0], R)[0]; return { c: [q[0], VMH.YC, vmhZin(q[0], R) + T / 2], d: [0, 0, 1], a: T / 2, b: q[2], sh: (q[0] < -0.044 || q[0] > 0.043) ? 0.96 : 1 }; });
     B.add('hand', vmhTube(rs, 18, 2.6), [0, 0, 0], VMH.SK, { ao: false, nz: 0.12, uk: 10 });   // palmo e dorso
     for (let i = 0; i < 4; i++) vmhFinger(B, R, i);
     vmhThumb(B, R); vmhBack(B, R);
-  });
+  }));
 }
 
 function t3VMForearm(B, a, b) {   // avambraccio martoriato: pelle e vene, manica di cuoio a brandelli, bende, muscolo scoperto con tendini, osso che spunta, suture, manetta con catena
@@ -2013,7 +2014,7 @@ function t3VMForearm(B, a, b) {   // avambraccio martoriato: pelle e vene, manic
 
 function t3VMArms(B, hands, arms) {   // hands: [[p, r, left, R]...]; arms: [[a, b]...]
   for (const h of hands) t3VMHand(B, h[0], h[1], h[2], h[3]);
-  for (const a of arms) t3VMForearm(B, a[0], a[1]);
+  arms.forEach((a, i) => t3VMForearm(B, [a[0][0] + (i ? -0.03 : 0.03), a[0][1], a[0][2]], a[1]));   // il polso, con la mano ruotata sul manico, sta 3 cm piu verso il lato del braccio (destro il primo, sinistro il secondo)
 }
 
 const VMB = [   // corpi delle armi: origine nell'impugnatura, canna verso -z
@@ -2071,7 +2072,7 @@ const VMB = [   // corpi delle armi: origine nell'impugnatura, canna verso -z
 ];
 
 const VMA = [   // mani e avambracci di ogni arma
-  (B) => t3VMArms(B, [[[0, -0.005, 0.0177], [-0.189, 0, 0], false, 0.0215]], [[[0, -0.007, 0.094], [0.13, -0.15, 0.34]]]),
+  (B) => t3VMArms(B, [[[0, -0.005, 0.0177], [-0.189, 0, 0], false, 0.0215]], [[[0, -0.012, 0.086], [0.13, -0.15, 0.34]]]),
   (B) => t3VMArms(B, [[[0, -0.005, 0]], [[0, -0.01, -0.3], [1.5708, 0, 0], true, 0.03]], [[[0, -0.002, 0.075], [0.13, -0.15, 0.34]], [[0, -0.12, -0.3], [-0.13, -0.2, -0.05]]]),
   (B) => t3VMArms(B, [[[0, -0.03, 0]], [[0, -0.04, -0.3], null, true]], [[[0, -0.032, 0.075], [0.13, -0.17, 0.34]], [[0, -0.042, -0.225], [-0.15, -0.2, 0.02]]]),
   (B) => t3VMArms(B, [[[0, -0.035, 0]], [[0, -0.045, -0.22], null, true]], [[[0, -0.037, 0.075], [0.13, -0.16, 0.34]], [[0, -0.047, -0.145], [-0.14, -0.2, 0.08]]]),

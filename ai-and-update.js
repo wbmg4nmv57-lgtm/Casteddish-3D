@@ -543,7 +543,7 @@ function update(dt) {
           if (!e.alive || Math.hypot(p.x - e.x, p.y - e.y) >= e.r || p.z < e.z0 || p.z > e.z1) continue;
           if (p.kind === 'flame') {
             if (!p.hitSet) p.hitSet = new Set();
-            if (!p.hitSet.has(e)) { p.hitSet.add(e); damageEnemy(e, p.dmg, true); addFire(e.x, e.y, 0.5, 3); }
+            if (!p.hitSet.has(e)) { p.hitSet.add(e); damageEnemy(e, p.dmg, true); if (!e.alive) e.burned = true; addFire(e.x, e.y, 0.5, 3); }   // fiamma che uccide: morto bruciato
             continue;
           }
           hit = true;
@@ -633,7 +633,7 @@ function update(dt) {
     const f = fires[i]; f.life -= dt;
     if (f.life <= 0) { fires.splice(i, 1); continue; }
     if (!f.mine && Math.hypot(player.x - f.x, player.y - f.y) < f.r) hurt(14 * dt);
-    for (const e of enemies) if (e.alive && Math.hypot(e.x - f.x, e.y - f.y) < f.r + e.r * 0.5) damageEnemy(e, 30 * dt * f.m, true);
+    for (const e of enemies) if (e.alive && Math.hypot(e.x - f.x, e.y - f.y) < f.r + e.r * 0.5) { damageEnemy(e, 30 * dt * f.m, true); if (!e.alive) e.burned = true; }   // fuoco a terra che uccide: morto bruciato
     for (const q of woodPr) if (q.hp > 0 && Math.hypot(q.x - f.x, q.y - f.y) < f.r + 0.3) hurtProp(q, 12 * dt * f.m, true);
   }
   for (let i = nebulas.length - 1; i >= 0; i--) { nebulas[i].life -= dt; if (nebulas[i].life <= 0) nebulas.splice(i, 1); }

@@ -928,10 +928,11 @@ function t3Anim(m, e, mv, d2) {
   if (!e.alive) {
     if (!u.dead) { u.dead = true; kick('fall', -3); u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
     m.rotation.y = u.yaw; m.rotation.x = -sp('fall', 1.45, 38, 5); m.position.y += 0.05 * Math.min(1, e.deathTimer / 0.5);
-    u.body.rotation.set(sp('dB', 0.1, 30, 5), 0, 0); u.chest.rotation.set(0.1, 0, 0);
-    u.legs.forEach((l, i) => { l.rotation.x = sp('dl' + i, 0.9 + i * 0.35, 40, 5); u.knees[i].rotation.x = sp('dk' + i, 1.1, 40, 5); });
-    u.arms.forEach((a, i) => { a.rotation.x = sp('arm' + i, i ? -0.2 : 0.5, 18, 3); u.elbows[i].rotation.x = sp('elb' + i, -0.5, 18, 3); });
-    u.jaw.rotation.x = sp('jaw', 0.9, 40, 5); u.neck.rotation.x = sp('head', -0.5, 30, 4) * 0.5; u.head.rotation.x = u.neck.rotation.x; return;
+    const bn = !!e.burned;   // morto bruciato: i muscoli si contraggono, braccia alzate e gomiti piegati, gambe raccolte
+    u.body.rotation.set(sp('dB', bn ? 0.35 : 0.1, 30, 5), 0, 0); u.chest.rotation.set(0.1, 0, 0);
+    u.legs.forEach((l, i) => { l.rotation.x = sp('dl' + i, bn ? 1.25 + i * 0.2 : 0.9 + i * 0.35, 40, 5); u.knees[i].rotation.x = sp('dk' + i, bn ? 1.75 : 1.1, 40, 5); });
+    u.arms.forEach((a, i) => { a.rotation.x = sp('arm' + i, bn ? -1.5 + i * 0.1 : (i ? -0.2 : 0.5), 18, 3); u.elbows[i].rotation.x = sp('elb' + i, bn ? -1.9 : -0.5, 18, 3); });
+    u.jaw.rotation.x = sp('jaw', bn ? 1.15 : 0.9, 40, 5); u.neck.rotation.x = sp('head', -0.5, 30, 4) * 0.5; u.head.rotation.x = u.neck.rotation.x; return;
   }
   const atk = e.state === 'attack', sum = e.state === 'summon', cow = e.state === 'cower';
   // ---- girata progressiva: il mostro non scatta, ruota; la testa anticipa e il corpo si inclina in curva
@@ -1720,7 +1721,7 @@ function t3BreakStep(dt) {   // fa avanzare pezzi, polvere e crescita delle mace
 // - ogni demone ucciso lascia sotto di se una pozza di sangue che si allarga piano e resta sul pavimento.
 // Tutto vive in un gruppo proprio (T3.bl), che si svuota da solo quando si carica un nuovo piano o si ricomincia.
 // =====================================================================================================================
-const T3BL = { drops: 480, splats: 300, pools: 80, mist: 24 };
+const T3BL = { drops: 480, splats: 300, pools: 80, mist: 24, parts: 100 };
 
 function t3BloodTex(kind, seed) {   // 'pool': pozza irregolare (centro denso, bordo sottile, colature e goccioline); 'splat': macchia piccola con qualche goccia attorno
   const pool = kind === 'pool', S = pool ? 256 : 64, cv = document.createElement('canvas'); cv.width = cv.height = S;
@@ -1745,6 +1746,23 @@ function t3BloodTex(kind, seed) {   // 'pool': pozza irregolare (centro denso, b
   return cv;
 }
 
+function t3SootTex(seed) {   // alone di fuliggine: nucleo nero, bordo a lobi irregolari che sfuma, raggi di cenere e macchioline
+  const S = 256, C = S / 2, cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const g = cv.getContext('2d'); let sd = seed; const rnd = () => ((sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const rg = (x, y, r, stops) => { const q = g.createRadialGradient(x, y, 0, x, y, r); for (const [o, c] of stops) q.addColorStop(o, c); g.fillStyle = q; g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill(); };
+  rg(C, C, S * 0.46, [[0, 'rgba(6,5,4,0.95)'], [0.5, 'rgba(10,8,6,0.8)'], [0.85, 'rgba(14,11,9,0.25)'], [1, 'rgba(14,11,9,0)']]);   // velo di fondo
+  for (let i = 0; i < 16; i++) { const a = rnd() * 6.283, d = S * (0.1 + rnd() * 0.16), r = S * (0.12 + rnd() * 0.1); rg(C + Math.cos(a) * d, C + Math.sin(a) * d, r, [[0, 'rgba(6,5,4,0.85)'], [0.6, 'rgba(8,6,5,0.55)'], [1, 'rgba(8,6,5,0)']]); }   // lobi: il bordo non e un cerchio
+  rg(C, C, S * 0.3, [[0, 'rgba(2,2,2,1)'], [0.7, 'rgba(4,3,3,0.92)'], [1, 'rgba(4,3,3,0)']]);   // nucleo nero
+  g.lineCap = 'round';
+  for (let i = 0; i < 22; i++) {   // raggi di cenere
+    const a = rnd() * 6.283, r0 = S * (0.15 + rnd() * 0.1), r1 = S * (0.3 + rnd() * 0.15);
+    g.strokeStyle = 'rgba(8,6,5,' + (0.2 + rnd() * 0.2) + ')'; g.lineWidth = 1 + rnd() * 3; g.beginPath(); g.moveTo(C + Math.cos(a) * r0, C + Math.sin(a) * r0); g.lineTo(C + Math.cos(a) * r1, C + Math.sin(a) * r1); g.stroke();
+  }
+  g.fillStyle = 'rgba(8,6,5,0.5)';
+  for (let i = 0; i < 36; i++) { const a = rnd() * 6.283, r = S * (0.28 + rnd() * 0.18), q = 0.8 + rnd() * 2; g.beginPath(); g.arc(C + Math.cos(a) * r, C + Math.sin(a) * r, q, 0, 6.2832); g.fill(); }   // macchioline
+  return cv;
+}
+
 function t3BloodMistTex() {   // alone morbido: il colore lo da il materiale
   const cv = document.createElement('canvas'); cv.width = cv.height = 64;
   const g = cv.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -1757,11 +1775,13 @@ function t3BloodGet() {   // crea (una volta) il gruppo del sangue; se e cambiat
   if (!B) {
     const g = new THREE.Group(), pg = new THREE.PlaneGeometry(1, 1);
     const wet = (cv) => new THREE.MeshStandardMaterial({ map: t3TexL(cv, true), transparent: true, depthWrite: false, roughness: 0.2, metalness: 0, emissive: 0x1c0203, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const soot = (cv) => new THREE.MeshStandardMaterial({ map: t3TexL(cv, true), transparent: true, depthWrite: false, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     B = T3.bl = {
-      g, pg, ver: W1.ver, drops: [], pools: [], mist: [], ns: 0,
+      g, pg, ver: W1.ver, drops: [], pools: [], mist: [], part: [], ns: 0,
       dm: new THREE.Object3D(), q: new THREE.Quaternion(), q2: new THREE.Quaternion(), v: new THREE.Vector3(), n: new THREE.Vector3(),
       zv: new THREE.Vector3(0, 0, 1), uy: new THREE.Vector3(0, 1, 0), qf: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2),   // qf: il piano (che guarda +z) si sdraia sul pavimento
-      pm: [11, 23, 37].map(s => wet(t3BloodTex('pool', s)))   // tre forme diverse di pozza
+      pm: [11, 23, 37].map(s => wet(t3BloodTex('pool', s))),   // tre forme diverse di pozza
+      sm: [5, 17].map(s => soot(t3SootTex(s)))   // due forme di alone annerito (demoni morti bruciati)
     };
     B.di = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshStandardMaterial({ color: 0x8a0a0e, roughness: 0.16, metalness: 0.1, emissive: 0x2a0204 }), T3BL.drops);   // tutte le gocce in una sola chiamata di disegno
     B.sp = new THREE.InstancedMesh(pg, wet(t3BloodTex('splat', 7)), T3BL.splats);   // tutte le macchie (pavimento e muri) in una sola chiamata
@@ -1777,6 +1797,7 @@ function t3BloodReset(B) {   // nuovo piano o nuova partita: via tutto il sangue
   for (const p of B.pools) B.g.remove(p.m);
   B.pools.length = 0;
   for (const s of B.mist) s.sp.visible = false;
+  for (const q of B.part) q.sp.visible = false;
 }
 
 function t3BloodPut(B, x, y, z, q, w, len) {   // una macchia in piu (anello: le piu vecchie vengono sovrascritte)
@@ -1839,16 +1860,58 @@ function t3BloodHit(e, x, y, z, dx, dy) {
   t3BloodMist(B, ox, oy, oz, kill, dx, dy);
 }
 
-function t3BloodPool(e, u) {   // il demone e morto: pozza di sangue sotto il corpo
-  const B = t3BloodGet(), R = Math.random, sc = u.sc || 1, yaw = (u.yaw === null || u.yaw === undefined) ? (u.hd || 0) : u.yaw;
+function t3BloodPool(e, u) {   // il demone e morto: pozza di sangue sotto il corpo; se e morto bruciato, al suo posto un alone nero di fuliggine
+  const B = t3BloodGet(), R = Math.random, burn = !!e.burned, sc = u.sc || 1, yaw = (u.yaw === null || u.yaw === undefined) ? (u.hd || 0) : u.yaw;
   const cx = e.x - Math.sin(yaw) * 0.35 * sc, cz = e.y - Math.cos(yaw) * 0.35 * sc, fl = world1H(cx, cz);   // il corpo cade all'indietro: la pozza sta sotto il busto
-  let r = (0.5 + R() * 0.2) * Math.min(1.5, Math.max(0.75, sc));
+  let r = (burn ? 0.8 + R() * 0.2 : 0.5 + R() * 0.2) * Math.min(1.5, Math.max(0.75, sc));
   const flat = (q) => { for (let i = 0; i < 8; i++) { const a = i * 0.7854; if (Math.abs(world1H(cx + Math.cos(a) * q, cz + Math.sin(a) * q) - fl) > 0.02) return false; } return true; };
   while (r > 0.22 && !flat(r)) r *= 0.8;   // niente pozza sospesa sul bordo di un gradino o del pozzo
-  const m = new THREE.Mesh(B.pg, B.pm[(R() * B.pm.length) | 0]);
+  const m = new THREE.Mesh(B.pg, burn ? B.sm[(R() * B.sm.length) | 0] : B.pm[(R() * B.pm.length) | 0]);
   m.rotation.x = -Math.PI / 2; m.rotation.z = R() * 6.283; m.position.set(cx, fl + 0.012, cz); m.visible = false; m.scale.set(0.001, 0.001, 1);
   if (B.pools.length >= T3BL.pools) B.g.remove(B.pools.shift().m);
-  B.g.add(m); B.pools.push({ m, t: -0.3, k: 0, s: r / 0.3, sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio della pozza e 0,3 del lato)
+  B.g.add(m); B.pools.push({ m, t: burn ? -0.1 : -0.3, k: 0, d: burn ? 1.4 : 2.6, s: r / (burn ? 0.38 : 0.3), sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio visibile e 0,3 del lato per il sangue, 0,38 per la fuliggine); d: secondi per allargarsi
+}
+
+function t3BurnPart(B, smoke, x, y, z, vx, vy, vz, s0, s1, life, op) {   // una particella: fumo grigio (smoke) o brace arancione additiva
+  let p = B.part.find(o => !o.sp.visible);
+  if (!p) {
+    if (B.part.length >= T3BL.parts) return;
+    B.mt = B.mt || t3BloodMistTex();
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: B.mt, transparent: true, depthWrite: false, opacity: 0 }));
+    B.g.add(sp); p = { sp, t: 0 }; B.part.push(p);
+  }
+  const m = p.sp.material;
+  m.color.setHex(smoke ? 0x5a554f : 0xff7a28); m.blending = smoke ? THREE.NormalBlending : THREE.AdditiveBlending; p.sp.renderOrder = smoke ? 4 : 5; m.opacity = 0;
+  p.smoke = smoke; p.t = 0; p.vx = vx; p.vy = vy; p.vz = vz; p.s0 = s0; p.s1 = s1; p.life = life; p.op = op;
+  p.sp.position.set(x, y, z); p.sp.scale.set(s0, s0, 1); p.sp.visible = true;
+}
+
+function t3Burn(m, e, u, d2) {   // demone morto per ustione: il corpo annerisce, le crepe restano brace che si spegne piano, sale fumo con qualche scintilla
+  const B = t3BloodGet(), R = Math.random, dt = T3.dt || 0.016, ti = e.deathTimer, k = Math.min(1, ti / 1.4), ks = k * k * (3 - 2 * k);
+  if (!u.chr) {   // materiali propri del cadavere: quelli del modello sono condivisi con tutti gli altri demoni della stessa variante
+    u.chr = [];
+    const M = (T3.mc || {})[e.type === 'demon' ? 'demon#' + (e.v | 0) : e.type], tg = { skin: 0x17120f, bone: 0x2b2723, flesh: 0x0d0807, tongue: 0x120a08, drool: 0x000000 }, cm = new Map();
+    if (M) {
+      for (const n in tg) if (M[n] && M[n].emissive) { const c = M[n].clone(); cm.set(M[n], c); u.chr.push({ n, m: c, ct: new THREE.Color(tg[n]), c0: c.color.clone(), e0: c.emissive.clone(), ei0: c.emissiveIntensity, r0: c.roughness, b0: c.bumpScale || 0, o0: c.opacity }); }
+      m.traverse(o => { if (o.isMesh && cm.has(o.material)) o.material = cm.get(o.material); });
+    }
+  }
+  const emb = T3.embCol || (T3.embCol = new THREE.Color(0xff5a14)), fade = Math.exp(-Math.max(0, ti - 1.4) / 6);
+  for (const a of u.chr) {
+    const c = a.m; c.color.copy(a.c0).lerp(a.ct, ks); c.roughness = a.r0 + (0.95 - a.r0) * ks;
+    if (a.n === 'skin') { c.emissive.copy(a.e0).lerp(emb, ks); c.emissiveIntensity = (0.12 + 0.88 * fade) * (0.55 + 0.45 * ks) * (0.85 + 0.15 * Math.sin(tNow * 6 + u.seed)); c.bumpScale = a.b0 + ks; }   // pelle: nera e screpolata, le crepe brillano come brace
+    else if (a.n === 'drool') c.opacity = a.o0 * (1 - ks);
+    else { c.emissiveIntensity = a.ei0 * (1 - ks); if (a.n === 'bone') c.bumpScale = a.b0 + 0.8 * ks; }
+  }
+  const sc = u.sc || 1, yaw = (u.yaw === null || u.yaw === undefined) ? (u.hd || 0) : u.yaw, cx = e.x - Math.sin(yaw) * 0.3 * sc, cz = e.y - Math.cos(yaw) * 0.3 * sc, fl = world1H(cx, cz);
+  const smoke = () => t3BurnPart(B, true, cx + (R() - 0.5) * 0.5 * sc, fl + 0.12 + R() * 0.2, cz + (R() - 0.5) * 0.5 * sc, (R() - 0.5) * 0.15, 0.35 + R() * 0.25, (R() - 0.5) * 0.15, 0.25 * sc, (0.8 + R() * 0.4) * sc, 2.4 + R() * 0.9, 0.3);
+  const spark = () => t3BurnPart(B, false, cx + (R() - 0.5) * 0.5 * sc, fl + 0.15 + R() * 0.2, cz + (R() - 0.5) * 0.5 * sc, (R() - 0.5) * 0.4, 0.5 + R() * 0.9, (R() - 0.5) * 0.4, 0.07, 0.02, 0.9 + R() * 0.8, 1);
+  if (!u.bb) { u.bb = true; for (let i = 0; i < 4; i++) smoke(); for (let i = 0; i < 14; i++) spark(); }   // sbuffo di fumo e scintille nel momento in cui crolla
+  if (ti < 6.5) {
+    const iv = 0.28 + 0.06 * ti; u.sm = Math.min(iv * 2, (u.sm || 0) + dt);
+    for (let n = 0; u.sm > iv && n < 2; n++) { u.sm -= iv; smoke(); }
+    if (ti < 5) { const ie = 0.3 + 0.15 * ti; u.em = Math.min(ie * 2, (u.em || 0) + dt); for (let n = 0; u.em > ie && n < 2; n++) { u.em -= ie; spark(); } }
+  }
 }
 
 function t3BloodStep(dt) {   // gocce, nebbiolina e crescita delle pozze, a ogni fotogramma
@@ -1883,9 +1946,19 @@ function t3BloodStep(dt) {   // gocce, nebbiolina e crescita delle pozze, a ogni
   }
   for (const p of B.pools) {
     if (p.k >= 1) continue;
-    p.t += dt; const k = Math.min(1, Math.max(0, p.t / 2.6)); p.k = k;
+    p.t += dt; const k = Math.min(1, Math.max(0, p.t / (p.d || 2.6))); p.k = k;
     const s = p.s * (0.06 + 0.94 * (1 - Math.pow(1 - k, 3)));   // sgorga in fretta, poi rallenta
     p.m.scale.set(s * p.sx, s * p.sy, 1); p.m.visible = p.t > 0;
+  }
+  for (const p of B.part) {   // fumo e scintille dei corpi bruciati
+    if (!p.sp.visible) continue;
+    p.t += dt; const k = p.t / p.life;
+    if (k >= 1) { p.sp.visible = false; continue; }
+    const q = p.sp, s = p.s0 + (p.s1 - p.s0) * k;
+    q.position.x += p.vx * dt; q.position.y += p.vy * dt; q.position.z += p.vz * dt;
+    if (p.smoke) { p.vx *= 1 - 0.5 * dt; p.vz *= 1 - 0.5 * dt; q.material.opacity = p.op * Math.min(1, k * 5) * (1 - k); }
+    else { p.vy -= 0.4 * dt; q.material.opacity = p.op * (1 - k) * (0.75 + 0.25 * Math.sin(p.t * 40)); }
+    q.scale.set(s, s, 1);
   }
 }
 
@@ -1968,6 +2041,7 @@ function t3Sync() {
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
     if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss || e.fc)) u.hd = Math.atan2(px - e.x, py - e.y);
     t3Anim(m, e, mv, d2);
+    if (!e.alive && e.burned && d2 < 400) { try { t3Burn(m, e, u, d2); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Carbonizzazione 3D:', err); } } }   // morto bruciato: corpo carbonizzato, brace e fumo
     // barra vita: compare solo dopo il primo colpo
     const show = e.alive && e.hp < e.mhp && d2 < 144, b = t3Get(T3.bars, e, () => { const g = new THREE.Group(), mk = (c, z) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.04), new THREE.MeshBasicMaterial({ color: c, fog: false })); o.position.z = z; g.add(o); return o; }; mk(0x000000, 0); g.userData.fg = mk(0xdd2222, 0.001); return g; });
     b.visible = show; if (show) { const q = Math.max(0, e.hp / e.mhp); b.position.set(e.x, world1H(e.x, e.y) + u.sc * 0.98 + 0.12, e.y); b.quaternion.copy(cam.quaternion); b.userData.fg.scale.x = Math.max(0.001, q); b.userData.fg.position.x = -0.2 * (1 - q); }

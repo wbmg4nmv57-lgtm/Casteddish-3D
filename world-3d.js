@@ -126,17 +126,23 @@ function render() {
 }
 
 /* ======================================================================
-   CASTEDDISH - Mondo del piano 1: livelli, botole e trappole
-   POZZO: stanza con fossa profonda 1 al centro, parapetto tutto intorno
-          e una scalinata che scende. E' la meta delle botole.
-   BALCONE: piattaforma alta lungo una parete, con scalinata e parapetto.
-   TRAPPOLE nei corridoi: tratto di spuntoni sincronizzati (si passa a
-          tempo) e feritoia in fondo al corridoio che spara lungo il tratto.
-   BOTOLE nelle stanze: cadi nel pozzo.
-   Niente salti nel vuoto: i dislivelli sono solo scalini da 0,33 oppure
-   parapetti pieni (muri bassi). Sempre uguale a ogni partita.
+   CASTEDDISH - Mondo del piano 1: stanze multipiano, botole e trappole
+   Il gioco ragiona su una griglia piatta; le quote (W1.H) e i soffitti (W1.C) sono per cella e li usa solo la grafica 3D.
+   Ogni stanza speciale e disegnata con quote di progetto (multipli di 0,25) e, dove serve, parapetti e colonne. Poi una
+   regolarizzazione abbassa ogni salto piu alto di un gradino: scale e rampe nascono da sole, si sale e si scende sempre
+   a piedi, e i parapetti restano solo dove il dislivello e voluto. Ogni stanza e controllata (i percorsi restano collegati)
+   e, se un'idea non regge, viene scartata. Il piano e sempre uguale a ogni partita.
+   TIPI DI STANZA (W1.plan li elenca, con le celle piu alte e piu basse, per aggiungere dettagli):
+   FOSSA        ballatoio tutt'intorno, parapetto, scalinata larga che scende a -1; e la meta delle botole.
+   ANFITEATRO   conca a gradoni concentrici: si entra dal bordo e si scende verso l'arena al centro.
+   ZIGGURAT     piramide a gradoni: in cima si domina la sala.
+   CATTEDRALE   navata bassa con uno o due ballatoi a quota 1, parapetto verso la navata, colonne e scala a un'estremita.
+   TERRAZZA     mezza sala rialzata a quota 1 con parapetto e scalinata monumentale a un lato.
+   CRIPTA       sala sprofondata a -0,5 (si scende dal corridoio) con un basamento a gradini al centro.
+   TRAPPOLE nei corridoi: tratto di spuntoni sincronizzati (si passa a tempo) e feritoia in fondo che spara lungo il tratto.
+   BOTOLE nelle stanze: cadi nella fossa.
    ====================================================================== */
-const W1 = { map: null, ver: 0, H: new Float32Array(N * N), C: new Float32Array(N * N).fill(1), rail: new Uint8Array(N * N), rails: [], spikes: [], doors: [], shooters: [], darts: [], fall: 0, camH: 0, t: 0, cellar: null, dead: false, dm: [] };
+const W1 = { map: null, ver: 0, H: new Float32Array(N * N), C: new Float32Array(N * N).fill(1), rail: new Uint8Array(N * N), rails: [], spikes: [], doors: [], shooters: [], darts: [], fall: 0, camH: 0, t: 0, cellar: null, plan: [], dead: false, dm: [] };
 const world1H = (x, y) => (x >= 0 && y >= 0 && x < N && y < N) ? W1.H[(y | 0) * N + (x | 0)] : 0;          // altezza del pavimento
 const world1C = (x, y) => (x >= 0 && y >= 0 && x < N && y < N) ? W1.C[(y | 0) * N + (x | 0)] : 1;          // altezza del soffitto
 const world1Hn = (x, y) => { let m = world1H(x, y); for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) m = Math.max(m, world1H(x + a, y + b)); return m; };
@@ -146,53 +152,152 @@ function world1Ensure() { if (W1.map !== map) world1Carve(); }   // di norma e g
 function world1Carve(f) {
   W1.map = map; W1.ver++;
   const H = W1.H.fill(0), C = W1.C.fill(1); W1.rail.fill(0);
-  W1.rails.length = W1.spikes.length = W1.doors.length = W1.shooters.length = W1.darts.length = 0; W1.fall = 0; W1.camH = 0; W1.cellar = null;
+  W1.rails.length = W1.spikes.length = W1.doors.length = W1.shooters.length = W1.darts.length = 0; W1.fall = 0; W1.camH = 0; W1.cellar = null; W1.plan.length = 0;
   if ((f !== undefined ? f : curFloor) !== 0 || rooms.length < 5) return;
   let sd = 20261112; const rnd = () => ((sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296);
   const idx = (x, y) => y * N + x, open = i => map[i] === 0, area = r => r.w * r.h;
   const inRect = (r, x, y) => !!r && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
   const start = rooms[0], sroom = stairs && rooms.find(r => inRect(r, stairs.x, stairs.y));
   const cand = rooms.filter(r => r !== start && r !== sroom).sort((a, b) => area(b) - area(a));
-  const rail = (i, x, y) => { map[i] = 2; blk[i] = 2; W1.rail[i] = 1; W1.rails.push({ x, y, i }); };   // il parapetto conta come muro per fisica, colpi e nemici
+  // =================== STANZE MULTIPIANO ===================
+  const S = 0.25, DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const T = new Float32Array(N * N), CR = new Float32Array(N * N), R0 = new Uint8Array(N * N);   // T: quota di progetto (0 = piano terra); CR: soffitto di progetto (0 = normale)
+  const map0 = map.slice(), blk0 = blk.slice();   // copia per tornare al piano piatto se qualcosa va storto
+  let undo = [], cellarRoom = null;
+  const feats = [];
+  const flood = (seen) => { const q = [start.cy * N + start.cx]; seen[q[0]] = 1; for (let h = 0; h < q.length; h++) { const i = q[h]; for (const d of [1, -1, N, -N]) { const j = i + d; if (!seen[j] && map[j] === 0) { seen[j] = 1; q.push(j); } } } };
+  flood(R0);   // le celle raggiungibili dalla partenza prima di qualsiasi modifica: devono restarlo tutte
+  const connected = () => { const sn = new Uint8Array(N * N); flood(sn); for (let i = 0; i < N * N; i++) if (R0[i] && map[i] === 0 && !sn[i]) return false; return true; };
+  const tset = (i, v) => { undo.push([0, i, T[i]]); T[i] = v; };
+  const cset = (i, v) => { undo.push([1, i, CR[i]]); CR[i] = v; };
+  const solid = (i, isRail) => { undo.push([2, i, map[i], blk[i], W1.rail[i]]); map[i] = 2; blk[i] = 2; W1.rail[i] = isRail ? 1 : 0; };   // parapetto (basso) o colonna (alta): per fisica, colpi e nemici sono muri
+  const rollbackTo = (m) => { while (undo.length > m) { const e = undo.pop(); if (e[0] === 0) T[e[1]] = e[2]; else if (e[0] === 1) CR[e[1]] = e[2]; else { map[e[1]] = e[2]; blk[e[1]] = e[3]; W1.rail[e[1]] = e[4]; } } };
+  const sub = (fn) => { const m = undo.length; let ok = false; try { ok = !!fn() && connected(); } catch (err) { ok = false; } if (!ok) rollbackTo(m); return ok; };
+  const attempt = (fn) => { undo = []; const ok = sub(fn); undo = []; return ok; };
+  const eachCell = (r, f) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) f(x, y, idx(x, y)); };
+  const allOpen = (r) => { let ok = true; eachCell(r, (x, y, i) => { if (map[i] !== 0) ok = false; }); return ok; };
+  const cheb = (r, x, y) => Math.min(x - r.x, r.x + r.w - 1 - x, y - r.y, r.y + r.h - 1 - y);   // distanza dal bordo della stanza (0 = giro piu esterno)
 
-  // ---- POZZO: fossa centrale a -1, parapetto intorno, scalinata di 2 gradini sul lato ovest
-  const pit = cand.find(r => r.w >= 7 && r.h >= 8 && !(r.w > 8 && r.h > 8));
-  if (pit) {
-    const x0 = pit.x + 1, x1 = pit.x + pit.w - 2, y0 = pit.y + 1, y1 = pit.y + pit.h - 2, oy = (y0 + y1) >> 1;
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-      const i = idx(x, y); if (!open(i)) continue;
-      const edge = x === x0 || x === x1 || y === y0 || y === y1;
-      if (edge && !(x === x0 && (y === oy || y === oy + 1))) { rail(i, x, y); continue; }
-      H[i] = x === x0 ? -0.33 : (x === x0 + 1 && (y === oy || y === oy + 1)) ? -0.66 : -1;
+  // FOSSA: ballatoio di 1 cella tutt'intorno, parapetto, e dentro la fossa a -1; la scalinata larga scende da un lato corto
+  const fossa = (r) => {
+    const horiz = r.w >= r.h, A = horiz ? r.w : r.h, B = horiz ? r.h : r.w;
+    if (A < 8 || B < 7 || !allOpen(r)) return false;
+    const P = (a, b) => horiz ? idx(r.x + a, r.y + b) : idx(r.x + b, r.y + a), ob = (B >> 1) - 1;
+    for (let a = 1; a <= A - 2; a++) for (let b = 1; b <= B - 2; b++) {
+      const i = P(a, b), edge = a === 1 || a === A - 2 || b === 1 || b === B - 2;
+      if (edge) { if (a === 1 && (b === ob || b === ob + 1)) tset(i, -S); else solid(i, true); continue; }   // l'apertura nel parapetto e il primo gradino
+      tset(i, a === 2 ? -2 * S : a === 3 ? -3 * S : -1);   // scalinata larga quanto la fossa: -0,5, -0,75, poi il fondo
     }
-    W1.cellar = pit;
-  }
-  // ---- BALCONE: piattaforma a quota 1 lungo una parete, 2 gradini, parapetto sul lato che guarda la sala
-  const layout = (r, side, flip) => {
-    const horiz = side === 'N' || side === 'S', L = horiz ? r.w : r.h;
-    const wp = (u, v) => { const uu = flip ? L - 1 - u : u; return side === 'N' ? [r.x + uu, r.y + v] : side === 'S' ? [r.x + uu, r.y + r.h - 1 - v] : side === 'W' ? [r.x + v, r.y + uu] : [r.x + r.w - 1 - v, r.y + uu]; };
-    const cells = [];
-    for (let v = 0; v <= 1; v++) { const [x, y] = wp(0, v); if (!open(idx(x, y))) return null; }     // ingresso alla scala
-    for (let u = 1; u < L; u++) for (let v = 0; v <= 2; v++) { const [x, y] = wp(u, v); if (!open(idx(x, y))) return null; cells.push({ i: idx(x, y), x, y, u, v }); }
-    for (const c of cells) {            // nessun corridoio deve sbucare sulla piattaforma: sarebbe un salto nel vuoto
-      if (c.v === 2) continue;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = c.x + dx, ny = c.y + dy; if (!inRect(r, nx, ny) && open(idx(nx, ny))) return null; }
-    }
-    return cells;
+    eachCell(r, (x, y, i) => cset(i, 3));
+    return true;
   };
-  let balRoom = null;
-  for (const r of cand) {
-    if (r === pit || r.w < 7 || r.h < 6 || balRoom) continue;
-    for (const side of ['N', 'S', 'W', 'E']) for (const flip of [0, 1]) {
-      if (balRoom) break;
-      const cells = layout(r, side, flip); if (!cells) continue;
-      for (const c of cells) { H[c.i] = c.u === 1 ? 0.33 : c.u === 2 ? 0.66 : 1; if (c.v === 2) rail(c.i, c.x, c.y); }
-      balRoom = r;
+  // ANFITEATRO: conca a gradoni concentrici fino a -0,75
+  const anfiteatro = (r) => {
+    const m = Math.min(r.w, r.h); if (m < 7 || !allOpen(r)) return false;
+    const km = Math.min(3, (m - 1) >> 1);
+    eachCell(r, (x, y, i) => { tset(i, -S * Math.min(cheb(r, x, y), km)); cset(i, 2.8); });
+    return true;
+  };
+  // ZIGGURAT: piramide a gradoni fino a +0,75
+  const ziggurat = (r) => {
+    const m = Math.min(r.w, r.h); if (m < 6 || !allOpen(r)) return false;
+    const km = Math.min(3, (m - 1) >> 1);
+    eachCell(r, (x, y, i) => { tset(i, S * Math.min(cheb(r, x, y), km)); cset(i, 3.2); });
+    return true;
+  };
+  // CRIPTA: tutta la sala a -0,5 (il dislivello si scende nel corridoio), con un basamento a gradini al centro
+  const cripta = (r) => {
+    const m = Math.min(r.w, r.h); if (m < 6 || !allOpen(r)) return false;
+    eachCell(r, (x, y, i) => { tset(i, -0.5); cset(i, 2.4); });
+    if (m >= 7) for (let y = r.cy - 1; y <= r.cy + 1; y++) for (let x = r.cx - 1; x <= r.cx + 1; x++) tset(idx(x, y), 0);
+    return true;
+  };
+  // Ballatoio lungo un lato: u corre lungo il lato, v va dal muro verso la sala (d righe: d-1 di pavimento e l'ultima di parapetto)
+  const wp = (r, side, flip, L, u, v) => { const uu = flip ? L - 1 - u : u; return side === 'N' ? [r.x + uu, r.y + v] : side === 'S' ? [r.x + uu, r.y + r.h - 1 - v] : side === 'W' ? [r.x + v, r.y + uu] : [r.x + r.w - 1 - v, r.y + uu]; };
+  const ballatoio = (r, side, flip, d, pil) => {
+    const horiz = side === 'N' || side === 'S', L = horiz ? r.w : r.h, cross = horiz ? r.h : r.w, top = L >= 8 ? 1 : 0.75;
+    if (cross < d + 2) return false;   // la navata deve restare larga almeno 2
+    for (let u = 0; u < L; u++) for (let v = 0; v < d; v++) { const [x, y] = wp(r, side, flip, L, u, v); if (map[idx(x, y)] !== 0) return false; }
+    for (let u = 0; u < L; u++) for (let v = 0; v < d - 1; v++) {   // nessun corridoio deve sbucare sul ballatoio: sarebbe un salto nel vuoto
+      const [x, y] = wp(r, side, flip, L, u, v);
+      for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (!inRect(r, nx, ny) && map[idx(nx, ny)] === 0) return false; }
     }
+    for (let u = 0; u < L; u++) for (let v = 0; v < d - 1; v++) { const [x, y] = wp(r, side, flip, L, u, v); tset(idx(x, y), u === 0 ? 0 : Math.min(top, S * u)); }   // u=0: pianerottolo; poi 4 gradini lungo il lato
+    for (let u = 1; u < L; u++) { const [x, y] = wp(r, side, flip, L, u, d - 1); solid(idx(x, y), !(pil && u >= 4 && u <= L - 2 && (u - 4) % 3 === 0)); }   // parapetto verso la sala, con colonne ogni 3 celle
+    return true;
+  };
+  // CATTEDRALE: navata con un ballatoio per lato lungo (scale a estremita opposte) o, se non c'e posto, con uno solo
+  const cattedrale = (r) => {
+    const horiz = r.w >= r.h, L = horiz ? r.w : r.h, cross = horiz ? r.h : r.w;
+    if (L < 8 || cross < 6 || !allOpen(r)) return false;
+    const sA = horiz ? 'N' : 'W', sB = horiz ? 'S' : 'E';
+    if (!(cross >= 9 && sub(() => ballatoio(r, sA, 0, 3, true) && ballatoio(r, sB, 1, 3, true)))) {
+      let ok = false;
+      for (const [sd, fl] of [[sA, 0], [sB, 1], [sA, 1], [sB, 0]]) if (!ok) ok = sub(() => ballatoio(r, sd, fl, 3, true));
+      if (!ok) return false;
+    }
+    eachCell(r, (x, y, i) => cset(i, 3.4));
+    return true;
+  };
+  // TERRAZZA: una larga fascia rialzata lungo un lato lungo, con parapetto e scalinata monumentale a un'estremita
+  const terrazza = (r) => {
+    const horiz = r.w >= r.h, L = horiz ? r.w : r.h, cross = horiz ? r.h : r.w;
+    if (L < 7 || cross < 6 || !allOpen(r)) return false;
+    const d = Math.min(6, Math.max(4, cross - 3));
+    for (const [sd, fl] of (horiz ? [['N', 0], ['S', 1], ['N', 1], ['S', 0]] : [['W', 0], ['E', 1], ['W', 1], ['E', 0]]))
+      if (sub(() => ballatoio(r, sd, fl, d, false))) { eachCell(r, (x, y, i) => cset(i, 3.2)); return true; }
+    return false;
+  };
+
+  try {
+    // 1) la fossa nella stanza adatta piu grande (e la meta delle botole)
+    for (const r of cand) {
+      if (!(Math.max(r.w, r.h) >= 8 && Math.min(r.w, r.h) >= 7 && !(r.w > 8 && r.h > 8))) continue;
+      if (attempt(() => fossa(r))) { cellarRoom = r; feats.push({ kind: 'fossa', room: r }); break; }
+    }
+    // 2) le altre stanze, dalla piu grande: i tipi si alternano e ognuno ha un tetto, cosi il livello varia; qualche sala resta piana per far respirare
+    const fk = { cattedrale, anfiteatro, ziggurat, terrazza, cripta }, fo = ['cattedrale', 'anfiteatro', 'ziggurat', 'terrazza', 'cripta'], fcap = { cattedrale: 3, anfiteatro: 2, ziggurat: 3, terrazza: 2, cripta: 3 }, fused = {};
+    let k0 = 0;
+    for (const r of cand) {
+      if (r === cellarRoom || rnd() < 0.25) continue;
+      for (let j = 0; j < fo.length; j++) {
+        const kind = fo[(k0 + j) % fo.length]; if ((fused[kind] || 0) >= fcap[kind]) continue;
+        if (attempt(() => fk[kind](r))) { fused[kind] = (fused[kind] || 0) + 1; feats.push({ kind, room: r }); k0 = (k0 + j + 1) % fo.length; break; }
+      }
+    }
+    // 3) regolarizzazione: la quota di ogni cella non puo superare quella di una vicina di piu di un gradino (i parapetti separano e non contano)
+    for (let i = 0; i < N * N; i++) H[i] = map[i] === 0 ? T[i] : 0;
+    for (let it = 0, ch = true; ch && it < 400; it++) {
+      ch = false;
+      for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+        const i = y * N + x; if (map[i] !== 0) continue;
+        let v = H[i];
+        if (map[i - 1] === 0 && H[i - 1] + S < v) v = H[i - 1] + S;
+        if (map[i + 1] === 0 && H[i + 1] + S < v) v = H[i + 1] + S;
+        if (map[i - N] === 0 && H[i - N] + S < v) v = H[i - N] + S;
+        if (map[i + N] === 0 && H[i + N] + S < v) v = H[i + N] + S;
+        if (v < H[i]) { H[i] = v; ch = true; }
+      }
+    }
+    // 4) i parapetti stanno sul lato alto; il soffitto segue il progetto e non scende mai sotto quota + 1,3
+    for (let i = 0; i < N * N; i++) if (W1.rail[i]) {
+      let m = -9; for (const d of [1, -1, N, -N]) if (map[i + d] === 0) m = Math.max(m, H[i + d]);
+      H[i] = m > -9 ? m : 0; W1.rails.push({ x: i % N, y: (i / N) | 0, i });
+    }
+    for (let i = 0; i < N * N; i++) if (map[i] === 0 || W1.rail[i]) C[i] = Math.max(CR[i] > 0 ? CR[i] : 1, H[i] + 1.3);
+    // 5) elenco dei luoghi (per le prossime richieste: dettagli, nemici, bottino...): celle piu alte e piu basse di ogni sala
+    const FN = { fossa: 'FOSSA', anfiteatro: 'ANFITEATRO', ziggurat: 'ZIGGURAT', cattedrale: 'CATTEDRALE', terrazza: 'TERRAZZA', cripta: 'CRIPTA' };
+    for (const f of feats) {
+      let mn = 9, mx = -9; const hi = [], lo = [];
+      eachCell(f.room, (x, y, i) => { if (map[i] === 0) { mn = Math.min(mn, H[i]); mx = Math.max(mx, H[i]); } });
+      eachCell(f.room, (x, y, i) => { if (map[i] === 0) { if (H[i] === mx) hi.push(i); if (H[i] === mn) lo.push(i); } });
+      W1.plan.push({ kind: f.kind, name: FN[f.kind], room: f.room, minH: mn, maxH: mx, hi, lo });
+    }
+    W1.cellar = cellarRoom;
+  } catch (err) {   // qualsiasi imprevisto: torna il piano piatto di prima, il gioco parte comunque
+    console.error('Stanze multipiano disattivate:', err);
+    map.set(map0); blk.set(blk0); W1.rail.fill(0); W1.rails.length = 0; W1.plan.length = 0; W1.cellar = null; H.fill(0); C.fill(1);
   }
-  // soffitto alto nelle due sale, e il soffitto sale insieme alle scale
-  for (const r of [pit, balRoom]) if (r) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { const i = idx(x, y); if (open(i) || W1.rail[i]) C[i] = 2.6; }
-  for (let i = 0; i < N * N; i++) if (open(i) || W1.rail[i]) C[i] = Math.max(C[i], H[i] + 1.3);
 
   // ---- TRAPPOLE NEI CORRIDOI (larghi 1): tratti dritti di almeno 5 celle
   const inRoom = new Uint8Array(N * N);
@@ -222,7 +327,7 @@ function world1Carve(f) {
   }
   // ---- BOTOLE: una per stanza (non nelle sale speciali), accanto al centro
   if (W1.cellar) {
-    const skip = new Set([start, sroom, pit, balRoom]);
+    const skip = new Set([start, sroom, W1.cellar]);
     for (const r of rooms.filter(q => !skip.has(q)).sort((a, b) => area(b) - area(a))) {
       if (W1.doors.length >= 5) break;
       for (const [ox, oy] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [0, 2]]) {

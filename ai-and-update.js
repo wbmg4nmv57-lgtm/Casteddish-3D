@@ -547,7 +547,7 @@ function update(dt) {
             continue;
           }
           hit = true;
-          if (!p.splash && p.kind !== 'molotov' && p.kind !== 'grenade' && p.kind !== 'fireball') damageEnemy(e, p.dmg);
+          if (!p.splash && p.kind !== 'molotov' && p.kind !== 'grenade' && p.kind !== 'fireball') { damageEnemy(e, p.dmg); if (p.kind === 'bullet' && typeof t3Blood === 'function') t3Blood(e, p.x, p.y, p.z, p.dirX, p.dirY); }   // proiettile vero (non razzo, fuoco o plasma): spruzzo di sangue
           break;
         }
         if (!hit) for (const q of props) if (q.solid === false && Math.abs(p.x - q.x) < 0.35 && Math.abs(p.y - q.y) < 0.35 && p.z <= q.h) { hit = true; hurtProp(q, p.splash ? 80 : p.dmg || 20); break; }
@@ -594,7 +594,7 @@ function update(dt) {
       for (const o of enemies) if (o.alive && o !== b.own && !TYPES[o.type].boss && Math.hypot(b.x - o.x, b.y - o.y) < Math.max(o.r, b.r || 0)) { hitE = o; break; }
     }
     if (hitP || hitE || isWall(b.x, b.y) || b.life <= 0) {
-      if (hitE) { damageEnemy(hitE, b.dmg || 12); if (Math.random() < FF_CHANCE) infight(b.own, hitE); }
+      if (hitE) { damageEnemy(hitE, b.dmg || 12); if (b.kind === 'bullet' && typeof t3Blood === 'function') t3Blood(hitE, b.x, b.y, 0.5, b.dx, b.dy); if (Math.random() < FF_CHANCE) infight(b.own, hitE); }
       if (hitP) { hurt(b.dmg || 12); if (b.slow) player.slow = b.slow; sfx(b.kind === 'throw' || b.kind === 'boulder' || b.kind === 'bullet' ? 'hit_flesh' : 'witch_zap', 0.9); }
       if (b.boom) { addFire(b.x, b.y, 0.7, 3); explosions.push({ x: b.x, y: b.y, timer: 0, maxTime: 0.3, kind: 'fire' }); }
       eShots.splice(i, 1);

@@ -524,7 +524,7 @@ function drawMiniLegend() {
 }
 
 function renderMinimap() {
-  const size = miniCanvas.width, e = mm.e, g = miniCtx, Rz = 12 + 12 * e;   // half-width of the view in cells: 12 around the player, 24 = the whole level
+  const size = miniCanvas.width, e = mm.e, g = miniCtx, Rz = 12 + (N / 2 - 12) * e;   // half-width of the view in cells: 12 around the player, N/2 = the whole level
   const cx = player.x + (N / 2 - player.x) * e, cy = player.y + (N / 2 - player.y) * e;
   const cw = size / (Rz * 2), ox = cx - Rz, oy = cy - Rz, r = (3.2 + 3 * e) * size / mm.css;
   g.fillStyle = '#05060a'; g.fillRect(0, 0, size, size);

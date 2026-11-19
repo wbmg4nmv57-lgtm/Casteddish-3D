@@ -21,7 +21,7 @@ const armor = { t: -1, ap: 0 };
 let keys = 0, keysNeed = 3, hinted = false, thr = null, aim = null, doorAnim = null, readyMsg = false, doorHintT = 0;
 const THROW_STD = (8.2 - 4.5) / 8.5;
 
-const blk = new Uint8Array(N * N);
+const blk = new Uint8Array(NMAX * NMAX);
 const CHEST_CELL = 8;   // chests block walking like any solid, but shots and throws fly over them
 const blasts = [], fuses = [], shake = { t: 0, max: 1, a: 0 };
 let flashA = 0, flashEl = null;
@@ -292,7 +292,7 @@ function rotatePlayer(a) {
 }
 
 let rawDt = 0, tNow = 0, fieldT = 0, doorOpen = false, won = false, remaining = 0;
-const eShots = [], field = new Int16Array(N * N);
+const eShots = [], field = new Int16Array(NMAX * NMAX);
 
 function hurt(d) {
   if (player.hp <= 0 || won) return;

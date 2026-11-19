@@ -142,7 +142,7 @@ function render() {
    TRAPPOLE nei corridoi: tratto di spuntoni sincronizzati (si passa a tempo) e feritoia in fondo che spara lungo il tratto.
    BOTOLE nelle stanze: cadi nella fossa.
    ====================================================================== */
-const W1 = { map: null, ver: 0, H: new Float32Array(N * N), C: new Float32Array(N * N).fill(1), rail: new Uint8Array(N * N), rails: [], spikes: [], doors: [], shooters: [], darts: [], fall: 0, camH: 0, t: 0, cellar: null, plan: [], dead: false, dm: [] };
+const W1 = { map: null, ver: 0, H: new Float32Array(NMAX * NMAX), C: new Float32Array(NMAX * NMAX).fill(1), rail: new Uint8Array(NMAX * NMAX), rails: [], spikes: [], doors: [], shooters: [], darts: [], fall: 0, camH: 0, t: 0, cellar: null, cellars: [], plan: [], dead: false, dm: [] };
 const world1H = (x, y) => (x >= 0 && y >= 0 && x < N && y < N) ? W1.H[(y | 0) * N + (x | 0)] : 0;          // altezza del pavimento
 const world1C = (x, y) => (x >= 0 && y >= 0 && x < N && y < N) ? W1.C[(y | 0) * N + (x | 0)] : 1;          // altezza del soffitto
 const world1Hn = (x, y) => { let m = world1H(x, y); for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) m = Math.max(m, world1H(x + a, y + b)); return m; };
@@ -152,7 +152,7 @@ function world1Ensure() { if (W1.map !== map) world1Carve(); }   // di norma e g
 function world1Carve(f) {
   W1.map = map; W1.ver++;
   const H = W1.H.fill(0), C = W1.C.fill(1); W1.rail.fill(0);
-  W1.rails.length = W1.spikes.length = W1.doors.length = W1.shooters.length = W1.darts.length = 0; W1.fall = 0; W1.camH = 0; W1.cellar = null; W1.plan.length = 0;
+  W1.rails.length = W1.spikes.length = W1.doors.length = W1.shooters.length = W1.darts.length = 0; W1.fall = 0; W1.camH = 0; W1.cellar = null; W1.cellars = []; W1.plan.length = 0;
   if ((f !== undefined ? f : curFloor) !== 0 || rooms.length < 5) return;
   let sd = 20261112; const rnd = () => ((sd = (sd * 1664525 + 1013904223) >>> 0) / 4294967296);
   const idx = (x, y) => y * N + x, open = i => map[i] === 0, area = r => r.w * r.h;
@@ -163,7 +163,8 @@ function world1Carve(f) {
   const S = 0.25, DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   const T = new Float32Array(N * N), CR = new Float32Array(N * N), R0 = new Uint8Array(N * N);   // T: quota di progetto (0 = piano terra); CR: soffitto di progetto (0 = normale)
   const map0 = map.slice(), blk0 = blk.slice();   // copia per tornare al piano piatto se qualcosa va storto
-  let undo = [], cellarRoom = null;
+  let undo = [];
+  const cellars = [];
   const feats = [];
   const flood = (seen) => { const q = [start.cy * N + start.cx]; seen[q[0]] = 1; for (let h = 0; h < q.length; h++) { const i = q[h]; for (const d of [1, -1, N, -N]) { const j = i + d; if (!seen[j] && map[j] === 0) { seen[j] = 1; q.push(j); } } } };
   flood(R0);   // le celle raggiungibili dalla partenza prima di qualsiasi modifica: devono restarlo tutte
@@ -250,16 +251,17 @@ function world1Carve(f) {
   };
 
   try {
-    // 1) la fossa nella stanza adatta piu grande (e la meta delle botole)
+    // 1) le fosse (4 su un piano grande, x4 come tutto il resto) nelle stanze adatte piu grandi: sono la meta delle botole
     for (const r of cand) {
+      if (cellars.length >= L1X) break;
       if (!(Math.max(r.w, r.h) >= 8 && Math.min(r.w, r.h) >= 7 && !(r.w > 8 && r.h > 8))) continue;
-      if (attempt(() => fossa(r))) { cellarRoom = r; feats.push({ kind: 'fossa', room: r }); break; }
+      if (attempt(() => fossa(r))) { cellars.push(r); feats.push({ kind: 'fossa', room: r }); }
     }
     // 2) le altre stanze, dalla piu grande: i tipi si alternano e ognuno ha un tetto, cosi il livello varia; qualche sala resta piana per far respirare
-    const fk = { cattedrale, anfiteatro, ziggurat, terrazza, cripta }, fo = ['cattedrale', 'anfiteatro', 'ziggurat', 'terrazza', 'cripta'], fcap = { cattedrale: 3, anfiteatro: 2, ziggurat: 3, terrazza: 2, cripta: 3 }, fused = {};
+    const fk = { cattedrale, anfiteatro, ziggurat, terrazza, cripta }, fo = ['cattedrale', 'anfiteatro', 'ziggurat', 'terrazza', 'cripta'], fcap = { cattedrale: 3 * L1X, anfiteatro: 2 * L1X, ziggurat: 3 * L1X, terrazza: 2 * L1X, cripta: 3 * L1X }, fused = {};
     let k0 = 0;
     for (const r of cand) {
-      if (r === cellarRoom || rnd() < 0.25) continue;
+      if (cellars.includes(r) || rnd() < 0.25) continue;
       for (let j = 0; j < fo.length; j++) {
         const kind = fo[(k0 + j) % fo.length]; if ((fused[kind] || 0) >= fcap[kind]) continue;
         if (attempt(() => fk[kind](r))) { fused[kind] = (fused[kind] || 0) + 1; feats.push({ kind, room: r }); k0 = (k0 + j + 1) % fo.length; break; }
@@ -293,10 +295,10 @@ function world1Carve(f) {
       eachCell(f.room, (x, y, i) => { if (map[i] === 0) { if (H[i] === mx) hi.push(i); if (H[i] === mn) lo.push(i); } });
       W1.plan.push({ kind: f.kind, name: FN[f.kind], room: f.room, minH: mn, maxH: mx, hi, lo });
     }
-    W1.cellar = cellarRoom;
+    W1.cellars = cellars; W1.cellar = cellars[0] || null;
   } catch (err) {   // qualsiasi imprevisto: torna il piano piatto di prima, il gioco parte comunque
     console.error('Stanze multipiano disattivate:', err);
-    map.set(map0); blk.set(blk0); W1.rail.fill(0); W1.rails.length = 0; W1.plan.length = 0; W1.cellar = null; H.fill(0); C.fill(1);
+    map.set(map0); blk.set(blk0); W1.rail.fill(0); W1.rails.length = 0; W1.plan.length = 0; W1.cellar = null; W1.cellars = []; H.fill(0); C.fill(1);
   }
 
   // ---- TRAPPOLE NEI CORRIDOI (larghi 1): tratti dritti di almeno 5 celle
@@ -315,7 +317,7 @@ function world1Carve(f) {
   segs.sort((a, b) => b.n - a.n);
   const picked = [], wallOk = (x, y) => { const m = map[idx(x, y)]; return m === 1 || m === 2 || m === 4; };
   for (const s of segs) {
-    if (picked.length >= 5) break;
+    if (picked.length >= 5 * L1X) break;
     const mx = s.x + s.dx * (s.n >> 1), my = s.y + s.dy * (s.n >> 1);
     if (picked.some(p => Math.hypot(p.mx - mx, p.my - my) < 8)) continue;
     picked.push({ mx, my });
@@ -327,9 +329,9 @@ function world1Carve(f) {
   }
   // ---- BOTOLE: una per stanza (non nelle sale speciali), accanto al centro
   if (W1.cellar) {
-    const skip = new Set([start, sroom, W1.cellar]);
+    const skip = new Set([start, sroom, ...W1.cellars]);
     for (const r of rooms.filter(q => !skip.has(q)).sort((a, b) => area(b) - area(a))) {
-      if (W1.doors.length >= 5) break;
+      if (W1.doors.length >= 5 * L1X) break;
       for (const [ox, oy] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [2, 0], [0, 2]]) {
         const x = r.cx + ox, y = r.cy + oy, i = idx(x, y);
         if (x > r.x && x < r.x + r.w - 1 && y > r.y && y < r.y + r.h - 1 && open(i) && !blk[i] && H[i] === 0) { W1.doors.push({ x: x + 0.5, y: y + 0.5, s: 0, t: 0, a: 0 }); break; }
@@ -338,11 +340,15 @@ function world1Carve(f) {
   }
 }
 
-function w1Fall() {   // caduta nel pozzo
-  const c = W1.cellar; let best = null;
-  for (let r = 0; r < 7 && !best; r++) for (let j = -r; j <= r && !best; j++) for (let i = -r; i <= r; i++) {
-    const x = c.cx + i, y = c.cy + j, n = y * N + x;
-    if (map[n] === 0 && !blk[n] && W1.H[n] < -0.9) { best = [x, y]; break; }
+function w1Fall() {   // caduta nella fossa piu vicina
+  const list = (W1.cellars.length ? W1.cellars : [W1.cellar]).filter(Boolean).sort((a, b) => Math.hypot(a.cx - player.x, a.cy - player.y) - Math.hypot(b.cx - player.x, b.cy - player.y));
+  let best = null;
+  for (const c of list) {
+    for (let r = 0; r < 7 && !best; r++) for (let j = -r; j <= r && !best; j++) for (let i = -r; i <= r; i++) {
+      const x = c.cx + i, y = c.cy + j, n = y * N + x;
+      if (map[n] === 0 && !blk[n] && W1.H[n] < -0.9) { best = [x, y]; break; }
+    }
+    if (best) break;
   }
   if (!best) return;
   player.x = best[0] + 0.5; player.y = best[1] + 0.5; W1.camH = W1.H[best[1] * N + best[0]]; W1.fall = 0.8;
@@ -395,9 +401,10 @@ function world1Build3D(root) {
     B(ax ? 1.02 : 0.38, 0.07, ax ? 0.38 : 1.02, cap, r.x + 0.5, h + 0.585, r.y + 0.5);
     if (hx && hy) B(0.4, 0.8, 0.4, cap, r.x + 0.5, h + 0.4, r.y + 0.5);   // pilastro negli angoli
   }
+  const coneG = new THREE.ConeGeometry(0.045, 0.32, 6), coneM = M(0xb8bcc4);   // condivisi da tutte le punte
   for (const s of W1.spikes) {   // piastra con 9 punte
     B(0.9, 0.03, 0.9, M(0x2a2a2e), s.x, 0.015, s.y); s.tips = [];
-    for (let i = 0; i < 9; i++) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.32, 6), M(0xb8bcc4)); t.position.set(s.x - 0.3 + (i % 3) * 0.3, 0.03, s.y - 0.3 + ((i / 3) | 0) * 0.3); g.add(t); s.tips.push(t); }
+    for (let i = 0; i < 9; i++) { const t = new THREE.Mesh(coneG, coneM); t.position.set(s.x - 0.3 + (i % 3) * 0.3, 0.03, s.y - 0.3 + ((i / 3) | 0) * 0.3); g.add(t); s.tips.push(t); }
   }
   for (const d of W1.doors) {    // botola: buio sotto e due ante di legno che si aprono verso il basso
     const hole = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ color: 0x000000 })); hole.rotation.x = -Math.PI / 2; hole.position.set(d.x, 0.012, d.y); g.add(hole);
@@ -2138,6 +2145,7 @@ function t3Sync() {
   if (doorAnim && T3.doorTex) T3.doorTex.needsUpdate = true;
   // mostri
   for (const e of enemies) {
+    if (!T3.mobs.has(e) && (e.x - px) ** 2 + (e.y - py) ** 2 > 2500) continue;   // piano grande: il modello nasce solo quando ci si avvicina (50 celle)
     const m = t3Get(T3.mobs, e, () => t3Mob(e)), u = m.userData, T = TYPES[e.type] || TYPES.demon;
     if (!e.alive && !e.bp) { e.bp = true; try { t3BloodPool(e, u); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Sangue 3D:', err); } } }   // demone ucciso: pozza di sangue sotto di lui
     const d2 = (e.x - px) ** 2 + (e.y - py) ** 2, dx = e.x - u.px, dy = e.y - u.py, mv = Math.hypot(dx, dy);
@@ -2156,7 +2164,7 @@ function t3Sync() {
   t3Fx(); t3FxLights();
   // raccoglibili: modelli 3D (medikit, munizioni, armi, armature) che ruotano e fluttuano, con un alone luminoso
   for (const q of pickups) {
-    if (q.taken) continue;
+    if (q.taken || (!T3.pick.has(q) && (q.x - px) ** 2 + (q.y - py) ** 2 > 2500)) continue;
     const key = q.kind === 'arm' ? 'arm' + q.t : q.kind === 'ammo' ? 'ammo' + q.w : q.kind;
     const m = t3Get(T3.pick, q, () => t3Pickup(key));
     m.position.set(q.x, 0.22 + world1H(q.x, q.y) + Math.sin(tNow * 2.5 + q.x) * 0.03, q.y); m.rotation.y = tNow * 1.5;
@@ -2165,6 +2173,7 @@ function t3Sync() {
   t3Stale(T3.pick);
   // oggetti di scena
   for (const q of props) {
+    if (!T3.prop.has(q) && (q.x - px) ** 2 + (q.y - py) ** 2 > 2500) continue;
     const m = t3Get(T3.prop, q, () => { const o = t3Props(q); o.position.set(q.x, world1H(q.x, q.y), q.y); return o; });
     if (m.userData.lid) m.userData.lid.rotation.x = q.open ? -1.2 : 0;
     const u = m.userData;   // colpito: il modello trema per un attimo
@@ -2174,6 +2183,7 @@ function t3Sync() {
   }
   // lampadari appesi al soffitto
   for (const c of chands) {
+    if (!T3.prop.has(c) && (c.x - px) ** 2 + (c.y - py) ** 2 > 2500) continue;
     const m = t3Get(T3.prop, c, () => { const g = new THREE.Group(); for (const p of t3PropGeo('chand', t3MChand)) g.add(new THREE.Mesh(p.g, p.m)); g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
   }
   t3Stale(T3.prop);

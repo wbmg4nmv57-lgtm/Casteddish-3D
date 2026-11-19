@@ -18,9 +18,12 @@ const RENDER_WIDTH = 512, RENDER_HEIGHT = 256;
 canvas.width = RENDER_WIDTH; canvas.height = RENDER_HEIGHT;
 miniCanvas.width = 256; miniCanvas.height = 256;
 
-const N = 48, MAP_WIDTH = N, MAP_HEIGHT = N;
+// Piano 1: area e contenuti x4 (mappa 96x96 invece di 48x48, stanze nello stesso stile); le chiavi restano 3.
+// Gli altri piani restano 48x48: N cambia a ogni piano (loadFloor) e gli array sono dimensionati per NMAX.
+const L1X = 4, NMAX = 96;
+let N = 48, MAP_WIDTH = N, MAP_HEIGHT = N;
 const CFG = [
-  { rooms: 16, min: 6, max: 10, cw: 1 },
+  { rooms: 16 * L1X, min: 6, max: 10, cw: 1 },
   { rooms: 24, min: 5, max: 7, cw: 2 },
   { maze: true },
   { rooms: 9, min: 8, max: 12, cw: 1, pillars: true, liq: 1 },
@@ -37,7 +40,7 @@ const FLOOR_NAMES = ['DUNGEON DEI DEMONI', 'EDIFICIO ABBANDONATO', 'CASTELLO DI 
 const ENEMY_OF = ['demon', 'ghoul', 'wraith', 'witch'];
 const FLOOR_ORDER = [0, 1, 3, 2, 4];   // the third and fourth levels are swapped: progress index -> level
 let progress = 0;
-let map = new Uint8Array(N * N), torches = [], rooms = [], stairs = null, doorCell = -1, curFloor = 0, sr = 1;
+let map = new Uint8Array(NMAX * NMAX), torches = [], rooms = [], stairs = null, doorCell = -1, curFloor = 0, sr = 1;
 const srand = () => (sr = (sr * 16807) % 2147483647) / 2147483647;
 const ri = (a, b) => a + Math.floor(srand() * (b - a + 1));
 
@@ -62,7 +65,7 @@ function bfs(grid, s, out) {
    griglie. Include anche la porta delle scale con le tre chiavi.
    ====================================================================== */
 
-const liq = new Uint8Array(N * N);
+const liq = new Uint8Array(NMAX * NMAX);
 let fogS = '0,0,0', fogC = [0, 0, 0], liqBuf, liqEmit = 0;
 const cv = () => { const c = mk(); c.width = c.height = TS; return [c, c.getContext('2d')]; };
 const rgb = (b, v) => `rgb(${b[0] + v | 0},${b[1] + v | 0},${b[2] + v | 0})`;
@@ -456,6 +459,7 @@ function buildTextures(f) {
 
 function loadFloor(prog) {
   const f = FLOOR_ORDER[prog]; progress = prog; curFloor = f; doorOpen = false;
+  N = MAP_WIDTH = MAP_HEIGHT = f === 0 ? NMAX : 48;   // il piano 1 e 96x96, gli altri 48x48
   const cfg = CFG[f];
   let g, start;
   for (let tries = 0; tries < 40; tries++) {
@@ -485,7 +489,7 @@ function loadFloor(prog) {
       room(2, 2, 7, 7);
       for (let k = 0; k < 6; k++) room(ri(3, 38), ri(3, 38), 7, 7);
     } else {
-      for (let t = 0; rooms.length < cfg.rooms && t < 500; t++) {
+      for (let t = 0; rooms.length < cfg.rooms && t < 500 * (f === 0 ? L1X : 1); t++) {
         const w = ri(cfg.min, cfg.max), h = ri(cfg.min, cfg.max), x = ri(3, N - w - 3), y = ri(3, N - h - 3);
         if (rooms.some(r => x < r.x + r.w + 2 && x + w + 2 > r.x && y < r.y + r.h + 2 && y + h + 2 > r.y)) continue;
         room(x, y, w, h);
@@ -561,7 +565,7 @@ function loadFloor(prog) {
   }
   if (f < 4) {
     const order = props.map((q, i) => i).sort(() => srand() - 0.5);
-    const want = Math.min(9, Math.max(3, Math.floor(props.length * 0.6)));
+    const want = Math.min(9 * (f === 0 ? L1X : 1), Math.max(3, Math.floor(props.length * 0.6)));   // bauli x4 al piano 1; le chiavi restano 3 (slice sotto)
     let nch = 0;
     for (const i of order) if (nch < want) { props[i].type = 'chest'; props[i].hp = 1e9; blk[props[i].cell] = CHEST_CELL; nch++; }
     props.filter(q => q.type === 'chest').sort(() => srand() - 0.5).slice(0, 3).forEach(q => { q.key = true; });
@@ -575,9 +579,9 @@ function loadFloor(prog) {
   const srKeep = sr; sr = 52711 + f * 977;
   const dused = used.slice(), dcount = new Map(), droom = new Map(), dkind = new Array(DECOR[f].length).fill(0);
   let nd = 0;
-  const decoTotal = [52, 56, 40, 54, 50][f], capDiv = [12, 12, 8, 12, 20][f], capMax = [8, 5, 7, 10, 48][f];
+  const decoTotal = [52 * L1X, 56, 40, 54, 50][f], capDiv = [12, 12, 8, 12, 20][f], capMax = [8, 5, 7, 10, 48][f];
   const kindCap = Math.ceil(decoTotal / DECOR[f].length);   // no piece more than a few times per floor
-  for (let t = 0; t < 4000 && nd < decoTotal; t++) {
+  for (let t = 0; t < 4000 * (f === 0 ? L1X : 1) && nd < decoTotal; t++) {
     const r = rooms[t % rooms.length];
     if (r === sroom) continue;
     if ((dcount.get(r) || 0) >= Math.max(2, Math.min(capMax, Math.round(r.w * r.h / capDiv)))) continue;
@@ -642,7 +646,7 @@ function loadFloor(prog) {
   else {
     // Spread the enemies out: far from the start (nobody reaches you at once) and never bunched together
     const placed = [];
-    for (let i = 0; i < Math.round([50, 60, 70, 65][f] * DIFF.count); i++) {
+    for (let i = 0; i < Math.round([50 * L1X, 60, 70, 65][f] * DIFF.count); i++) {
       let q = null;
       for (const [minD, sp] of [[22, 4], [20, 3.2], [20, 2.6], [20, 2.2], [16, 2]]) {
         for (let t = 0; t < 120 && !q; t++) {
@@ -655,11 +659,11 @@ function loadFloor(prog) {
       placed.push(q); enemies.push(mkEnemy(q[0], q[1], ENEMY_OF[f]));
     }
   }
-  (f === 0 ? [1, 1, 2, 2, 3, 4, 5, 7] : f === 4 ? [2, 2, 3, 3, 3, 1, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 5, 6, 7]).forEach(k => { const q = pc(); pickups.push({ kind: k, x: q[0], y: q[1], taken: false }); });
-  for (let i = 0; i < (f === 4 ? 8 : 6); i++) { const q = pc(); pickups.push({ kind: 'med', x: q[0], y: q[1], taken: false }); }
-  for (let i = 0; i < 4; i++) { const q = pc(); pickups.push({ kind: 'ammo', w: 1 + Math.floor(srand() * 7), x: q[0], y: q[1], taken: false }); }
+  (f === 0 ? [1, 1, 2, 2, 3, 4, 5, 7].flatMap(k => Array(L1X).fill(k)) : f === 4 ? [2, 2, 3, 3, 3, 1, 4, 5, 6, 7] : [1, 2, 3, 4, 5, 5, 6, 7]).forEach(k => { const q = pc(); pickups.push({ kind: k, x: q[0], y: q[1], taken: false }); });
+  for (let i = 0; i < (f === 4 ? 8 : f === 0 ? 6 * L1X : 6); i++) { const q = pc(); pickups.push({ kind: 'med', x: q[0], y: q[1], taken: false }); }
+  for (let i = 0; i < (f === 0 ? 4 * L1X : 4); i++) { const q = pc(); pickups.push({ kind: 'ammo', w: 1 + Math.floor(srand() * 7), x: q[0], y: q[1], taken: false }); }
   const AW = [[0.6, 0.35, 0.05, 0], [0.3, 0.45, 0.2, 0.05], [0.15, 0.35, 0.4, 0.1], [0.05, 0.25, 0.45, 0.25], [0, 0.1, 0.4, 0.5]][f];
-  for (let i = 0; i < 1; i++) {   // one wearable armor per floor
+  for (let i = 0; i < (f === 0 ? L1X : 1); i++) {   // one wearable armor per floor (x4 on floor 1)
     let r = srand(), t = 0; while (t < 3 && r >= AW[t]) { r -= AW[t]; t++; }
     const q = pc(); pickups.push({ kind: 'arm', t, x: q[0], y: q[1], taken: false });
   }
@@ -691,7 +695,7 @@ function loadFloor(prog) {
     const spaced = (list, max) => { const p = []; for (const c of list) if (p.length < max && !p.some(o => Math.hypot(o[0] - c[0], o[1] - c[1]) < 1.4)) p.push(c); return p; };
     rooms.filter(r => r !== start && r !== sroom && r.w * r.h >= 25 && dd[r.cy * N + r.cx] >= 12 && dd[r.cy * N + r.cx] < 9999)
       .map(r => ({ r, cand: tunnelCells(r) })).filter(o => spaced(o.cand, 99).length >= 5)
-      .sort(() => srand() - 0.5).slice(0, [1, 2, 2, 2][f])
+      .sort(() => srand() - 0.5).slice(0, [L1X, 2, 2, 2][f])
       .forEach(o => hordes.push({ r: o.r, cand: o.cand, n: Math.max(4, Math.round([10, 10, 10, 12][f] * DIFF.count)), type: ENEMY_OF[f], fired: false, q: [], tt: 0, snd: false }));
   }
 

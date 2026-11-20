@@ -450,38 +450,91 @@ function t3Init() {
 
 // =====================================================================================================================
 // PARETI HORROR (piano 1)
-// Le pareti non sono piu pietra pulita: texture dipinte a mano (pietra annerita dal fumo, muffa e funghi, graffi di
-// artigli e mani insanguinate, sigilli di sangue, carne e vene nelle fughe, ossario, crepe incandescenti che pulsano),
-// varianti scelte stanza per stanza, bassorilievi con rilievo vero (bump map) diversi da stanza a stanza, torce su
-// sostegni di ferro con fiamma animata e, sparsi sui muri, elementi 3D che escono dalla pietra: teschi, mani di
-// scheletro, volti urlanti, catene, ganci, costole, vene e bocche dentate.
+// Pietra sporca, umida, marcia: ogni parete e una base di blocchi con sporco continuo e, sopra, un segno morbido
+// (fumo, muffa, sangue che trasuda, graffi di artiglio, scritte ossessive, strisciate di mani, carne che spunta dalle
+// fughe, crepe incandescenti, ombre di figure). I segni sono sfumati e si dissolvono verso i bordi della cella, cosi
+// tra una parete e l'altra non ci sono stacchi netti. Ogni stanza ha un tema (sudario, macello, presenze, carne...),
+// con bassorilievi dal rilievo vero (bump map) e, sui muri, elementi 3D: corpi avvolti appesi, capelli che escono
+// dalle fessure, braccia smunte, ganci, catene, punte arrugginite, vene con pustole, costole.
 // E solo estetica: la griglia di gioco non cambia. Se qualcosa va storto, t3Build torna ai muri di prima.
 // =====================================================================================================================
-const HW = { fam: null, panels: {}, flame: null, soot: null, pulse: [], grp: null, key: '', lvl: null };
-const HW_FAMS = { ruin: 3, damp: 2, claws: 2, sigil: 2, flesh: 2, ossuary: 2, cracks: 2 };   // famiglie di texture e numero di varianti
-const HW_PLAN = { cripta: 0, fossa: 6, cattedrale: 2, anfiteatro: 1, ziggurat: 3, terrazza: 4 };   // stanze speciali: tema fisso
-// Temi di stanza: famiglie di texture, elementi 3D e bassorilievo (indice di HW_DESIGN). Pesi relativi.
+const HW = { base: null, mats: new Map(), panels: {}, flame: null, soot: null, pulse: [], grp: null, key: '', lvl: null, winC: {}, ready: false };
+const HW_FAMS = { ruin: 2, damp: 2, bleed: 2, claws: 3, scrawl: 2, drag: 2, flesh: 2, cracks: 2, shadow: 2 };   // famiglie di segni e numero di varianti
+const HW_PLAN = { cripta: 0, fossa: 4, cattedrale: 2, anfiteatro: 1, ziggurat: 6, terrazza: 7 };   // stanze speciali: tema fisso
+// Temi di stanza: segni sulle pareti, elementi 3D e bassorilievo (indice di HW_DESIGN). Pesi relativi.
 const HW_THEME = [
-  { fam: [['ossuary', 35], ['ruin', 40], ['damp', 15], ['sigil', 10]], deco: [['pile', 30], ['skull', 30], ['hand', 15], ['chain', 10], ['horns', 5], ['maw', 10]], relief: 6 },
-  { fam: [['cracks', 35], ['ruin', 35], ['claws', 20], ['sigil', 10]], deco: [['face', 30], ['horns', 20], ['maw', 20], ['hook', 10], ['skull', 10], ['chain', 10]], relief: 1 },
-  { fam: [['sigil', 40], ['ruin', 35], ['claws', 10], ['cracks', 15]], deco: [['chain', 25], ['skull', 20], ['hook', 15], ['hand', 15], ['horns', 10], ['face', 15]], relief: 2 },
-  { fam: [['flesh', 40], ['ruin', 30], ['sigil', 15], ['damp', 15]], deco: [['vein', 35], ['maw', 20], ['face', 15], ['skull', 15], ['hand', 15]], relief: 3 },
-  { fam: [['claws', 40], ['ruin', 35], ['ossuary', 15], ['damp', 10]], deco: [['hand', 50], ['skull', 15], ['chain', 15], ['vein', 10], ['face', 10]], relief: 4 },
-  { fam: [['flesh', 55], ['ruin', 25], ['damp', 20]], deco: [['vein', 40], ['ribs', 20], ['maw', 20], ['hand', 10], ['skull', 10]], relief: 7 },
-  { fam: [['claws', 35], ['ruin', 40], ['flesh', 10], ['sigil', 15]], deco: [['chain', 35], ['hook', 30], ['skull', 10], ['hand', 10], ['face', 10], ['maw', 5]], relief: 5 },
-  { fam: [['damp', 50], ['ruin', 35], ['claws', 15]], deco: [['skull', 30], ['vein', 20], ['pile', 20], ['hand', 15], ['chain', 15]], relief: 0 }
+  { fam: [['shadow', 14], ['ruin', 24], ['damp', 26], ['clean', 20], ['scrawl', 8], ['bleed', 8]], deco: [['bundle', 30], ['hook', 10], ['chain', 20], ['hair', 25], ['ribs', 5], ['hand', 10]], relief: 2 },   // 0 sudario
+  { fam: [['bleed', 34], ['drag', 20], ['claws', 12], ['ruin', 14], ['clean', 20]], deco: [['hook', 32], ['chain', 26], ['bundle', 16], ['hand', 8], ['spikes', 8], ['vein', 10]], relief: 3 },   // 1 macello
+  { fam: [['shadow', 26], ['scrawl', 22], ['ruin', 22], ['clean', 20], ['cracks', 10]], deco: [['hair', 32], ['hand', 28], ['chain', 14], ['bundle', 14], ['ribs', 6], ['vein', 6]], relief: 6 },   // 2 presenze
+  { fam: [['flesh', 42], ['bleed', 16], ['damp', 14], ['clean', 16], ['ruin', 12]], deco: [['vein', 42], ['ribs', 16], ['hair', 16], ['hand', 12], ['bundle', 8], ['hook', 6]], relief: 7 },   // 3 carne
+  { fam: [['claws', 34], ['drag', 20], ['scrawl', 16], ['ruin', 14], ['clean', 16]], deco: [['hand', 46], ['chain', 20], ['hair', 12], ['hook', 10], ['spikes', 6], ['bundle', 6]], relief: 1 },   // 4 supplici
+  { fam: [['damp', 44], ['flesh', 16], ['ruin', 16], ['clean', 16], ['bleed', 8]], deco: [['vein', 34], ['hair', 30], ['ribs', 12], ['bundle', 12], ['hand', 12]], relief: 0 },   // 5 marcio
+  { fam: [['cracks', 36], ['ruin', 30], ['shadow', 10], ['clean', 24]], deco: [['chain', 34], ['hook', 24], ['spikes', 24], ['bundle', 10], ['hand', 8]], relief: 5 },   // 6 fornace
+  { fam: [['scrawl', 34], ['claws', 22], ['drag', 10], ['ruin', 14], ['clean', 20]], deco: [['hand', 30], ['chain', 28], ['hair', 20], ['hook', 10], ['bundle', 12]], relief: 4 }   // 7 isolamento
 ];
-const HW_GEN = [['ruin', 55], ['damp', 15], ['claws', 10], ['sigil', 7], ['flesh', 6], ['cracks', 4], ['ossuary', 3]];   // corridoi e stanze senza tema
-const HW_GENDECO = [['skull', 30], ['chain', 20], ['hook', 10], ['hand', 15], ['vein', 10], ['pile', 10], ['maw', 5]];
+const HW_GEN = [['clean', 40], ['ruin', 18], ['damp', 12], ['bleed', 7], ['claws', 8], ['scrawl', 4], ['drag', 4], ['flesh', 3], ['cracks', 2], ['shadow', 2]];   // corridoi e stanze senza tema
+const HW_GENDECO = [['hair', 22], ['chain', 22], ['hook', 14], ['hand', 14], ['vein', 10], ['bundle', 8], ['spikes', 6], ['ribs', 4]];
 
 const hwRng = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 const hwHash = (x, y, k) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(k | 0, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
 const hwPickW = (tab, q) => { let s = 0; for (const e of tab) s += e[1]; let r = q * s; for (const e of tab) { r -= e[1]; if (r <= 0) return e[0]; } return tab[0][0]; };
+const hwSs = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const hwCv = (w, h) => { const c = document.createElement('canvas'); c.width = w || TS; c.height = h || w || TS; return [c, c.getContext('2d')]; };
-const hwWrap = (x, y, r, fn) => { for (const ox of [-TS, 0, TS]) for (const oy of [-TS, 0, TS]) { const X = x + ox, Y = y + oy; if (X + r < 0 || X - r > TS || Y + r < 0 || Y - r > TS) continue; fn(X, Y); } };   // disegna anche dall'altra parte del bordo: la texture si ripete senza stacchi
 const hwRgb = (b, v) => 'rgb(' + (Math.max(0, Math.min(255, b[0] + v)) | 0) + ',' + (Math.max(0, Math.min(255, b[1] + v)) | 0) + ',' + (Math.max(0, Math.min(255, b[2] + v)) | 0) + ')';
+function hwTex(c) { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; }   // filtro lineare: niente pixel squadrati
 function hwGrain(g, R, amt) { const im = g.getImageData(0, 0, TS, TS), d = im.data; for (let i = 0; i < d.length; i += 4) { const v = (R() - 0.5) * amt; d[i] += v; d[i + 1] += v; d[i + 2] += v; } g.putImageData(im, 0, 0); }
 function hwStroke(g, ps, col, w) { g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; for (const p of ps) { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.stroke(); } }
+function hwWin(m) {   // finestra: 0 sul bordo della cella, 1 dentro (i segni si dissolvono verso i bordi)
+  let w = HW.winC[m];
+  if (!w) { w = new Float32Array(TS * TS); for (let y = 0; y < TS; y++) for (let x = 0; x < TS; x++) w[y * TS + x] = hwSs(0, m, Math.min(x, y, TS - 1 - x, TS - 1 - y)); HW.winC[m] = w; }
+  return w;
+}
+function hwNoise(R, cx, cy, S) {   // rumore a valori che si ripete senza stacchi, cx x cy celle
+  S = S || TS; const g = new Float32Array(cx * cy), out = new Float32Array(S * S);
+  for (let i = 0; i < g.length; i++) g[i] = R();
+  for (let y = 0; y < S; y++) {
+    const fy = y / S * cy, y0 = Math.floor(fy), ty = fy - y0, sy = ty * ty * (3 - 2 * ty), ya = y0 % cy, yb = (y0 + 1) % cy;
+    for (let x = 0; x < S; x++) {
+      const fx = x / S * cx, x0 = Math.floor(fx), tx = fx - x0, sx = tx * tx * (3 - 2 * tx), xa = x0 % cx, xb = (x0 + 1) % cx;
+      const a = g[ya * cx + xa], b = g[ya * cx + xb], c = g[yb * cx + xa], d = g[yb * cx + xb];
+      out[y * S + x] = a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+    }
+  }
+  return out;
+}
+function hwFbm(R, S, cells) {   // tre ottave: macchie grandi con dettaglio
+  const o1 = hwNoise(R, cells, cells, S), o2 = hwNoise(R, cells * 2, cells * 2, S), o3 = hwNoise(R, cells * 4, cells * 4, S), out = new Float32Array(S * S);
+  for (let i = 0; i < out.length; i++) out[i] = o1[i] * 0.55 + o2[i] * 0.3 + o3[i] * 0.15;
+  return out;
+}
+function hwBox1(s, d, r, horiz) {   // sfumatura a scatola su una riga/colonna, bordi che si richiudono
+  const w = 2 * r + 1;
+  for (let l = 0; l < TS; l++) {
+    const base = horiz ? l * TS : l, st = horiz ? 1 : TS; let acc = 0;
+    for (let k = -r; k <= r; k++) acc += s[base + (((k % TS) + TS) % TS) * st];
+    for (let k = 0; k < TS; k++) { d[base + k * st] = acc / w; acc += s[base + ((k + r + 1) % TS) * st] - s[base + ((((k - r) % TS) + TS) % TS) * st]; }
+  }
+}
+function hwBlurLayer(g, rad, passes) {   // sfuma un livello (canali premoltiplicati) senza sporcare i bordi
+  const im = g.getImageData(0, 0, TS, TS), d = im.data, n = TS * TS, ch = [new Float32Array(n), new Float32Array(n), new Float32Array(n), new Float32Array(n)], tmp = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const a = d[i * 4 + 3] / 255; ch[0][i] = d[i * 4] * a; ch[1][i] = d[i * 4 + 1] * a; ch[2][i] = d[i * 4 + 2] * a; ch[3][i] = a; }
+  for (const c of ch) for (let p = 0; p < (passes || 2); p++) { hwBox1(c, tmp, rad, true); hwBox1(tmp, c, rad, false); }
+  for (let i = 0; i < n; i++) { const a = ch[3][i]; d[i * 4 + 3] = a * 255; if (a > 0.002) { d[i * 4] = ch[0][i] / a; d[i * 4 + 1] = ch[1][i] / a; d[i * 4 + 2] = ch[2][i] / a; } }
+  g.putImageData(im, 0, 0);
+}
+function hwTint(g, M, col, amax) {   // stende un colore dove la maschera e alta, con passaggio graduale
+  const im = g.getImageData(0, 0, TS, TS), d = im.data;
+  for (let i = 0; i < TS * TS; i++) { const a = Math.max(0, Math.min(1, M[i])) * amax; if (a <= 0.003) continue; const k = i * 4; d[k] += (col[0] - d[k]) * a; d[k + 1] += (col[1] - d[k + 1]) * a; d[k + 2] += (col[2] - d[k + 2]) * a; }
+  g.putImageData(im, 0, 0);
+}
+function hwFeature(g, o, fn) {   // disegna su un livello trasparente, lo sfuma, lo dissolve verso i bordi della cella e lo stende sulla parete
+  const cv = hwCv(), L = cv[1]; fn(L);
+  if (o.blur) hwBlurLayer(L, o.blur, 2);
+  const im = L.getImageData(0, 0, TS, TS), d = im.data, W = hwWin(o.margin || 22);
+  for (let i = 0; i < TS * TS; i++) d[i * 4 + 3] *= W[i];
+  L.putImageData(im, 0, 0);
+  g.save(); g.globalAlpha = o.alpha === undefined ? 1 : o.alpha; g.globalCompositeOperation = o.comp || 'source-over'; g.drawImage(cv[0], 0, 0); g.restore();
+}
 
 // Crepe (o vene): elenco di spezzate con qualche ramo, tutte dentro la tessera
 function hwCracks(R, n, len, turn) {
@@ -505,99 +558,9 @@ function hwCracks(R, n, len, turn) {
 }
 function hwStain(g, R, n, col) {   // aloni scuri che colano dall'alto
   for (let i = 0; i < n; i++) {
-    const x = 8 + R() * (TS - 16), y0 = R() * TS, w = 5 + R() * 11, L = 30 + R() * 60;
-    for (const oy of [0, -TS]) { const gr = g.createLinearGradient(0, y0 + oy, 0, y0 + oy + L); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - w / 2, y0 + oy, w, L); }
+    const x = 20 + R() * (TS - 40), y0 = 14 + R() * 40, w = 5 + R() * 11, L = 30 + R() * 50;
+    const gr = g.createLinearGradient(0, y0, 0, y0 + L); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - w / 2, y0, w, L);
   }
-}
-function hwSoot(g, R, n, a) {   // fumo di vecchie torce: macchie nere sfumate
-  for (let i = 0; i < n; i++) {
-    const x = R() * TS, y = R() * TS, r = 14 + R() * 30, al = a * (0.5 + R() * 0.5);
-    hwWrap(x, y, r, (X, Y) => { const gr = g.createRadialGradient(X, Y, 0, X, Y, r); gr.addColorStop(0, 'rgba(0,0,0,' + al.toFixed(2) + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(X - r, Y - r, r * 2, r * 2); });
-  }
-}
-function hwMoss(g, R, n) {   // muschio scuro, quasi nero-verde, piu fitto in basso
-  for (let i = 0; i < n; i++) {
-    const x = R() * TS, y = R() < 0.6 ? TS * (0.5 + R() * 0.5) : R() * TS, r = 5 + R() * 12, bl = [];
-    for (let k = 0; k < 7; k++) bl.push([(R() - 0.5) * r * 2, (R() - 0.5) * r * 1.3, 1.5 + R() * r * 0.45, 'rgba(' + (22 + R() * 26 | 0) + ',' + (54 + R() * 46 | 0) + ',' + (22 + R() * 18 | 0) + ',' + (0.45 + R() * 0.3).toFixed(2) + ')']);
-    hwWrap(x, y, r * 1.6, (X, Y) => { for (const b of bl) { g.fillStyle = b[3]; g.beginPath(); g.ellipse(X + b[0], Y + b[1], b[2], b[2] * 0.7, 0, 0, 7); g.fill(); } });
-  }
-}
-function hwFungus(g, R, n) {   // funghetti e muffa pallida
-  for (let i = 0; i < n; i++) {
-    const x = R() * TS, y = R() * TS, r = 1 + R() * 2.2;
-    hwWrap(x, y, r + 2, (X, Y) => { g.fillStyle = 'rgba(8,16,8,.6)'; g.beginPath(); g.arc(X, Y, r + 1, 0, 7); g.fill(); g.fillStyle = 'rgba(196,204,150,.55)'; g.beginPath(); g.arc(X, Y, r, 0, 7); g.fill(); });
-  }
-}
-function hwBlood(g, R, n, o) {   // colature di sangue rappreso (si richiudono sul bordo alto della tessera)
-  o = o || {};
-  for (let i = 0; i < n; i++) {
-    const x = 6 + R() * (TS - 12), y0 = R() * TS * 0.8, L = 14 + R() * (o.len || 56), w = 1.6 + R() * 2.6, wob = (R() - 0.5) * 6, al = 0.55 + R() * 0.35;
-    for (const oy of [0, -TS]) {
-      g.lineCap = 'round';
-      g.strokeStyle = 'rgba(84,4,6,' + al.toFixed(2) + ')'; g.lineWidth = w; g.beginPath(); g.moveTo(x, y0 + oy); g.quadraticCurveTo(x + wob, y0 + L * 0.5 + oy, x + wob * 0.4, y0 + L + oy); g.stroke();
-      g.strokeStyle = 'rgba(170,26,20,' + (al * 0.45).toFixed(2) + ')'; g.lineWidth = Math.max(0.6, w * 0.3); g.beginPath(); g.moveTo(x - w * 0.2, y0 + oy + 1); g.quadraticCurveTo(x + wob - w * 0.2, y0 + L * 0.5 + oy, x + wob * 0.4 - w * 0.2, y0 + L + oy); g.stroke();
-      g.fillStyle = 'rgba(84,4,6,' + al.toFixed(2) + ')'; g.beginPath(); g.ellipse(x + wob * 0.4, y0 + L + oy + w * 0.4, w * 0.8, w * 1.1, 0, 0, 7); g.fill();
-    }
-    if (R() < 0.5) hwWrap(x, y0, 10, (X, Y) => { g.fillStyle = 'rgba(70,4,6,' + (al * 0.8).toFixed(2) + ')'; g.beginPath(); g.ellipse(X, Y, w * 2.2, w * 1.4, 0, 0, 7); g.fill(); });
-  }
-}
-function hwSmear(g, R) {   // una striscia di sangue trascinata
-  const x = 14 + R() * 30, y = 30 + R() * 60;
-  g.lineCap = 'round'; g.strokeStyle = 'rgba(78,4,6,.55)'; g.lineWidth = 7 + R() * 5; g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + 20, y + 15, x + 40, y - 10, x + 62, y + 12); g.stroke();
-  g.strokeStyle = 'rgba(40,2,4,.5)'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x + 4, y + 2); g.bezierCurveTo(x + 22, y + 16, x + 42, y - 8, x + 60, y + 13); g.stroke();
-}
-function hwHandPrint(g, R, x, y, s, rot) {   // mano insanguinata premuta sul muro
-  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
-  g.fillStyle = 'rgba(98,6,8,.86)'; g.beginPath(); g.ellipse(0, 6, 8, 9, 0, 0, 7); g.fill();
-  for (let k = 0; k < 4; k++) { const a = -0.42 + k * 0.28, len = 13 + (k === 1 || k === 2 ? 4 : 0); g.beginPath(); g.ellipse(Math.sin(a) * (len * 0.5 + 5), -3 - Math.cos(a) * (len * 0.5 + 5), 2.6, len * 0.5, a, 0, 7); g.fill(); }
-  g.beginPath(); g.ellipse(-9, 4, 2.8, 6.5, -1.1, 0, 7); g.fill();
-  g.fillStyle = 'rgba(70,4,6,.7)'; g.fillRect(-2, 14, 3, 8 + R() * 14); g.fillRect(3, 13, 2, 5 + R() * 9);
-  g.restore();
-}
-function hwScratch(g, R, x, y, ang, len) {   // quattro graffi paralleli, da artiglio
-  const nx = Math.cos(ang + 1.5708), ny = Math.sin(ang + 1.5708), bend = (R() - 0.5) * 12;
-  for (let k = 0; k < 4; k++) {
-    const off = (k - 1.5) * 4.5, sx = x + nx * off, sy = y + ny * off, ex = sx + Math.cos(ang) * len, ey = sy + Math.sin(ang) * len, mx = (sx + ex) / 2 + nx * bend, my = (sy + ey) / 2 + ny * bend;
-    g.lineCap = 'round'; g.strokeStyle = 'rgba(0,0,0,.7)'; g.lineWidth = 2; g.beginPath(); g.moveTo(sx, sy); g.quadraticCurveTo(mx, my, ex, ey); g.stroke();
-    g.strokeStyle = 'rgba(215,205,185,.3)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(sx + 1, sy + 1); g.quadraticCurveTo(mx + 1, my + 1, ex + 1, ey + 1); g.stroke();
-  }
-}
-function hwSigil(g, cx, cy, r, kind) {   // sigillo tracciato col sangue
-  g.strokeStyle = 'rgba(128,8,12,.92)'; g.fillStyle = 'rgba(110,6,10,.9)'; g.lineWidth = 2.3; g.lineCap = 'round'; g.lineJoin = 'round';
-  g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke();
-  if (kind === 0) {   // pentagramma rovesciato
-    const P = []; for (let k = 0; k < 5; k++) { const a = Math.PI / 2 + k * 1.2566371; P.push([cx + (r - 2) * Math.cos(a), cy + (r - 2) * Math.sin(a)]); }
-    g.beginPath(); for (let k = 0; k <= 5; k++) { const p = P[(k * 2) % 5]; if (k) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); } g.stroke();
-  } else if (kind === 1) {   // occhio
-    g.beginPath(); g.moveTo(cx - r * 0.85, cy); g.quadraticCurveTo(cx, cy - r * 0.95, cx + r * 0.85, cy); g.quadraticCurveTo(cx, cy + r * 0.95, cx - r * 0.85, cy); g.stroke();
-    g.beginPath(); g.arc(cx, cy, r * 0.32, 0, 7); g.stroke(); g.beginPath(); g.ellipse(cx, cy, r * 0.08, r * 0.24, 0, 0, 7); g.fill();
-    for (let k = -2; k <= 2; k++) { g.beginPath(); g.moveTo(cx + k * r * 0.22, cy - r * 0.72 + Math.abs(k) * 4); g.lineTo(cx + k * r * 0.3, cy - r * 1.05 + Math.abs(k) * 5); g.stroke(); }
-  } else if (kind === 2) {   // croce rovesciata e raggi
-    g.beginPath(); g.moveTo(cx, cy - r * 0.9); g.lineTo(cx, cy + r * 0.9); g.moveTo(cx - r * 0.5, cy + r * 0.3); g.lineTo(cx + r * 0.5, cy + r * 0.3); g.stroke();
-    for (let k = 0; k < 8; k++) { const a = k * 0.7854; g.beginPath(); g.moveTo(cx + (r + 3) * Math.cos(a), cy + (r + 3) * Math.sin(a)); g.lineTo(cx + (r + 8) * Math.cos(a), cy + (r + 8) * Math.sin(a)); g.stroke(); }
-  } else {   // spirale
-    g.beginPath(); for (let t = 0; t <= 12.57; t += 0.2) { const rr = r * 0.9 * t / 12.57, x = cx + rr * Math.cos(t), y = cy + rr * Math.sin(t); if (t) g.lineTo(x, y); else g.moveTo(x, y); } g.stroke();
-    g.beginPath(); g.arc(cx, cy, 2.5, 0, 7); g.fill();
-  }
-  g.lineWidth = 1.8; for (let k = 0; k < 3; k++) { const x = cx + (k - 1) * r * 0.6; g.beginPath(); g.moveTo(x, cy + r * 0.85); g.lineTo(x + 1, cy + r * 1.2 + k * 6); g.stroke(); }
-}
-function hwBoneT(g, x1, y1, x2, y2, w, v) {   // osso lungo con le due teste
-  const c1 = 'rgb(' + (v | 0) + ',' + ((v * 0.94) | 0) + ',' + ((v * 0.78) | 0) + ')', dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, px = -dy / L * w * 0.5, py = dx / L * w * 0.5;
-  g.lineCap = 'round'; g.strokeStyle = c1; g.lineWidth = w; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-  g.strokeStyle = 'rgba(255,255,235,.25)'; g.lineWidth = w * 0.35; g.beginPath(); g.moveTo(x1, y1 - w * 0.2); g.lineTo(x2, y2 - w * 0.2); g.stroke();
-  g.fillStyle = c1; for (const p of [[x1, y1], [x2, y2]]) for (const s of [-1, 1]) { g.beginPath(); g.arc(p[0] + px * s, p[1] + py * s, w * 0.62, 0, 7); g.fill(); }
-  g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x1, y1 + w * 0.5); g.lineTo(x2, y2 + w * 0.5); g.stroke();
-}
-function hwSkullT(g, x, y, s, seed) {   // teschio frontale per l'ossario
-  const R = hwRng(seed), br = 205 - R() * 55, tn = (d) => 'rgb(' + ((br + d) | 0) + ',' + ((br * 0.94 + d) | 0) + ',' + ((br * 0.78 + d) | 0) + ')';
-  const gr = g.createRadialGradient(x - 3 * s, y - 5 * s, 1, x, y, 13 * s); gr.addColorStop(0, tn(18)); gr.addColorStop(1, tn(-70));
-  g.fillStyle = gr; g.beginPath(); g.ellipse(x, y - s, 11 * s, 12 * s, 0, 0, 7); g.fill();
-  g.fillStyle = tn(-45); g.fillRect(x - 6.5 * s, y + 7 * s, 13 * s, 6 * s);
-  g.fillStyle = tn(10); for (let i = 0; i < 5; i++) g.fillRect(x - 5.5 * s + i * 2.5 * s, y + 8 * s, 1.8 * s, 4.5 * s);
-  g.fillStyle = 'rgba(0,0,0,.8)'; for (let i = 1; i < 5; i++) g.fillRect(x - 6.2 * s + i * 2.5 * s, y + 8 * s, 0.6 * s, 4.5 * s);
-  g.fillStyle = '#030201'; g.beginPath(); g.ellipse(x - 4.4 * s, y + 0.5 * s, 3.3 * s, 3.9 * s, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + 4.4 * s, y + 0.5 * s, 3.3 * s, 3.9 * s, 0, 0, 7); g.fill();
-  g.beginPath(); g.moveTo(x, y + 3.5 * s); g.lineTo(x - 1.8 * s, y + 7.2 * s); g.lineTo(x + 1.8 * s, y + 7.2 * s); g.fill();
-  if (R() < 0.5) { g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x + 2 * s, y - 11 * s); g.lineTo(x + 4 * s, y - 5 * s); g.lineTo(x + 2.5 * s, y - 1 * s); g.stroke(); }
 }
 function hwBlocks(g, R, o) {   // blocchi di pietra irregolari che si richiudono sui bordi della tessera
   const rows = [22, 16, 24, 18, 26, 22], k0 = (R() * 6) | 0, rh = rows.slice(k0).concat(rows.slice(0, k0)), ins = o.ins || 1.5;
@@ -613,218 +576,262 @@ function hwBlocks(g, R, o) {   // blocchi di pietra irregolari che si richiudono
         const left = R() < 0.5, top = R() < 0.5, cx = left ? x + ins : x + w - ins, cy = top ? y + ins : y + h - ins, s = 2 + R() * 4.5;
         g.fillStyle = o.mortar; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + (left ? s : -s), cy); g.lineTo(cx, cy + (top ? s : -s)); g.fill();
       }
-      g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + ins, y + ins, w - 2 * ins, 2); g.fillRect(x + ins, y + ins, 2, h - 2 * ins);
-      g.fillStyle = 'rgba(0,0,0,.42)'; g.fillRect(x + ins, y + h - ins - 3, w - 2 * ins, 3); g.fillRect(x + w - ins - 3, y + ins, 3, h - 2 * ins);
-      for (let q = 0; q < 5; q++) { g.fillStyle = 'rgba(0,0,0,' + (0.14 + R() * 0.22).toFixed(2) + ')'; g.fillRect(x + 3 + R() * (w - 9), y + 3 + R() * (h - 9), 1 + R() * 4, 1 + R() * 2); }
+      g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x + ins, y + ins, w - 2 * ins, 2); g.fillRect(x + ins, y + ins, 2, h - 2 * ins);
+      g.fillStyle = 'rgba(0,0,0,.38)'; g.fillRect(x + ins, y + h - ins - 3, w - 2 * ins, 3); g.fillRect(x + w - ins - 3, y + ins, 3, h - 2 * ins);
+      for (let q = 0; q < 5; q++) { g.fillStyle = 'rgba(0,0,0,' + (0.12 + R() * 0.2).toFixed(2) + ')'; g.fillRect(x + 3 + R() * (w - 9), y + 3 + R() * (h - 9), 1 + R() * 4, 1 + R() * 2); }
     }
     y += h;
   }
 }
-function hwFlesh(g, R) {   // fondo di carne viva che si vede nelle fughe tra i blocchi
-  g.fillStyle = '#2b070c'; g.fillRect(0, 0, TS, TS);
-  for (let i = 0; i < 26; i++) {
-    const x = R() * TS, y = R() * TS, r = 6 + R() * 14, al = (0.18 + R() * 0.25).toFixed(2), cr = (90 + R() * 50) | 0;
-    hwWrap(x, y, r, (X, Y) => { g.fillStyle = 'rgba(' + cr + ',14,24,' + al + ')'; g.beginPath(); g.ellipse(X, Y, r, r * 0.7, 0, 0, 7); g.fill(); });
+function hwBlurF(src, S, r) {   // sfumatura quadrata su un campo di numeri, bordi tenuti
+  const tmp = new Float32Array(S * S), out = new Float32Array(S * S), w = 2 * r + 1;
+  for (let y = 0; y < S; y++) {
+    let acc = 0; for (let k = -r; k <= r; k++) acc += src[y * S + Math.min(S - 1, Math.max(0, k))];
+    for (let x = 0; x < S; x++) { tmp[y * S + x] = acc / w; acc += src[y * S + Math.min(S - 1, x + r + 1)] - src[y * S + Math.max(0, x - r)]; }
   }
-  const v = hwCracks(R, 9, 70, 0.55); hwStroke(g, v, '#4c0a13', 3.6); hwStroke(g, v, 'rgba(200,70,72,.45)', 1);
+  for (let x = 0; x < S; x++) {
+    let acc = 0; for (let k = -r; k <= r; k++) acc += tmp[Math.min(S - 1, Math.max(0, k)) * S + x];
+    for (let y = 0; y < S; y++) { out[y * S + x] = acc / w; acc += tmp[Math.min(S - 1, y + r + 1) * S + x] - tmp[Math.max(0, y - r) * S + x]; }
+  }
+  return out;
 }
 
-// Una texture 128x128 per famiglia e variante: ritorna { c: colore, e: emissiva o null }
-function hwPaint(fam, k) {
-  const R = hwRng(1000 + k * 7919 + fam.length * 131 + fam.charCodeAt(0) * 17), cvs = hwCv(), c = cvs[0], g = cvs[1], MO = '#080605';
+// ---------------- base di pietra: tre disposizioni di blocchi con sporco continuo ----------------
+function hwBase(k) {
+  const R = hwRng(4000 + k * 977), cv = hwCv(), c = cv[0], g = cv[1], MO = '#070504', n = TS * TS;
+  g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
+  hwBlocks(g, R, { base: [62 + k * 5, 58 + k * 4, 54 + k * 3], mortar: MO, v: 30 });
+  const d = g.getImageData(0, 0, TS, TS).data, jm = new Float32Array(n);
+  for (let i = 0; i < n; i++) jm[i] = d[i * 4] < 22 ? 1 : 0;   // le fughe, per la carne che ci cresce dentro
+  const jw = hwBlurF(jm, TS, 3); for (let i = 0; i < n; i++) jw[i] = Math.min(1, jw[i] * 3);
+  hwBlurLayer(g, 1, 1);   // spigoli dei blocchi meno netti
+  const n1 = hwFbm(R, TS, 3), n2 = hwNoise(R, 18, 3, TS), n3 = hwFbm(R, TS, 4), m1 = new Float32Array(n), m2 = new Float32Array(n), m3 = new Float32Array(n);
+  for (let i = 0; i < n; i++) { m1[i] = hwSs(0.42, 0.85, n1[i]); m2[i] = hwSs(0.6, 0.9, n2[i]); m3[i] = hwSs(0.62, 0.95, n3[i]); }
+  hwTint(g, m1, [4, 3, 3], 0.55); hwTint(g, m2, [8, 10, 9], 0.4); hwTint(g, m3, [70, 42, 30], 0.2);   // fumo, colature d'acqua, ruggine e sporco
+  hwGrain(g, R, 14);
+  return { c, jw };
+}
+
+// ---------------- i segni: ognuno morbido, sfumato e dissolto verso i bordi ----------------
+function hwScratchLine(L, x, y, ang, len, w, curve) {   // un graffio che si assottiglia alle estremita, con bordo chiaro
+  const ca = Math.cos(ang), sa = Math.sin(ang), nx = -sa, ny = ca, n = Math.max(4, Math.round(len / 3));
+  const pt = (t) => { const o = Math.sin(Math.PI * t) * curve; return [x + ca * len * t + nx * o, y + sa * len * t + ny * o]; };
+  L.lineCap = 'round';
+  for (let pass = 0; pass < 2; pass++) for (let j = 0; j < n; j++) {
+    const t0 = j / n, t1 = (j + 1) / n, a = pt(t0), b = pt(t1), tw = 0.3 + 0.7 * Math.sin(Math.PI * (t0 + t1) / 2);
+    if (pass === 0) { L.strokeStyle = 'rgba(6,4,3,.82)'; L.lineWidth = w * tw; } else { L.strokeStyle = 'rgba(210,200,178,.28)'; L.lineWidth = Math.max(0.5, w * 0.35 * tw); }
+    const o = pass ? 1 : 0; L.beginPath(); L.moveTo(a[0] + o, a[1] + o); L.lineTo(b[0] + o, b[1] + o); L.stroke();
+  }
+}
+function hwFeat(fam, v, kb) {   // ritorna { c: colore, e: emissiva o null }
+  const R = hwRng(7000 + fam.charCodeAt(0) * 131 + fam.length * 17 + v * 389 + kb * 53), cv = hwCv(), c = cv[0], g = cv[1], rp = (a, b) => a + R() * (b - a), n = TS * TS;
+  g.drawImage(HW.base[kb].c, 0, 0);
   let e = null;
-  if (fam === 'ruin') {   // pietra annerita dal fumo, crepata, con sangue vecchio
-    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
-    hwBlocks(g, R, { base: [66 + k * 4, 61 + k * 3, 57 + k * 2], mortar: MO, v: 30 });
-    hwStroke(g, hwCracks(R, 3 + k, 40), 'rgba(0,0,0,.65)', 1.3);
-    hwStain(g, R, 4, 'rgba(0,0,0,.3)'); hwSoot(g, R, 6, 0.4);
-    if (k !== 1) hwBlood(g, R, k === 0 ? 2 : 1, { len: 50 });
-    if (k === 2) hwHandPrint(g, R, 40 + R() * 50, 40 + R() * 40, 1, (R() - 0.5) * 0.6);
-    hwGrain(g, R, 16);
-  } else if (fam === 'damp') {   // muffa, muschio quasi nero, funghi pallidi
-    g.fillStyle = '#050705'; g.fillRect(0, 0, TS, TS);
-    hwBlocks(g, R, { base: [56, 63, 55], mortar: '#050705', v: 28 });
-    hwStroke(g, hwCracks(R, 2, 36), 'rgba(0,0,0,.6)', 1.2);
-    hwStain(g, R, 6, 'rgba(8,30,20,.45)'); hwMoss(g, R, 20 + k * 8); hwFungus(g, R, 7 + k * 4); hwSoot(g, R, 3, 0.25);
-    if (k) hwBlood(g, R, 1, { len: 40 });
-    hwGrain(g, R, 16);
-  } else if (fam === 'claws') {   // graffi di artigli, mani e strisciate di sangue
-    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
-    hwBlocks(g, R, { base: [70, 63, 56], mortar: MO, v: 30 });
-    hwStain(g, R, 3, 'rgba(0,0,0,.28)');
-    for (let i = 0; i < 2 + k; i++) hwScratch(g, R, 20 + R() * 88, 20 + R() * 70, 0.9 + R() * 0.6, 30 + R() * 14);
-    hwSmear(g, R);
-    for (let i = 0; i < 1 + k; i++) hwHandPrint(g, R, 26 + R() * 76, 34 + R() * 50, 0.9 + R() * 0.25, (R() - 0.5) * 0.9);
-    hwBlood(g, R, 3, { len: 60 }); hwGrain(g, R, 16);
-  } else if (fam === 'sigil') {   // sigilli rituali di sangue
-    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
-    hwBlocks(g, R, { base: [60, 59, 64], mortar: MO, v: 28 });
-    hwStroke(g, hwCracks(R, 2, 36), 'rgba(0,0,0,.6)', 1.2); hwSoot(g, R, 5, 0.3);
-    hwSigil(g, 64, 58, 30, (k * 2 + (R() < 0.5 ? 0 : 1)) % 4);
-    hwBlood(g, R, 2, { len: 40 }); hwGrain(g, R, 16);
-  } else if (fam === 'flesh') {   // carne e vene nelle fughe
-    hwFlesh(g, R);
-    hwBlocks(g, R, { base: [56, 50, 49], mortar: '#2b070c', ins: 2.6, v: 24 });
-    const v2 = hwCracks(R, 4, 50, 0.5); hwStroke(g, v2, 'rgba(110,14,24,.55)', 2.2); hwStroke(g, v2, 'rgba(220,100,100,.2)', 0.8);
-    hwBlood(g, R, 1, { len: 40 }); hwGrain(g, R, 14);
-  } else if (fam === 'ossuary') {   // ossario: teschi e femori murati
-    g.fillStyle = '#0c0807'; g.fillRect(0, 0, TS, TS);
-    for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(' + ((70 + R() * 40) | 0) + ',' + ((56 + R() * 30) | 0) + ',38,.55)'; g.fillRect(R() * TS, R() * TS, 2 + R() * 7, 1 + R() * 3); }
-    for (const by of [36, 44, 52, 100, 108, 116]) {
-      const bx = R() * TS, len = 60 + R() * 30, tilt = (R() - 0.5) * 3, bone = 150 + R() * 70;
-      hwWrap(bx, by, len / 2 + 8, (X, Y) => hwBoneT(g, X - len / 2, Y - tilt, X + len / 2, Y + tilt, 5.5, bone));
+  if (fam === 'ruin') {   // nube di fumo e crepe sottili
+    hwFeature(g, { blur: 7, alpha: 0.7, margin: 18 }, L => { for (let i = 0; i < 3; i++) { const x = rp(30, 98), y = rp(30, 98), r = rp(16, 34), gr = L.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(0,0,0,.8)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); L.fillStyle = gr; L.fillRect(x - r, y - r, r * 2, r * 2); } });
+    hwFeature(g, { blur: 1, alpha: 0.85, margin: 16 }, L => hwStroke(L, hwCracks(R, 2 + v * 2, 46, 0.9), 'rgba(0,0,0,.9)', 1.7));
+    if (v === 1) hwFeature(g, { blur: 3, alpha: 0.5, margin: 20 }, L => hwStain(L, R, 3, 'rgba(0,0,0,.6)'));
+  } else if (fam === 'damp') {   // muffa nera e verdastra, chiazze pallide, salnitro
+    const nf = hwFbm(R, TS, 4), nh = hwNoise(R, 40, 40, TS), ns = hwFbm(R, TS, 5), W = hwWin(18), m = new Float32Array(n), sp = new Float32Array(n), sl = new Float32Array(n);
+    for (let y = 0; y < TS; y++) for (let x = 0; x < TS; x++) {
+      const i = y * TS + x; m[i] = hwSs(0.42 + 0.1 * v, 0.7, nf[i] * (0.55 + 0.9 * (y / TS))) * W[i];
+      sp[i] = hwSs(0.78, 0.9, nh[i]) * m[i]; sl[i] = hwSs(0.66, 0.85, ns[i]) * W[i] * (1 - m[i]);
     }
-    for (let i = 0; i < 4; i++) {
-      const sd1 = 500 + i * 13 + k * 97, sd2 = 900 + i * 17 + k * 53;
-      hwWrap(16 + i * 32, 17, 16, (X, Y) => hwSkullT(g, X, Y, 1.05, sd1));
-      hwWrap(i * 32, 81, 16, (X, Y) => hwSkullT(g, X, Y, 1.05, sd2));
-    }
-    hwSoot(g, R, 4, 0.4); hwBlood(g, R, 2, { len: 40 }); hwGrain(g, R, 16);
-  } else {   // crepe incandescenti: la pietra e viva e brucia da dentro (emissiva animata)
-    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
-    hwBlocks(g, R, { base: [58, 54, 52], mortar: MO, v: 28 });
-    const cr = hwCracks(R, 5, 80, 0.9);
-    hwStroke(g, cr, 'rgba(0,0,0,.8)', 3.4); hwStroke(g, cr, 'rgba(150,30,8,.8)', 1.8);
-    hwSoot(g, R, 4, 0.3); hwGrain(g, R, 14);
-    const ec = hwCv(); e = ec[0]; ec[1].fillStyle = '#000'; ec[1].fillRect(0, 0, TS, TS);
-    hwStroke(ec[1], cr, 'rgba(255,60,10,.25)', 5); hwStroke(ec[1], cr, 'rgb(255,90,25)', 1.6); hwStroke(ec[1], cr, 'rgb(255,200,120)', 0.6);
+    hwTint(g, m, [10, 26, 14], 0.78); hwTint(g, sp, [150, 168, 118], 0.35); hwTint(g, sl, [150, 148, 132], 0.22);
+    hwFeature(g, { blur: 2, alpha: 0.5, margin: 22 }, L => hwStain(L, R, 4, 'rgba(6,16,12,.7)'));
+  } else if (fam === 'bleed') {   // sangue che trasuda dalle fughe e cola
+    const cnt = 1 + v + (R() < 0.5 ? 1 : 0);
+    hwFeature(g, { blur: 6, alpha: 0.55, margin: 20 }, L => { for (let i = 0; i < cnt; i++) { const x = rp(34, 94), y = rp(24, 50), r = rp(14, 26), gr = L.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(70,10,10,.85)'); gr.addColorStop(1, 'rgba(70,10,10,0)'); L.fillStyle = gr; L.fillRect(x - r, y - r, r * 2, r * 2); } });
+    hwFeature(g, { blur: 1, alpha: 0.9, margin: 14 }, L => {
+      for (let i = 0; i < cnt; i++) {
+        const x = rp(30, 98), y0 = rp(22, 52), len = rp(36, 86), w = rp(2, 5), wob = rp(-8, 8); L.lineCap = 'round';
+        for (let j = 0; j < 12; j++) { const t0 = j / 12, t1 = (j + 1) / 12; L.strokeStyle = 'rgba(' + ((74 - t0 * 20) | 0) + ',6,8,' + (0.9 - t0 * 0.35).toFixed(2) + ')'; L.lineWidth = w * (1 - t0 * 0.45); L.beginPath(); L.moveTo(x + wob * t0 * t0, y0 + len * t0); L.lineTo(x + wob * t1 * t1, y0 + len * t1); L.stroke(); }
+        L.fillStyle = 'rgba(80,6,8,.9)'; L.beginPath(); L.ellipse(x + wob, y0 + len + 1, w * 0.8, w * 1.2, 0, 0, 7); L.fill();
+      }
+    });
+  } else if (fam === 'claws') {   // graffi di artiglio: gruppi di grandezza e angolo diversi
+    const groups = v === 0 ? 2 : v === 1 ? 3 : 1;
+    hwFeature(g, { blur: 0.8, alpha: 1, margin: 14 }, L => {
+      for (let q = 0; q < groups; q++) {
+        const big = v === 2 ? 1.5 : rp(0.5, 1.4), ang = rp(0, Math.PI), cnt = 2 + ((R() * 4) | 0), sp = rp(3.5, 7) * Math.min(1.2, big), cx = rp(40, 88), cy = rp(40, 88), len = rp(30, 78) * big, nx = Math.cos(ang + 1.5708), ny = Math.sin(ang + 1.5708), curve = rp(-5, 5);
+        for (let k = 0; k < cnt; k++) {
+          const off = (k - (cnt - 1) / 2) * sp, st = rp(-0.15, 0.15) * len, sx = cx + nx * off + Math.cos(ang) * (st - len / 2), sy = cy + ny * off + Math.sin(ang) * (st - len / 2);
+          hwScratchLine(L, sx, sy, ang, len * rp(0.75, 1.05), rp(1.6, 3), curve);
+        }
+      }
+    });
+  } else if (fam === 'scrawl') {   // conta dei giorni o scritte frenetiche, col sangue
+    hwFeature(g, { blur: 1, alpha: 0.9, margin: 16 }, L => {
+      L.lineCap = 'round'; L.lineJoin = 'round'; L.strokeStyle = 'rgba(66,6,8,.9)';
+      if (v === 0) {
+        const rows = 2 + ((R() * 2) | 0);
+        for (let r = 0; r < rows; r++) {
+          let x = rp(28, 40); const y = 38 + r * 26 + rp(-3, 3);
+          for (let gI = 0; gI < 3; gI++) {
+            for (let k = 0; k < 4; k++) { L.lineWidth = rp(1.6, 2.6); L.beginPath(); L.moveTo(x + k * 5 + rp(-0.8, 0.8), y + rp(-1.5, 1.5)); L.lineTo(x + k * 5 + rp(-1.5, 1.5), y + 16 + rp(-2, 2)); L.stroke(); }
+            L.lineWidth = 2; L.beginPath(); L.moveTo(x - 3, y + 14 + rp(-1, 1)); L.lineTo(x + 19, y + 2 + rp(-1, 1)); L.stroke(); x += 28; if (x > 90) break;
+          }
+        }
+      } else {
+        for (let r = 0; r < 4; r++) { let x = rp(26, 34); const y = 34 + r * 20; while (x < 96) { const w = rp(5, 12); L.lineWidth = rp(1.4, 2.6); L.beginPath(); L.moveTo(x, y + rp(-3, 3)); L.bezierCurveTo(x + rp(-4, 8), y - rp(4, 12), x + rp(0, 10), y + rp(4, 12), x + w, y + rp(-5, 5)); L.stroke(); x += w + rp(2, 6); } }
+      }
+    });
+    hwFeature(g, { blur: 1, alpha: 0.6, margin: 18 }, L => { L.lineCap = 'round'; L.strokeStyle = 'rgba(66,6,8,.7)'; for (let i = 0; i < 3; i++) { const x = rp(34, 92), y = rp(48, 80); L.lineWidth = rp(1, 2); L.beginPath(); L.moveTo(x, y); L.lineTo(x + rp(-1.5, 1.5), y + rp(12, 30)); L.stroke(); } });
+  } else if (fam === 'drag') {   // una mano insanguinata trascinata lungo il muro
+    const th = rp(-0.5, 0.5), sx = rp(48, 80), sy = rp(26, 44), len = rp(40, 80) * (v ? 1.15 : 1), dx = Math.sin(th), dy = Math.cos(th), lx = Math.cos(th), ly = -Math.sin(th);
+    hwFeature(g, { blur: 5, alpha: 0.35, margin: 18 }, L => { L.strokeStyle = 'rgba(60,6,8,.7)'; L.lineWidth = 26; L.lineCap = 'round'; L.beginPath(); L.moveTo(sx, sy); L.lineTo(sx + dx * len, sy + dy * len); L.stroke(); });
+    hwFeature(g, { blur: 1.5, alpha: 0.9, margin: 14 }, L => {
+      L.fillStyle = 'rgba(80,8,10,.85)'; L.beginPath(); L.ellipse(sx, sy, 11, 9, th, 0, 7); L.fill(); L.lineCap = 'round';
+      for (let k = 0; k < 4; k++) {
+        const lat = (k - 1.5) * 7.5, fl = len * rp(0.65, 1), x0 = sx + lx * lat, y0 = sy + ly * lat;
+        for (let j = 0; j < 10; j++) { L.strokeStyle = 'rgba(78,6,8,' + (0.9 * (1 - j / 10 * 0.8)).toFixed(2) + ')'; L.lineWidth = 4.5 * (1 - j / 10 * 0.4); L.beginPath(); L.moveTo(x0 + dx * fl * j / 10, y0 + dy * fl * j / 10); L.lineTo(x0 + dx * fl * (j + 1) / 10, y0 + dy * fl * (j + 1) / 10); L.stroke(); }
+      }
+    });
+  } else if (fam === 'flesh') {   // carne viva che spunta dalle fughe, con vene
+    const nf = hwFbm(R, TS, 5), nw = hwFbm(R, TS, 6), W = hwWin(24), jw = HW.base[kb].jw, m = new Float32Array(n), wet = new Float32Array(n);
+    for (let i = 0; i < n; i++) { m[i] = Math.min(1, jw[i] * hwSs(0.3, 0.6, nf[i]) * 1.2) * W[i]; wet[i] = m[i] * hwSs(0.65, 0.8, nw[i]); }
+    hwTint(g, m, [100, 16, 26], 0.85); hwTint(g, wet, [210, 110, 110], 0.18);
+    hwFeature(g, { blur: 1.4, alpha: 0.7, margin: 18 }, L => { const vs = hwCracks(R, 3 + v, 50, 0.5); hwStroke(L, vs, 'rgba(112,14,24,.9)', 2.4); hwStroke(L, vs, 'rgba(220,110,110,.3)', 0.8); });
+  } else if (fam === 'cracks') {   // crepe incandescenti che pulsano (emissiva animata)
+    const cr = hwCracks(R, 3 + v, 70, 0.9), ec = hwCv(); e = ec[0]; ec[1].fillStyle = '#000'; ec[1].fillRect(0, 0, TS, TS);
+    hwFeature(g, { blur: 1.2, alpha: 0.95, margin: 14 }, L => { hwStroke(L, cr, 'rgba(0,0,0,.9)', 3.2); hwStroke(L, cr, 'rgba(150,34,10,.9)', 1.5); });
+    hwFeature(g, { blur: 4, alpha: 0.35, margin: 18 }, L => hwStroke(L, cr, 'rgba(120,20,6,.9)', 7));
+    hwFeature(ec[1], { blur: 3, alpha: 0.9, margin: 14, comp: 'lighter' }, L => hwStroke(L, cr, 'rgba(255,70,20,.7)', 5));
+    hwFeature(ec[1], { blur: 1, alpha: 1, margin: 14, comp: 'lighter' }, L => hwStroke(L, cr, 'rgb(255,110,40)', 1.8));
+  } else {   // ombra: la sagoma di qualcuno impressa sul muro, sfocata
+    hwFeature(g, { blur: 4, alpha: 0.78, margin: 14 }, L => {
+      L.fillStyle = 'rgba(0,0,0,.95)'; const cx = rp(52, 76);
+      if (v === 0) {   // in piedi, fino alle spalle, la testa un po' troppo lunga
+        L.beginPath(); L.ellipse(cx, 44, 10, 14, 0, 0, 7); L.fill(); L.fillRect(cx - 4, 54, 8, 14);
+        L.beginPath(); L.moveTo(cx - 8, 66); L.quadraticCurveTo(cx - 30, 70, cx - 34, 104); L.lineTo(cx + 34, 104); L.quadraticCurveTo(cx + 30, 70, cx + 8, 66); L.closePath(); L.fill();
+      } else {   // alta e magra, con le braccia troppo lunghe
+        L.beginPath(); L.ellipse(cx, 30, 7, 11, 0.1, 0, 7); L.fill();
+        L.beginPath(); L.moveTo(cx - 5, 40); L.lineTo(cx - 10, 64); L.lineTo(cx - 16, 112); L.lineTo(cx + 16, 112); L.lineTo(cx + 10, 64); L.lineTo(cx + 5, 40); L.closePath(); L.fill();
+        L.lineWidth = 4.5; L.lineCap = 'round'; L.strokeStyle = 'rgba(0,0,0,.95)'; L.beginPath(); L.moveTo(cx - 8, 48); L.lineTo(cx - 26, 82); L.lineTo(cx - 30, 120); L.moveTo(cx + 8, 48); L.lineTo(cx + 24, 84); L.lineTo(cx + 32, 122); L.stroke();
+      }
+    });
   }
   return { c, e };
 }
+function hwMat(fam, v, kb) {   // materiale creato solo quando serve
+  const key = fam + ':' + v + ':' + kb; let m = HW.mats.get(key); if (m) return m;
+  let c = HW.base[kb].c, e = null;
+  if (fam !== 'clean') { const f = hwFeat(fam, v, kb); c = f.c; e = f.e; }
+  m = new THREE.MeshStandardMaterial({ map: hwTex(c), roughness: fam === 'flesh' ? 0.5 : 0.95, emissive: e ? 0xffffff : 0x000000, emissiveMap: e ? hwTex(e) : null, emissiveIntensity: 0.7 });
+  if (e) HW.pulse.push(m);
+  HW.mats.set(key, m); return m;
+}
 
-// ---------------- bassorilievi: disegnati come mappa delle altezze (grigio = quota), poi illuminati e colorati ----------------
-const hwL = (v) => { v = Math.max(0, Math.min(255, v)) | 0; return 'rgb(' + v + ',' + v + ',' + v + ')'; };
-function hwLine(g, x1, y1, x2, y2, w, v) { g.strokeStyle = hwL(v); g.lineWidth = w; g.lineCap = 'round'; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
-function hwDisc(g, x, y, rx, ry, v, rot) { g.fillStyle = hwL(v); g.beginPath(); g.ellipse(x, y, rx, ry, rot || 0, 0, 7); g.fill(); }
-function hwPoly(g, pts, v) { g.fillStyle = hwL(v); g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.fill(); }
-function hwBoneH(g, x1, y1, x2, y2, w, v) {
-  hwLine(g, x1, y1, x2, y2, w, v);
-  const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, px = -dy / L * w * 0.55, py = dx / L * w * 0.55;
-  for (const p of [[x1, y1], [x2, y2]]) { hwDisc(g, p[0] + px, p[1] + py, w * 0.62, w * 0.62, v + 15); hwDisc(g, p[0] - px, p[1] - py, w * 0.62, w * 0.62, v + 15); }
+// ---------------- bassorilievi: campo di altezze con forme morbide (rilievi e incavi), poi illuminato e sporcato ----------------
+// A = altezze (base 0,3) o maschera; mode: undefined somma, 'm' porta almeno a base+amp, 'k' maschera al massimo
+function hwE(A, S, cx, cy, rx, ry, amp, rot, mode) {   // ellissoide morbido: amp>0 rilievo, amp<0 incavo
+  rot = rot || 0; const c = Math.cos(rot), s = Math.sin(rot), R = Math.max(rx, ry) + 1, x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(S - 1, Math.ceil(cx + R)), y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(S - 1, Math.ceil(cy + R));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const dx = x - cx, dy = y - cy, u = (dx * c + dy * s) / rx, v = (-dx * s + dy * c) / ry, d2 = u * u + v * v; if (d2 >= 1) continue;
+    const val = amp * Math.pow(1 - d2, 0.8), k = y * S + x;
+    if (mode === 'm') A[k] = Math.max(A[k], 0.3 + val); else if (mode === 'k') A[k] = Math.max(A[k], val); else A[k] += val;
+  }
 }
-function hwFrame(g, S) {
-  g.strokeStyle = hwL(205); g.lineWidth = 12; g.strokeRect(10, 10, S - 20, S - 20);
-  g.strokeStyle = hwL(30); g.lineWidth = 3; g.strokeRect(22, 22, S - 44, S - 44);
-  for (const p of [[16, 16], [S - 16, 16], [16, S - 16], [S - 16, S - 16]]) hwDisc(g, p[0], p[1], 9, 9, 240);
+function hwC(A, S, x1, y1, x2, y2, r, amp, mode) {   // capsula morbida (dita, arti, pieghe)
+  const x0 = Math.max(0, Math.floor(Math.min(x1, x2) - r)), xe = Math.min(S - 1, Math.ceil(Math.max(x1, x2) + r)), y0 = Math.max(0, Math.floor(Math.min(y1, y2) - r)), ye = Math.min(S - 1, Math.ceil(Math.max(y1, y2) + r)), dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1;
+  for (let y = y0; y <= ye; y++) for (let x = x0; x <= xe; x++) {
+    const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / L2)), d = Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)) / r; if (d >= 1) continue;
+    const val = amp * Math.pow(1 - d * d, 0.8), k = y * S + x;
+    if (mode === 'm') A[k] = Math.max(A[k], 0.3 + val); else if (mode === 'k') A[k] = Math.max(A[k], val); else A[k] += val;
+  }
 }
-// g = altezze, m = maschera del sangue/carne (bianco = tinta rossa)
+function hwP(A, S, pts, r, amp, mode) { for (let i = 0; i + 1 < pts.length; i++) hwC(A, S, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r, amp, mode); }
+function hwFrameF(H, S) {   // cornice a rilievo con una gola interna
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) { const d = Math.min(x, y, S - 1 - x, S - 1 - y); H[y * S + x] += 0.24 * Math.exp(-Math.pow((d - 14) / 6, 2)) - 0.05 * Math.exp(-Math.pow((d - 26) / 2.5, 2)); }
+}
 const HW_DESIGN = [
-  (g, m, S, R) => {   // 0: teschio su ossa incrociate
-    hwBoneH(g, 40, 60, 216, 206, 15, 150); hwBoneH(g, 216, 60, 40, 206, 15, 150);
-    hwDisc(g, 128, 108, 52, 56, 215); g.fillStyle = hwL(195); g.fillRect(98, 150, 60, 30);
-    hwDisc(g, 106, 112, 15, 18, 12); hwDisc(g, 150, 112, 15, 18, 12); hwPoly(g, [[128, 126], [118, 148], [138, 148]], 18);
-    for (let i = 0; i < 6; i++) { g.fillStyle = hwL(240); g.fillRect(100 + i * 10, 158, 7, 20); }
-    hwLine(g, 150, 62, 138, 96, 2.5, 40);
-    hwLine(m, 106, 130, 102, 176, 7, 255); hwLine(m, 150, 130, 156, 190, 7, 255); hwDisc(m, 106, 112, 15, 18, 200); hwDisc(m, 150, 112, 15, 18, 200);
+  (H, K, S, R) => {   // 0: un volto che spinge da dietro la pietra, come sotto un telo teso
+    hwE(H, S, 128, 124, 62, 86, 0.34, 0, 'm'); hwE(H, S, 128, 72, 50, 30, 0.07, 0);
+    for (const s of [-1, 1]) { hwE(H, S, 128 + s * 34, 118, 18, 8, -0.3, s * 0.12); hwE(H, S, 128 + s * 34, 107, 19, 5, 0.07, s * 0.12); hwE(H, S, 128 + s * 48, 150, 16, 12, 0.06, 0); hwE(K, S, 128 + s * 34, 118, 19, 9, 1, s * 0.12, 'k'); hwE(H, S, 128 + s * 8, 162, 5, 4, -0.12, 0); }
+    hwC(H, S, 128, 122, 128, 158, 9, 0.14); hwE(H, S, 128, 190, 22, 11, -0.34, 0); hwE(H, S, 128, 178, 22, 6, 0.06, 0); hwE(H, S, 128, 203, 20, 6, 0.07, 0); hwE(K, S, 128, 190, 23, 12, 1, 0, 'k');
+    for (let k = 0; k < 14; k++) { const a = k / 14 * 6.2832 + 0.2, c = Math.cos(a), s = Math.sin(a); hwC(H, S, 128 + c * 62 * 1.04, 124 + s * 86 * 1.04, 128 + c * 62 * 1.55, 124 + s * 86 * 1.45, 2.6, 0.035); }   // pieghe di tensione
   },
-  (g, m, S, R) => {   // 1: volto di demone urlante con corna
-    for (const s of [1, -1]) { g.strokeStyle = hwL(215); g.lineWidth = 15; g.lineCap = 'round'; g.beginPath(); g.moveTo(128 - 56 * s, 96); g.quadraticCurveTo(128 - 92 * s, 60, 128 - 74 * s, 22); g.stroke(); }
-    hwDisc(g, 128, 134, 62, 76, 190);
-    for (const s of [1, -1]) { hwLine(g, 128 - 24 * s, 98, 128 - 64 * s, 120, 11, 235); hwDisc(g, 128 - 34 * s, 128, 17, 8, 10, 0.4 * s); hwDisc(g, 128 - 34 * s, 128, 5, 5, 200); hwDisc(m, 128 - 34 * s, 128, 7, 7, 255); }
-    hwDisc(g, 120, 160, 4, 6, 15); hwDisc(g, 136, 160, 4, 6, 15);
-    hwDisc(g, 128, 190, 36, 26, 8); hwDisc(m, 128, 190, 36, 26, 255); hwDisc(g, 128, 200, 20, 10, 120);
-    for (let i = 0; i < 5; i++) hwPoly(g, [[100 + i * 14, 170], [108 + i * 14, 170], [104 + i * 14, 190]], 240);
-    for (let i = 0; i < 4; i++) hwPoly(g, [[104 + i * 14, 210], [112 + i * 14, 210], [108 + i * 14, 194]], 240);
-    hwLine(g, 76, 150, 88, 176, 3, 40); hwLine(g, 180, 150, 168, 176, 3, 40);
-  },
-  (g, m, S, R) => {   // 2: pentagramma rovesciato in un cerchio di rune
-    g.strokeStyle = hwL(215); g.lineWidth = 11; g.beginPath(); g.arc(128, 128, 96, 0, 7); g.stroke();
-    g.strokeStyle = hwL(170); g.lineWidth = 4; g.beginPath(); g.arc(128, 128, 78, 0, 7); g.stroke();
-    const P = []; for (let k = 0; k < 5; k++) { const a = Math.PI / 2 + k * 1.2566371; P.push([128 + 74 * Math.cos(a), 128 + 74 * Math.sin(a)]); }
-    for (let k = 0; k < 5; k++) { const A = P[k], B = P[(k + 2) % 5]; hwLine(g, A[0], A[1], B[0], B[1], 8, 235); hwLine(m, A[0], A[1], B[0], B[1], 8, 150); }
-    for (let k = 0; k < 24; k++) { const a = k * 0.2618; hwLine(g, 128 + 82 * Math.cos(a), 128 + 82 * Math.sin(a), 128 + 88 * Math.cos(a), 128 + 88 * Math.sin(a), 2.5, 60); }
-    hwDisc(g, 128, 128, 8, 8, 20);
-  },
-  (g, m, S, R) => {   // 3: occhio che piange con raggi
-    for (let k = 0; k < 28; k++) { const a = k * 0.2244, r2 = 108 + (k % 2) * 14; hwLine(g, 128 + 84 * Math.cos(a), 128 + 84 * Math.sin(a) * 0.75, 128 + r2 * Math.cos(a), 128 + r2 * Math.sin(a) * 0.75, 4, 175); }
-    g.fillStyle = hwL(160); g.beginPath(); g.moveTo(34, 128); g.quadraticCurveTo(128, 30, 222, 128); g.quadraticCurveTo(128, 226, 34, 128); g.closePath(); g.fill();
-    g.strokeStyle = hwL(235); g.lineWidth = 9; g.stroke();
-    hwDisc(g, 128, 128, 40, 40, 205); hwDisc(g, 128, 128, 9, 32, 10); hwDisc(m, 128, 128, 40, 40, 140); hwDisc(m, 128, 128, 9, 32, 255);
-    hwLine(g, 80, 160, 76, 206, 3.5, 30); hwLine(m, 80, 160, 76, 206, 5, 255); hwLine(g, 176, 160, 182, 214, 3.5, 30); hwLine(m, 176, 160, 182, 214, 5, 255);
-  },
-  (g, m, S, R) => {   // 4: mani che si protendono verso l'alto
-    const hand = (c, x, y, s, rot, v) => {
-      c.save(); c.translate(x, y); c.rotate(rot); c.scale(s, s);
-      hwLine(c, 0, 40, 0, 120, 30, v - 30); hwDisc(c, 0, 22, 24, 28, v);
-      for (const f of [[-20, -0.35, 44], [-8, -0.12, 56], [6, 0.1, 58], [19, 0.3, 48]]) hwLine(c, f[0], 6, f[0] + Math.sin(f[1]) * f[2], 6 - Math.cos(f[1]) * f[2], 11, v + 15);
-      hwLine(c, -22, 30, -46, 4, 12, v + 15);
-      c.restore();
+  (H, K, S, R) => {   // 1: mani che premono dall'altra parte del muro
+    const hand = (cx, cy, ang, sc, amp) => {
+      const fx = Math.sin(ang), fy = -Math.cos(ang), rx = Math.cos(ang), ry = Math.sin(ang), L = [34, 44, 46, 38], O = [-15, -5, 5, 15];
+      hwE(H, S, cx, cy, 22 * sc, 26 * sc, amp, ang, 'm');
+      for (let k = 0; k < 4; k++) {
+        const bx = cx + fx * 18 * sc + rx * O[k] * sc, by = cy + fy * 18 * sc + ry * O[k] * sc;
+        hwP(H, S, [[bx, by], [bx + fx * L[k] * 0.55 * sc + rx * O[k] * 0.12 * sc, by + fy * L[k] * 0.55 * sc + ry * O[k] * 0.12 * sc], [bx + fx * L[k] * sc + rx * O[k] * 0.35 * sc, by + fy * L[k] * sc + ry * O[k] * 0.35 * sc]], 6 * sc, amp, 'm');
+      }
+      hwP(H, S, [[cx - rx * 18 * sc, cy - ry * 18 * sc + 4], [cx - rx * 36 * sc + fx * 12 * sc, cy - ry * 36 * sc + fy * 12 * sc], [cx - rx * 44 * sc + fx * 30 * sc, cy - ry * 44 * sc + fy * 30 * sc]], 6.5 * sc, amp, 'm');
     };
-    hand(g, 88, 118, 1, -0.15, 200); hand(g, 170, 118, 1, 0.15, 200);
-    hwLine(m, 60, 74, 70, 100, 6, 255); hwLine(m, 196, 74, 186, 100, 6, 255);
+    hand(100, 152, -0.1, 1.15, 0.34); hand(172, 112, 0.28, 0.9, 0.3); hand(160, 206, 0.05, 0.7, 0.26);
   },
-  (g, m, S, R) => {   // 5: croce rovesciata tra catene
-    for (let i = 0; i < 26; i++) { const a = i * 0.2417; hwDisc(g, 128 + 96 * Math.cos(a), 128 + 96 * Math.sin(a), 11, 6, i % 2 ? 150 : 185, a + 1.5708); }
-    g.fillStyle = hwL(210); g.fillRect(116, 38, 24, 176); g.fillRect(74, 150, 108, 24);
-    hwLine(g, 122, 50, 122, 204, 1.5, 170); hwLine(g, 82, 160, 174, 160, 1.5, 170);
-    for (const p of [[128, 50], [84, 162], [172, 162], [128, 204]]) { hwDisc(g, p[0], p[1], 6, 6, 255); hwDisc(m, p[0], p[1], 9, 9, 255); hwLine(m, p[0], p[1], p[0] + 2, p[1] + 26, 4, 255); }
+  (H, K, S, R) => {   // 2: un corpo avvolto in un sudario, fasciato e macchiato
+    hwC(H, S, 128, 70, 128, 222, 30, 0.3, 'm'); hwE(H, S, 128, 56, 24, 28, 0.33, 0, 'm'); hwE(H, S, 128, 92, 46, 18, 0.3, 0, 'm');
+    for (let y = 104; y <= 212; y += 14) hwC(H, S, 98, y, 158, y + (R() - 0.5) * 8, 3.2, 0.05);
+    for (const y of [86, 168, 206]) hwC(H, S, 96, y, 160, y, 4.5, 0.1);
+    hwE(H, S, 121, 54, 6, 4, -0.05, 0); hwE(H, S, 135, 54, 6, 4, -0.05, 0); hwE(H, S, 128, 70, 6, 5, -0.08, 0);
+    hwE(K, S, 118, 120, 26, 34, 0.9, 0.1, 'k'); hwC(K, S, 118, 150, 121, 212, 5, 0.8, 'k');
   },
-  (g, m, S, R) => {   // 6: arco pieno di teschi (ossario ornamentale)
-    const inside = (x, y) => x > 44 && x < 212 && (y > 98 ? y < 232 : (x - 128) * (x - 128) + (y - 98) * (y - 98) < 84 * 84), arch = () => { g.beginPath(); g.moveTo(44, 232); g.lineTo(44, 98); g.arc(128, 98, 84, Math.PI, 0); g.lineTo(212, 232); };
-    arch(); g.closePath(); g.fillStyle = hwL(95); g.fill();
-    for (let j = 0; j < 7; j++) for (let i = 0; i < 6; i++) {
-      const x = 62 + i * 26 + (j % 2) * 13, y = 40 + j * 27; if (!inside(x, y)) continue;
-      hwDisc(g, x, y, 12, 13, 190); hwDisc(g, x - 4.5, y + 1, 3.4, 4, 12); hwDisc(g, x + 4.5, y + 1, 3.4, 4, 12); hwPoly(g, [[x, y + 4], [x - 1.6, y + 8], [x + 1.6, y + 8]], 18); g.fillStyle = hwL(165); g.fillRect(x - 6, y + 9, 12, 5);
+  (H, K, S, R) => {   // 3: una ferita lunga, cucita con grossi punti
+    const pts = [], lipL = [], lipR = [];
+    for (let y = 34; y <= 222; y += 12) { const x = 128 + Math.sin(y * 0.05) * 8; pts.push([x, y]); lipL.push([x - 21, y]); lipR.push([x + 21, y]); }
+    hwP(H, S, pts, 13, -0.34); hwP(H, S, lipL, 10, 0.13); hwP(H, S, lipR, 10, 0.13);
+    for (let y = 50; y <= 210; y += 17) { const cx = 128 + Math.sin(y * 0.05) * 8; hwC(H, S, cx - 30, y - 5, cx + 30, y + 5, 3, 0.22, 'm'); hwE(H, S, cx - 32, y - 5, 5, 5, 0.1, 0, 'm'); hwE(H, S, cx + 32, y + 5, 5, 5, 0.1, 0, 'm'); }
+    hwP(K, S, pts, 13, 1, 'k'); for (let i = 0; i < 4; i++) { const y = 60 + i * 40, x = 128 + Math.sin(y * 0.05) * 8 + (i % 2 ? 6 : -6); hwC(K, S, x, y, x + 1, y + 30 + R() * 30, 3, 0.9, 'k'); }
+  },
+  (H, K, S, R) => {   // 4: colonna vertebrale e costole, in rilievo nell'intonaco
+    for (let y = 40; y <= 208; y += 24) {
+      hwE(H, S, 128, y, 19, 10, 0.3, 0, 'm'); hwE(H, S, 128, y + 12, 16, 3, -0.06, 0);
+      if (y <= 160) for (const s of [-1, 1]) hwP(H, S, [[128 + s * 20, y], [128 + s * 58, y + 8], [128 + s * 84, y + 34]], 5.5, 0.22, 'm');
     }
-    arch(); g.strokeStyle = hwL(230); g.lineWidth = 9; g.stroke();
+    hwC(K, S, 128, 30, 128, 220, 22, 0.35, 'k');
   },
-  (g, m, S, R) => {   // 7: cuore con vene e arterie
-    const heart = () => { g.beginPath(); g.moveTo(128, 214); g.bezierCurveTo(24, 150, 44, 56, 128, 104); g.bezierCurveTo(212, 56, 232, 150, 128, 214); g.closePath(); };
-    const r2 = hwRng(77);
-    for (let k = 0; k < 9; k++) {
-      let ang = -2.6 + k * 0.5, x = 128 + 22 * Math.cos(ang), y = 110 + 14 * Math.sin(ang);
-      for (let s = 0; s < 8; s++) { const nx = x + Math.cos(ang) * 16, ny = y + Math.sin(ang) * 16; hwLine(g, x, y, nx, ny, 5, 135); hwLine(m, x, y, nx, ny, 5, 255); x = nx; y = ny; ang += (r2() - 0.5) * 0.9; }
+  (H, K, S, R) => {   // 5: un groviglio di corpi: arti, mani e facce che emergono dalla massa
+    for (let i = 0; i < 18; i++) {
+      let x = 40 + R() * 176, y = 40 + R() * 176, a = R() * 6.28; const pts = [[x, y]], r = 8 + R() * 2.5, amp = 0.2 + R() * 0.1;
+      for (let s = 0; s < 3; s++) { a += (R() - 0.5) * 1.8; x += Math.cos(a) * (34 + R() * 18); y += Math.sin(a) * (34 + R() * 18); pts.push([x, y]); }
+      hwP(H, S, pts, r, amp, 'm'); hwE(H, S, x, y, 11, 9, amp, a, 'm');
+      for (let f = -1; f <= 1; f++) hwC(H, S, x, y, x + Math.cos(a + f * 0.5) * 18, y + Math.sin(a + f * 0.5) * 18, 3, amp, 'm');
     }
-    heart(); g.fillStyle = hwL(175); g.fill(); heart(); m.fillStyle = hwL(255); m.fill();
-    g.strokeStyle = hwL(95); g.lineWidth = 3; g.beginPath(); g.moveTo(128, 108); g.quadraticCurveTo(150, 160, 128, 206); g.stroke();
-    for (const l of [[112, 104, 100, 46, 14], [146, 100, 156, 40, 12], [128, 98, 128, 34, 10]]) { hwLine(g, l[0], l[1], l[2], l[3], l[4], 200); hwLine(m, l[0], l[1], l[2], l[3], l[4], 255); }
+    for (let k = 0; k < 3; k++) { const cx = 70 + R() * 116, cy = 80 + R() * 100, rot = (R() - 0.5) * 0.8; hwE(H, S, cx, cy, 19, 25, 0.3, rot, 'm'); hwE(H, S, cx - 7, cy - 4, 5, 3, -0.2, 0); hwE(H, S, cx + 7, cy - 4, 5, 3, -0.2, 0); hwE(H, S, cx, cy + 11, 6, 5, -0.22, 0); hwE(K, S, cx, cy + 11, 7, 6, 1, 0, 'k'); }
+  },
+  (H, K, S, R) => {   // 6: figura incappucciata, il volto e un vuoto
+    hwE(H, S, 128, 206, 76, 44, 0.28, 0, 'm'); hwC(H, S, 128, 110, 128, 210, 56, 0.3, 'm'); hwE(H, S, 128, 78, 42, 50, 0.34, 0, 'm'); hwE(H, S, 128, 90, 24, 32, -0.42, 0); hwE(K, S, 128, 90, 26, 36, 1, 0, 'k');
+    for (const dx of [-40, -24, -8, 8, 24, 40]) hwP(H, S, [[128 + dx * 0.8, 128], [128 + dx * 1.05, 170], [128 + dx * 1.4, 226]], 3.5, 0.05);
+    for (const s of [-1, 1]) { hwP(H, S, [[128 + s * 40, 118], [128 + s * 50, 160], [128 + s * 44, 196]], 14, 0.12, 'm'); for (let k = 0; k < 4; k++) hwC(H, S, 128 + s * 44 + (k - 1.5) * 3, 196, 128 + s * 46 + (k - 1.5) * 4, 232, 2.6, 0.14, 'm'); }
+  },
+  (H, K, S, R) => {   // 7: un'apertura carnosa a pieghe radiali, che affonda nel buio
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const dx = x - 128, dy = y - 128, r = Math.hypot(dx, dy), a = Math.atan2(dy, dx), k = y * S + x;
+      H[k] += 0.22 * Math.pow(Math.max(0, 1 - r / 108), 0.7) - 0.55 * Math.exp(-Math.pow(r / 26, 2)) + 0.07 * Math.sin(16 * a + r * 0.08) * Math.min(1, r / 24) * Math.max(0, 1 - r / 100) + 0.06 * Math.exp(-Math.pow((r - 62) / 6, 2));
+      K[k] = Math.max(K[k], Math.exp(-Math.pow(r / 30, 2)), 0.7 * Math.exp(-Math.pow((r - 62) / 8, 2)));
+    }
   }
 ];
 function hwPanel(i) {
   if (HW.panels[i]) return HW.panels[i];
-  const S = 256, a = hwCv(S, S), b = hwCv(S, S), g = a[1], gm = b[1], R = hwRng(900 + i * 31);
-  g.fillStyle = hwL(72); g.fillRect(0, 0, S, S); gm.fillStyle = '#000'; gm.fillRect(0, 0, S, S);
-  HW_DESIGN[i](g, gm, S, R); hwFrame(g, S);
-  const hd = g.getImageData(0, 0, S, S).data, md = gm.getImageData(0, 0, S, S).data;
-  let h = new Float32Array(S * S), t = new Float32Array(S * S);
-  for (let k = 0; k < S * S; k++) h[k] = hd[k * 4] / 255;
-  for (let pass = 0; pass < 2; pass++) {   // sfumatura 3x3: spigoli morbidi, come pietra scolpita
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      let s = 0, n = 0;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= S || Y >= S) continue; s += h[Y * S + X]; n++; }
-      t[y * S + x] = s / n;
-    }
-    const sw = h; h = t; t = sw;
-  }
+  const S = 256, H = new Float32Array(S * S).fill(0.3), K = new Float32Array(S * S), R = hwRng(900 + i * 31);
+  HW_DESIGN[i](H, K, S, R); hwFrameF(H, S);
+  const h = hwBlurF(hwBlurF(H, S, 1), S, 1), big = hwBlurF(h, S, 8), mk = hwBlurF(K, S, 3), gn = hwFbm(R, S, 6), gs = hwNoise(R, 24, 3, S);
   const cc = hwCv(S, S), cb = hwCv(S, S), ic = cc[1].createImageData(S, S), ib = cb[1].createImageData(S, S), D = ic.data, E = ib.data;
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
     const k = y * S + x, x1 = Math.min(S - 1, x + 1), x0 = Math.max(0, x - 1), y1 = Math.min(S - 1, y + 1), y0 = Math.max(0, y - 1);
-    const dx = h[y * S + x1] - h[y * S + x0], dy = h[y1 * S + x] - h[y0 * S + x], lit = Math.max(-0.5, Math.min(0.5, -(dx + dy) * 3.2)), mk = md[k * 4] / 255 * 0.85, hv = h[k];
-    const sh = (0.5 + 0.95 * hv) * (1 + lit * 1.1) + (hwHash(x, y, i) - 0.5) * 0.12;
-    D[k * 4] = Math.max(0, Math.min(255, (138 + (120 - 138) * mk) * sh)); D[k * 4 + 1] = Math.max(0, Math.min(255, (128 + (12 - 128) * mk) * sh)); D[k * 4 + 2] = Math.max(0, Math.min(255, (114 + (16 - 114) * mk) * sh)); D[k * 4 + 3] = 255;
-    const bv = (hv * 255) | 0; E[k * 4] = E[k * 4 + 1] = E[k * 4 + 2] = bv; E[k * 4 + 3] = 255;
+    const dx = h[y * S + x1] - h[y * S + x0], dy = h[y1 * S + x] - h[y0 * S + x], lit = Math.max(-0.5, Math.min(0.5, -(dx + dy) * 3.2)), ao = Math.max(0, Math.min(1, (big[k] - h[k]) * 4)), m = Math.min(1, mk[k] * 1.1);
+    const sh = (0.45 + 0.9 * h[k]) * (1 + lit * 1.1) * (1 - 0.5 * ao) * (0.75 + 0.5 * gn[k]) * (1 - 0.35 * hwSs(0.6, 0.9, gs[k]));   // luce da sinistra, ombra negli incavi, sporco e colature
+    D[k * 4] = Math.max(0, Math.min(255, (132 * (1 - m) + 62 * m) * sh)); D[k * 4 + 1] = Math.max(0, Math.min(255, (124 * (1 - m) + 10 * m) * sh)); D[k * 4 + 2] = Math.max(0, Math.min(255, (112 * (1 - m) + 12 * m) * sh)); D[k * 4 + 3] = 255;
+    const bv = Math.max(0, Math.min(255, h[k] * 255)) | 0; E[k * 4] = E[k * 4 + 1] = E[k * 4 + 2] = bv; E[k * 4 + 3] = 255;
   }
   cc[1].putImageData(ic, 0, 0); cb[1].putImageData(ib, 0, 0);
   return (HW.panels[i] = { map: new THREE.CanvasTexture(cc[0]), bump: new THREE.CanvasTexture(cb[0]), mat: null });
 }
 function hwPanelMat(i) { const P = hwPanel(i); if (!P.mat) P.mat = new THREE.MeshStandardMaterial({ map: P.map, bumpMap: P.bump, bumpScale: 2.5, roughness: 0.85, metalness: 0 }); return P.mat; }
 
-// ---------------- materiali delle pareti, scelta della variante per ogni blocco ----------------
+// ---------------- preparazione, scelta della variante per ogni blocco, costruzione delle pareti ----------------
 function hwPrepare() {
-  if (HW.fam) return HW;
-  const fam = {}, pulse = [];
-  for (const f in HW_FAMS) {
-    fam[f] = [];
-    for (let k = 0; k < HW_FAMS[f]; k++) {
-      const p = hwPaint(f, k), m = new THREE.MeshStandardMaterial({ map: t3Tex(p.c), roughness: f === 'flesh' ? 0.5 : 1, emissive: p.e ? 0xffffff : 0x000000, emissiveMap: p.e ? t3Tex(p.e) : null, emissiveIntensity: 0.7 });
-      if (p.e) pulse.push(m);
-      fam[f].push(m);
-    }
-  }
+  if (HW.ready) return HW;
+  HW.base = [0, 1, 2].map(hwBase);
   const tex = [0, 1, 2, 3].map(f => { const cv = hwCv(64, 80); paintFlame(cv[1], 32, 68, 10, 50, f, { sparks: 1 }); return new THREE.CanvasTexture(cv[0]); });   // fiamma delle torce: 4 fotogrammi
-  const flame = [0, 1, 2, 3].map(gp => ({ mat: new THREE.SpriteMaterial({ map: tex[gp], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), frames: [0, 1, 2, 3].map(i => tex[(i + gp) % 4]) }));   // 4 gruppi sfasati: le torce non battono tutte insieme
+  HW.flame = [0, 1, 2, 3].map(gp => ({ mat: new THREE.SpriteMaterial({ map: tex[gp], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), frames: [0, 1, 2, 3].map(i => tex[(i + gp) % 4]) }));   // 4 gruppi sfasati: le torce non battono tutte insieme
   const sc = hwCv(64, 64), gr = sc[1].createRadialGradient(32, 50, 2, 32, 50, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); sc[1].fillStyle = gr; sc[1].fillRect(0, 0, 64, 64);
-  HW.fam = fam; HW.pulse = pulse; HW.flame = flame; HW.soot = new THREE.CanvasTexture(sc[0]);
+  HW.soot = new THREE.CanvasTexture(sc[0]); HW.ready = true;
   return HW;
 }
 function hwLevel() {   // per ogni piano: a che stanza appartiene ogni cella e che tema ha ogni stanza
@@ -840,18 +847,17 @@ function hwRoomOf(x, y) {   // stanza che il muro (x,y) guarda: -1 per i corrido
   return -1;
 }
 function hwWallMat(t, x, y) {
-  let fam;
-  if (t === 4) fam = 'ossuary';   // la vecchia nicchia dei teschi diventa un ossario
-  else if (t === 3) fam = 'ruin';
-  else {
+  let fam = 'clean';
+  if (t === 4) fam = hwHash(x, y, 13) < 0.5 ? 'bleed' : 'drag';   // la vecchia nicchia dei teschi diventa una parete che sanguina
+  else if (t !== 3) {
     const rid = hwRoomOf(x, y), th = rid >= 0 ? HW.lvl.theme[rid] : -1, tab = th >= 0 && hwHash(x >> 1, y >> 1, 5) < 0.62 ? HW_THEME[th].fam : HW_GEN;
     fam = hwPickW(tab, hwHash(x >> 1, y >> 1, 3));
-    if (t === 2 && hwHash(x, y, 7) < 0.5) fam = 'damp';
+    if (t === 2 && hwHash(x, y, 7) < 0.35) fam = 'damp';
   }
-  const arr = HW.fam[fam];
-  return arr[(hwHash(x, y, 9) * arr.length) | 0];
+  const nv = fam === 'clean' ? 1 : HW_FAMS[fam];
+  return hwMat(fam, (hwHash(x, y, 9) * nv) | 0, (hwHash(x, y, 11) * 3) | 0);
 }
-function hwWalls(root, by) {   // un InstancedMesh per ogni texture usata; la porta delle scale (tipo 5) resta quella di prima
+function hwWalls(root, by) {   // un InstancedMesh per ogni materiale usato; la porta delle scale (tipo 5) resta quella di prima
   const g = new THREE.Group(), grp = new Map();
   for (const t in by) {
     if (t === '5') continue;
@@ -869,7 +875,7 @@ function hwWalls(root, by) {   // un InstancedMesh per ogni texture usata; la po
 // ---------------- elementi 3D che escono dai muri ----------------
 // Coordinate locali: a = lungo il muro (-0,5..0,5), b = altezza assoluta nel mondo, c = in fuori dalla faccia del muro.
 // Ogni pezzo e una piccola mesh con colori di vertice (piu scuri vicino al muro); tutto e fuso in pochi blocchi per zona.
-const HW_BONE = [0.80, 0.74, 0.60], HW_IRON = [0.17, 0.16, 0.17], HW_DARK = [0.03, 0.02, 0.02], HW_FLESH = [0.42, 0.07, 0.10], HW_VEIN = [0.34, 0.05, 0.11], HW_STONE = [0.40, 0.38, 0.35];
+const HW_BONE = [0.62, 0.55, 0.42], HW_IRON = [0.17, 0.16, 0.17], HW_DARK = [0.03, 0.02, 0.02], HW_FLESH = [0.42, 0.07, 0.10], HW_VEIN = [0.34, 0.05, 0.11];
 const hwTone = (c, R, k) => { const f = 1 - (k || 0.25) * R(); return [c[0] * f, c[1] * f, c[2] * f]; };
 function hwPush(M, T, a, b, c, col) {
   const s = 0.5 + 0.5 * Math.min(1, Math.max(0, c) / 0.06);
@@ -900,36 +906,40 @@ function hwBox(M, T, a, b, c, hx, hy, hz, col) {   // parallelepipedo allineato 
   const F = [[1, 3, 7, 5], [0, 4, 6, 2], [2, 6, 7, 3], [0, 1, 5, 4], [4, 5, 7, 6], [0, 2, 3, 1]];
   for (const f of F) { const base = M.p.length / 3; for (const k of f) hwPush(M, T, a + ((k & 1) ? hx : -hx), b + ((k & 2) ? hy : -hy), c + ((k & 4) ? hz : -hz), col); M.i.push(base, base + 1, base + 2, base, base + 2, base + 3); }
 }
-function hwSkull3(M, T, a, b, c, s, bone) {   // teschio mezzo incassato nel muro
-  hwEll(M, T, a, b, c, 0.06 * s, 0.066 * s, 0.064 * s, bone, 8);
-  hwEll(M, T, a, b - 0.052 * s, c + 0.014 * s, 0.04 * s, 0.032 * s, 0.042 * s, bone, 6);
-  for (const k of [-1, 1]) hwEll(M, T, a + k * 0.022 * s, b + 0.005 * s, c + 0.05 * s, 0.017 * s, 0.02 * s, 0.014 * s, HW_DARK, 5);
-  hwEll(M, T, a, b - 0.025 * s, c + 0.062 * s, 0.009 * s, 0.013 * s, 0.009 * s, HW_DARK, 4);
-  hwBox(M, T, a, b - 0.07 * s, c + 0.05 * s, 0.03 * s, 0.01 * s, 0.007 * s, [0.84, 0.8, 0.68]);
-}
-function hwPile3(M, T, R, a, b0) {   // mucchio di teschi e ossa ai piedi del muro
-  const bone = () => hwTone(HW_BONE, R, 0.45), base = [[-0.12, 0.05, 0.07], [0, 0.05, 0.09], [0.12, 0.05, 0.07], [-0.06, 0.13, 0.07], [0.07, 0.13, 0.08]];
-  for (const p of base) hwSkull3(M, T, a + p[0] + (R() - 0.5) * 0.03, b0 + p[1], p[2], 0.8 + R() * 0.25, bone());
-  for (let i = 0; i < 3; i++) { const y = b0 + 0.02 + R() * 0.16, x = a + (R() - 0.5) * 0.3, z = 0.05 + R() * 0.08; hwCyl(M, T, [x - 0.07, y, z], [x + 0.07, y + (R() - 0.5) * 0.04, z + (R() - 0.5) * 0.03], 0.008, 0.008, bone(), 4); }
-}
-function hwHand3(M, T, R, a, b) {   // braccio di scheletro che esce dalla pietra e artiglia l'aria
-  const bone = hwTone(HW_BONE, R, 0.35), W = [a + (R() - 0.5) * 0.05, b + 0.04 + R() * 0.06, 0.085], curl = R() < 0.5 ? 1 : -1;
-  hwCyl(M, T, [a, b, -0.03], W, 0.018, 0.012, bone, 5); hwEll(M, T, W[0], W[1], W[2], 0.016, 0.016, 0.016, bone, 4);
-  hwBox(M, T, W[0], W[1] + 0.004, W[2] + 0.02, 0.03, 0.013, 0.02, bone);
-  for (let i = 0; i < 4; i++) {
-    const len = (i === 1 || i === 2) ? 1.12 : 1; let P = [W[0] + (i - 1.5) * 0.017, W[1] + 0.006, W[2] + 0.04];
-    for (let s = 0; s < 3; s++) { const q = [P[0] + (R() - 0.5) * 0.004, P[1] + curl * (0.004 + 0.011 * s), P[2] + (0.02 - 0.003 * s) * len]; hwCyl(M, T, P, q, 0.0062, 0.0054, bone, 4); P = q; }
-    hwCyl(M, T, P, [P[0], P[1] + curl * 0.012, P[2] + 0.006], 0.005, 0.0006, [0.35, 0.3, 0.22], 4);
+function hwHair3(M, T, R, a, top, bot) {   // ciocca di capelli neri che pende da una fessura del muro
+  const col = [0.05, 0.035, 0.03], n = 7 + ((R() * 6) | 0), fall = Math.min(1, (top - bot) / 0.5 + 0.2);
+  hwEll(M, T, a, top, 0.006, 0.05, 0.016, 0.012, [0.01, 0.01, 0.01], 5);
+  for (let i = 0; i < n; i++) {
+    let x = a + (R() - 0.5) * 0.07, y = top - 0.01, z = 0.012 + R() * 0.012; const len = (0.22 + R() * 0.3) * fall, sw = (R() - 0.5) * 0.05;
+    for (let s = 0; s < 6; s++) {
+      const t = (s + 1) / 6, nx = x + sw * 0.07 + (R() - 0.5) * 0.008, ny = top - 0.01 - len * t, nz = 0.012 + 0.012 * t + 0.01 * Math.sin(t * 3 + i);
+      if (ny < bot) break; hwCyl(M, T, [x, y, z], [nx, ny, nz], 0.0032, 0.0022, col, 3); x = nx; y = ny; z = nz;
+    }
   }
-  hwCyl(M, T, [W[0] - 0.03, W[1], W[2] + 0.012], [W[0] - 0.05, W[1] + 0.014, W[2] + 0.044], 0.007, 0.0055, bone, 4);
 }
-function hwFace3(M, T, R, a, b) {   // volto di pietra che urla
-  const st = hwTone(HW_STONE, R, 0.3);
-  hwEll(M, T, a, b, 0.02, 0.105, 0.145, 0.05, st, 10); hwEll(M, T, a, b + 0.055, 0.06, 0.092, 0.02, 0.026, st, 8);
-  for (const k of [-1, 1]) { hwEll(M, T, a + k * 0.042, b + 0.028, 0.062, 0.024, 0.017, 0.014, HW_DARK, 5); hwEll(M, T, a + k * 0.042, b + 0.026, 0.071, 0.006, 0.006, 0.004, [0.9, 0.12, 0.05], 3); }
-  hwEll(M, T, a, b - 0.012, 0.07, 0.015, 0.032, 0.02, st, 6);
-  hwEll(M, T, a, b - 0.078, 0.05, 0.043, 0.05, 0.02, HW_DARK, 7);
-  for (let i = 0; i < 5; i++) hwBox(M, T, a - 0.03 + i * 0.015, b - 0.043, 0.064, 0.005, 0.009, 0.004, [0.84, 0.8, 0.68]);
+function hwBundle3(M, T, R, a, top) {   // corpo avvolto in un sudario, appeso a due catene
+  const cloth = hwTone([0.5, 0.45, 0.36], R, 0.3), stain = [0.3, 0.12, 0.09], mid = top - 0.42, ch = [0.2, 0.19, 0.2];
+  for (const s of [-1, 1]) { hwBox(M, T, a + s * 0.045, top + 0.01, 0.012, 0.015, 0.012, 0.01, HW_IRON); let y = top - 0.005; for (let i = 0; i < 4; i++) { hwBox(M, T, a + s * (0.045 - i * 0.004), y, 0.02 + i * 0.01, i % 2 ? 0.0035 : 0.009, 0.012, i % 2 ? 0.009 : 0.0035, ch); y -= 0.024; } }
+  hwEll(M, T, a, mid + 0.02, 0.095, 0.075, 0.27, 0.07, cloth, 8); hwEll(M, T, a, mid - 0.16, 0.097, 0.062, 0.14, 0.06, stain, 7); hwEll(M, T, a, mid + 0.25, 0.1, 0.05, 0.052, 0.05, cloth, 6);
+  for (const y of [mid + 0.18, mid + 0.02, mid - 0.14]) hwCyl(M, T, [a, y - 0.008, 0.095], [a, y + 0.008, 0.095], 0.079, 0.079, [0.28, 0.24, 0.18], 8);
+  hwCyl(M, T, [a + 0.01, mid - 0.31, 0.1], [a + 0.012, mid - 0.43, 0.1], 0.004, 0.003, [0.3, 0.03, 0.04], 3);
+}
+function hwSpikes3(M, T, R, a, b) {   // piastra con punte arrugginite, le cime sporche di sangue
+  hwBox(M, T, a, b, 0.008, 0.07, 0.03, 0.008, HW_IRON);
+  for (let i = 0; i < 5; i++) {
+    const x = a - 0.056 + i * 0.028, up = (R() - 0.5) * 0.06, len = 0.1 + R() * 0.05, dx = (R() - 0.5) * 0.02, p0 = [x, b + (R() - 0.5) * 0.02, 0.012], p1 = [x + dx, b + up, 0.012 + len], pm = [p0[0] + (p1[0] - p0[0]) * 0.62, p0[1] + (p1[1] - p0[1]) * 0.62, p0[2] + (p1[2] - p0[2]) * 0.62];
+    hwCyl(M, T, p0, pm, 0.012, 0.0065, [0.26, 0.15, 0.1], 5); hwCyl(M, T, pm, p1, 0.0065, 0.001, [0.28, 0.04, 0.05], 5);
+  }
+}
+function hwHand3(M, T, R, a, b) {   // braccio smunto che esce dalla pietra, le dita troppo lunghe
+  const sk = hwTone([0.50, 0.46, 0.40], R, 0.3), W = [a + (R() - 0.5) * 0.05, b + 0.04 + R() * 0.06, 0.085], curl = R() < 0.5 ? 1 : -1;
+  hwCyl(M, T, [a, b, -0.03], W, 0.014, 0.009, sk, 5); hwEll(M, T, W[0], W[1], W[2], 0.012, 0.012, 0.012, sk, 4); hwBox(M, T, W[0], W[1] + 0.003, W[2] + 0.018, 0.022, 0.01, 0.017, sk);
+  for (let i = 0; i < 4; i++) {
+    const len = (i === 1 || i === 2) ? 1.25 : 1; let P = [W[0] + (i - 1.5) * 0.013, W[1] + 0.005, W[2] + 0.034];
+    for (let s = 0; s < 3; s++) { const q = [P[0] + (R() - 0.5) * 0.004, P[1] + curl * (0.003 + 0.011 * s), P[2] + (0.022 - 0.003 * s) * len]; hwCyl(M, T, P, q, 0.0042, 0.0036, sk, 4); P = q; }
+    hwCyl(M, T, P, [P[0], P[1] + curl * 0.012, P[2] + 0.008], 0.0036, 0.0005, [0.18, 0.14, 0.1], 4);
+  }
+  hwCyl(M, T, [W[0] - 0.022, W[1], W[2] + 0.012], [W[0] - 0.04, W[1] + 0.014, W[2] + 0.044], 0.0052, 0.004, sk, 4);
 }
 function hwChain3(M, T, R, a, top, n) {   // catena appesa a una staffa, con un polsino in fondo
   hwBox(M, T, a, top + 0.005, 0.012, 0.022, 0.016, 0.012, HW_IRON); hwEll(M, T, a, top - 0.012, 0.03, 0.012, 0.012, 0.012, HW_IRON, 5);
@@ -946,8 +956,8 @@ function hwHook3(M, T, R, a, b) {   // gancio da macellaio, a volte con un brand
   hwCyl(M, T, [a, b - 0.075, 0.11], [a, b - 0.095, 0.075], 0.0055, 0.0008, rust, 5);
   if (R() < 0.6) hwEll(M, T, a, b - 0.125, 0.1, 0.032, 0.052, 0.03, hwTone(HW_FLESH, R, 0.3), 6);
 }
-function hwRibs3(M, T, R, a, b) {   // costole che sbucano dal muro come i cerchi di una gabbia
-  const bone = hwTone(HW_BONE, R, 0.3), w = 0.26, n = 5;
+function hwRibs3(M, T, R, a, b) {   // costole annerite che sbucano dal muro come i cerchi di una gabbia
+  const bone = hwTone(HW_BONE, R, 0.35), w = 0.26, n = 5;
   for (let i = 0; i < n; i++) {
     const y = b + (i - (n - 1) / 2) * 0.075, a0 = a - w / 2 + (R() - 0.5) * 0.02, dep = 0.12 - Math.abs(i - 2) * 0.015, pts = [];
     for (let k = 0; k <= 6; k++) { const t = k / 6; pts.push([a0 + w * t, y + Math.sin(t * Math.PI) * 0.012, Math.sin(t * Math.PI) * dep - 0.01]); }
@@ -961,33 +971,15 @@ function hwVein3(M, T, R, a, b, lo, hi) {   // vena o radice carnosa che strisci
     const q = [Math.max(-0.45, Math.min(0.45, P[0] + Math.cos(ang) * L)), P[1] + Math.sin(ang) * L * 0.9, 0.012 + 0.018 * R()];
     if (q[1] < lo || q[1] > hi) { ang = -ang; q[1] = Math.max(lo, Math.min(hi, q[1])); }
     hwCyl(M, T, P, q, r, r * 0.9, col, 5); hwEll(M, T, q[0], q[1], q[2], r * 1.05, r * 1.05, r * 1.05, col, 4);
-    if (R() < 0.3) hwEll(M, T, q[0], q[1], q[2] + 0.012, 0.022, 0.022, 0.018, [0.72, 0.55, 0.4], 6);
+    if (R() < 0.3) hwEll(M, T, q[0], q[1], q[2] + 0.012, 0.022, 0.022, 0.018, [0.62, 0.36, 0.3], 6);
     P = q;
   }
 }
-function hwHorns3(M, T, R, a, b) {   // coppia di corna da trofeo
-  const col = hwTone([0.55, 0.48, 0.38], R, 0.3);
-  for (const s of [-1, 1]) {
-    const pts = [[0.05, 0, 0], [0.09, 0.04, 0.045], [0.115, 0.10, 0.085], [0.105, 0.17, 0.105], [0.07, 0.235, 0.1]].map(p => [a + s * p[0], b + p[1], p[2]]);
-    for (let k = 0; k < 4; k++) hwCyl(M, T, pts[k], pts[k + 1], 0.024 * (1 - k * 0.2), 0.024 * (1 - (k + 1) * 0.2) + 0.002, col, 6);
-  }
-  hwEll(M, T, a, b - 0.01, 0.02, 0.08, 0.04, 0.03, hwTone(HW_STONE, R, 0.3), 7);
-}
-function hwMaw3(M, T, R, a, b) {   // bocca spalancata nel muro, piena di denti
-  hwEll(M, T, a, b, 0.004, 0.21, 0.135, 0.016, hwTone(HW_FLESH, R, 0.3), 9);
-  hwEll(M, T, a, b, 0.014, 0.165, 0.098, 0.014, [0.06, 0.005, 0.015], 9);
-  hwEll(M, T, a, b - 0.035, 0.024, 0.07, 0.028, 0.012, [0.5, 0.08, 0.12], 6);
-  for (let i = 0; i < 7; i++) {
-    const x = a - 0.135 + i * (0.27 / 6), tl = 0.045 + 0.02 * R();
-    hwCyl(M, T, [x, b + 0.088, 0.02], [x, b + 0.088 - tl, 0.034], 0.013, 0.0012, [0.84, 0.8, 0.68], 5);
-    hwCyl(M, T, [x + 0.019, b - 0.088, 0.02], [x + 0.019, b - 0.088 + tl * 0.9, 0.034], 0.013, 0.0012, [0.84, 0.8, 0.68], 5);
-  }
-}
-function hwTorch(M, T, R, b0) {   // sostegno di ferro a braccio con torcia, teschietto e brace (la fiamma e uno sprite a parte)
+function hwTorch(M, T, R, b0) {   // sostegno di ferro a braccio con torcia e brace (la fiamma e uno sprite a parte)
   const I = HW_IRON;
   hwBox(M, T, 0, b0, 0.008, 0.04, 0.078, 0.008, I);
   for (const p of [[-0.024, 0.052], [0.024, 0.052], [-0.024, -0.052], [0.024, -0.052]]) hwEll(M, T, p[0], b0 + p[1], 0.017, 0.008, 0.008, 0.006, [0.3, 0.29, 0.3], 4);
-  hwSkull3(M, T, 0, b0 + 0.135, 0.034, 0.55, hwTone(HW_BONE, R, 0.3));
+  hwCyl(M, T, [0, b0 + 0.078, 0.008], [0, b0 + 0.14, 0.008], 0.012, 0.001, I, 4);
   hwCyl(M, T, [0, b0 + 0.005, 0.015], [0, b0 + 0.035, 0.12], 0.012, 0.011, I, 4);
   hwCyl(M, T, [0, b0 - 0.065, 0.012], [0, b0 + 0.012, 0.085], 0.008, 0.008, I, 4);
   hwCyl(M, T, [0, b0 + 0.03, 0.12], [0, b0 + 0.058, 0.12], 0.03, 0.026, I, 7);
@@ -1043,16 +1035,14 @@ function hwDecor(root, hw) {
       const ni = ny * N + nx, H0 = W1.H[ni], hgt = W1.C[ni] - H0; if (hgt < 0.9) continue;
       const R = hwRng((x * 73856093 ^ y * 19349663 ^ d * 83492791) >>> 0), kind = hwPickW(tab, hwHash(x, y, 30 + d)), T = frame(x, y, d), m = chunk(x, y), a = (R() - 0.5) * 0.5;
       switch (kind) {
-        case 'skull': hwSkull3(m, T, a, H0 + 0.2 + R() * Math.min(0.7, hgt - 0.5), 0.02, 0.9 + R() * 0.3, hwTone(HW_BONE, R, 0.4)); break;
-        case 'pile': hwPile3(m, T, R, a * 0.6, H0); break;
+        case 'bundle': hwBundle3(m, T, R, a * 0.5, H0 + Math.min(hgt - 0.1, 1.05)); break;
         case 'hand': hwHand3(m, T, R, a, H0 + 0.25 + R() * Math.min(0.5, hgt - 0.6)); break;
-        case 'face': hwFace3(m, T, R, a * 0.5, H0 + 0.4 + R() * Math.min(0.3, hgt - 0.8)); break;
         case 'chain': hwChain3(m, T, R, a, H0 + Math.min(hgt - 0.08, 1.05), 5 + ((R() * 5) | 0)); break;
         case 'hook': hwHook3(m, T, R, a, H0 + 0.5 + R() * 0.3); break;
         case 'ribs': hwRibs3(m, T, R, a * 0.4, H0 + 0.5); break;
         case 'vein': hwVein3(m, T, R, a, H0 + 0.1 + R() * 0.5, H0 + 0.06, H0 + hgt - 0.1); break;
-        case 'horns': hwHorns3(m, T, R, a * 0.5, H0 + 0.5); break;
-        default: hwMaw3(m, T, R, a * 0.4, H0 + 0.5);
+        case 'spikes': hwSpikes3(m, T, R, a * 0.5, H0 + 0.4 + R() * 0.3); break;
+        default: hwHair3(m, T, R, a, H0 + Math.min(hgt - 0.06, 1.1), H0 + 0.08);
       }
     }
   }

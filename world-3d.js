@@ -448,6 +448,640 @@ function t3Init() {
   T3.on = true;
 }
 
+// =====================================================================================================================
+// PARETI HORROR (piano 1)
+// Le pareti non sono piu pietra pulita: texture dipinte a mano (pietra annerita dal fumo, muffa e funghi, graffi di
+// artigli e mani insanguinate, sigilli di sangue, carne e vene nelle fughe, ossario, crepe incandescenti che pulsano),
+// varianti scelte stanza per stanza, bassorilievi con rilievo vero (bump map) diversi da stanza a stanza, torce su
+// sostegni di ferro con fiamma animata e, sparsi sui muri, elementi 3D che escono dalla pietra: teschi, mani di
+// scheletro, volti urlanti, catene, ganci, costole, vene e bocche dentate.
+// E solo estetica: la griglia di gioco non cambia. Se qualcosa va storto, t3Build torna ai muri di prima.
+// =====================================================================================================================
+const HW = { fam: null, panels: {}, flame: null, soot: null, pulse: [], grp: null, key: '', lvl: null };
+const HW_FAMS = { ruin: 3, damp: 2, claws: 2, sigil: 2, flesh: 2, ossuary: 2, cracks: 2 };   // famiglie di texture e numero di varianti
+const HW_PLAN = { cripta: 0, fossa: 6, cattedrale: 2, anfiteatro: 1, ziggurat: 3, terrazza: 4 };   // stanze speciali: tema fisso
+// Temi di stanza: famiglie di texture, elementi 3D e bassorilievo (indice di HW_DESIGN). Pesi relativi.
+const HW_THEME = [
+  { fam: [['ossuary', 35], ['ruin', 40], ['damp', 15], ['sigil', 10]], deco: [['pile', 30], ['skull', 30], ['hand', 15], ['chain', 10], ['horns', 5], ['maw', 10]], relief: 6 },
+  { fam: [['cracks', 35], ['ruin', 35], ['claws', 20], ['sigil', 10]], deco: [['face', 30], ['horns', 20], ['maw', 20], ['hook', 10], ['skull', 10], ['chain', 10]], relief: 1 },
+  { fam: [['sigil', 40], ['ruin', 35], ['claws', 10], ['cracks', 15]], deco: [['chain', 25], ['skull', 20], ['hook', 15], ['hand', 15], ['horns', 10], ['face', 15]], relief: 2 },
+  { fam: [['flesh', 40], ['ruin', 30], ['sigil', 15], ['damp', 15]], deco: [['vein', 35], ['maw', 20], ['face', 15], ['skull', 15], ['hand', 15]], relief: 3 },
+  { fam: [['claws', 40], ['ruin', 35], ['ossuary', 15], ['damp', 10]], deco: [['hand', 50], ['skull', 15], ['chain', 15], ['vein', 10], ['face', 10]], relief: 4 },
+  { fam: [['flesh', 55], ['ruin', 25], ['damp', 20]], deco: [['vein', 40], ['ribs', 20], ['maw', 20], ['hand', 10], ['skull', 10]], relief: 7 },
+  { fam: [['claws', 35], ['ruin', 40], ['flesh', 10], ['sigil', 15]], deco: [['chain', 35], ['hook', 30], ['skull', 10], ['hand', 10], ['face', 10], ['maw', 5]], relief: 5 },
+  { fam: [['damp', 50], ['ruin', 35], ['claws', 15]], deco: [['skull', 30], ['vein', 20], ['pile', 20], ['hand', 15], ['chain', 15]], relief: 0 }
+];
+const HW_GEN = [['ruin', 55], ['damp', 15], ['claws', 10], ['sigil', 7], ['flesh', 6], ['cracks', 4], ['ossuary', 3]];   // corridoi e stanze senza tema
+const HW_GENDECO = [['skull', 30], ['chain', 20], ['hook', 10], ['hand', 15], ['vein', 10], ['pile', 10], ['maw', 5]];
+
+const hwRng = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+const hwHash = (x, y, k) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(k | 0, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+const hwPickW = (tab, q) => { let s = 0; for (const e of tab) s += e[1]; let r = q * s; for (const e of tab) { r -= e[1]; if (r <= 0) return e[0]; } return tab[0][0]; };
+const hwCv = (w, h) => { const c = document.createElement('canvas'); c.width = w || TS; c.height = h || w || TS; return [c, c.getContext('2d')]; };
+const hwWrap = (x, y, r, fn) => { for (const ox of [-TS, 0, TS]) for (const oy of [-TS, 0, TS]) { const X = x + ox, Y = y + oy; if (X + r < 0 || X - r > TS || Y + r < 0 || Y - r > TS) continue; fn(X, Y); } };   // disegna anche dall'altra parte del bordo: la texture si ripete senza stacchi
+const hwRgb = (b, v) => 'rgb(' + (Math.max(0, Math.min(255, b[0] + v)) | 0) + ',' + (Math.max(0, Math.min(255, b[1] + v)) | 0) + ',' + (Math.max(0, Math.min(255, b[2] + v)) | 0) + ')';
+function hwGrain(g, R, amt) { const im = g.getImageData(0, 0, TS, TS), d = im.data; for (let i = 0; i < d.length; i += 4) { const v = (R() - 0.5) * amt; d[i] += v; d[i + 1] += v; d[i + 2] += v; } g.putImageData(im, 0, 0); }
+function hwStroke(g, ps, col, w) { g.strokeStyle = col; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; for (const p of ps) { g.beginPath(); g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.stroke(); } }
+
+// Crepe (o vene): elenco di spezzate con qualche ramo, tutte dentro la tessera
+function hwCracks(R, n, len, turn) {
+  const out = [], tr = turn || 1.1;
+  for (let i = 0; i < n; i++) {
+    let x = 12 + R() * (TS - 24), y = 12 + R() * (TS - 24), a = R() * 6.28;
+    const L = len * (0.6 + R() * 0.8), pts = [[x, y]];
+    for (let s = 0; s < L; s += 4) {
+      a += (R() - 0.5) * tr; x += Math.cos(a) * 4; y += Math.sin(a) * 4;
+      if (x < 2 || y < 2 || x > TS - 2 || y > TS - 2) break;
+      pts.push([x, y]);
+      if (R() < 0.12 && s > 8) {
+        let bx = x, by = y, ba = a + (R() < 0.5 ? 1 : -1) * (0.6 + R() * 0.6); const bp = [[bx, by]], bl = 5 + (R() * 6 | 0);
+        for (let q = 0; q < bl; q++) { ba += (R() - 0.5) * tr * 0.8; bx += Math.cos(ba) * 3.5; by += Math.sin(ba) * 3.5; if (bx < 2 || by < 2 || bx > TS - 2 || by > TS - 2) break; bp.push([bx, by]); }
+        if (bp.length > 1) out.push(bp);
+      }
+    }
+    if (pts.length > 1) out.push(pts);
+  }
+  return out;
+}
+function hwStain(g, R, n, col) {   // aloni scuri che colano dall'alto
+  for (let i = 0; i < n; i++) {
+    const x = 8 + R() * (TS - 16), y0 = R() * TS, w = 5 + R() * 11, L = 30 + R() * 60;
+    for (const oy of [0, -TS]) { const gr = g.createLinearGradient(0, y0 + oy, 0, y0 + oy + L); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - w / 2, y0 + oy, w, L); }
+  }
+}
+function hwSoot(g, R, n, a) {   // fumo di vecchie torce: macchie nere sfumate
+  for (let i = 0; i < n; i++) {
+    const x = R() * TS, y = R() * TS, r = 14 + R() * 30, al = a * (0.5 + R() * 0.5);
+    hwWrap(x, y, r, (X, Y) => { const gr = g.createRadialGradient(X, Y, 0, X, Y, r); gr.addColorStop(0, 'rgba(0,0,0,' + al.toFixed(2) + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(X - r, Y - r, r * 2, r * 2); });
+  }
+}
+function hwMoss(g, R, n) {   // muschio scuro, quasi nero-verde, piu fitto in basso
+  for (let i = 0; i < n; i++) {
+    const x = R() * TS, y = R() < 0.6 ? TS * (0.5 + R() * 0.5) : R() * TS, r = 5 + R() * 12, bl = [];
+    for (let k = 0; k < 7; k++) bl.push([(R() - 0.5) * r * 2, (R() - 0.5) * r * 1.3, 1.5 + R() * r * 0.45, 'rgba(' + (22 + R() * 26 | 0) + ',' + (54 + R() * 46 | 0) + ',' + (22 + R() * 18 | 0) + ',' + (0.45 + R() * 0.3).toFixed(2) + ')']);
+    hwWrap(x, y, r * 1.6, (X, Y) => { for (const b of bl) { g.fillStyle = b[3]; g.beginPath(); g.ellipse(X + b[0], Y + b[1], b[2], b[2] * 0.7, 0, 0, 7); g.fill(); } });
+  }
+}
+function hwFungus(g, R, n) {   // funghetti e muffa pallida
+  for (let i = 0; i < n; i++) {
+    const x = R() * TS, y = R() * TS, r = 1 + R() * 2.2;
+    hwWrap(x, y, r + 2, (X, Y) => { g.fillStyle = 'rgba(8,16,8,.6)'; g.beginPath(); g.arc(X, Y, r + 1, 0, 7); g.fill(); g.fillStyle = 'rgba(196,204,150,.55)'; g.beginPath(); g.arc(X, Y, r, 0, 7); g.fill(); });
+  }
+}
+function hwBlood(g, R, n, o) {   // colature di sangue rappreso (si richiudono sul bordo alto della tessera)
+  o = o || {};
+  for (let i = 0; i < n; i++) {
+    const x = 6 + R() * (TS - 12), y0 = R() * TS * 0.8, L = 14 + R() * (o.len || 56), w = 1.6 + R() * 2.6, wob = (R() - 0.5) * 6, al = 0.55 + R() * 0.35;
+    for (const oy of [0, -TS]) {
+      g.lineCap = 'round';
+      g.strokeStyle = 'rgba(84,4,6,' + al.toFixed(2) + ')'; g.lineWidth = w; g.beginPath(); g.moveTo(x, y0 + oy); g.quadraticCurveTo(x + wob, y0 + L * 0.5 + oy, x + wob * 0.4, y0 + L + oy); g.stroke();
+      g.strokeStyle = 'rgba(170,26,20,' + (al * 0.45).toFixed(2) + ')'; g.lineWidth = Math.max(0.6, w * 0.3); g.beginPath(); g.moveTo(x - w * 0.2, y0 + oy + 1); g.quadraticCurveTo(x + wob - w * 0.2, y0 + L * 0.5 + oy, x + wob * 0.4 - w * 0.2, y0 + L + oy); g.stroke();
+      g.fillStyle = 'rgba(84,4,6,' + al.toFixed(2) + ')'; g.beginPath(); g.ellipse(x + wob * 0.4, y0 + L + oy + w * 0.4, w * 0.8, w * 1.1, 0, 0, 7); g.fill();
+    }
+    if (R() < 0.5) hwWrap(x, y0, 10, (X, Y) => { g.fillStyle = 'rgba(70,4,6,' + (al * 0.8).toFixed(2) + ')'; g.beginPath(); g.ellipse(X, Y, w * 2.2, w * 1.4, 0, 0, 7); g.fill(); });
+  }
+}
+function hwSmear(g, R) {   // una striscia di sangue trascinata
+  const x = 14 + R() * 30, y = 30 + R() * 60;
+  g.lineCap = 'round'; g.strokeStyle = 'rgba(78,4,6,.55)'; g.lineWidth = 7 + R() * 5; g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + 20, y + 15, x + 40, y - 10, x + 62, y + 12); g.stroke();
+  g.strokeStyle = 'rgba(40,2,4,.5)'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(x + 4, y + 2); g.bezierCurveTo(x + 22, y + 16, x + 42, y - 8, x + 60, y + 13); g.stroke();
+}
+function hwHandPrint(g, R, x, y, s, rot) {   // mano insanguinata premuta sul muro
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(s, s);
+  g.fillStyle = 'rgba(98,6,8,.86)'; g.beginPath(); g.ellipse(0, 6, 8, 9, 0, 0, 7); g.fill();
+  for (let k = 0; k < 4; k++) { const a = -0.42 + k * 0.28, len = 13 + (k === 1 || k === 2 ? 4 : 0); g.beginPath(); g.ellipse(Math.sin(a) * (len * 0.5 + 5), -3 - Math.cos(a) * (len * 0.5 + 5), 2.6, len * 0.5, a, 0, 7); g.fill(); }
+  g.beginPath(); g.ellipse(-9, 4, 2.8, 6.5, -1.1, 0, 7); g.fill();
+  g.fillStyle = 'rgba(70,4,6,.7)'; g.fillRect(-2, 14, 3, 8 + R() * 14); g.fillRect(3, 13, 2, 5 + R() * 9);
+  g.restore();
+}
+function hwScratch(g, R, x, y, ang, len) {   // quattro graffi paralleli, da artiglio
+  const nx = Math.cos(ang + 1.5708), ny = Math.sin(ang + 1.5708), bend = (R() - 0.5) * 12;
+  for (let k = 0; k < 4; k++) {
+    const off = (k - 1.5) * 4.5, sx = x + nx * off, sy = y + ny * off, ex = sx + Math.cos(ang) * len, ey = sy + Math.sin(ang) * len, mx = (sx + ex) / 2 + nx * bend, my = (sy + ey) / 2 + ny * bend;
+    g.lineCap = 'round'; g.strokeStyle = 'rgba(0,0,0,.7)'; g.lineWidth = 2; g.beginPath(); g.moveTo(sx, sy); g.quadraticCurveTo(mx, my, ex, ey); g.stroke();
+    g.strokeStyle = 'rgba(215,205,185,.3)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(sx + 1, sy + 1); g.quadraticCurveTo(mx + 1, my + 1, ex + 1, ey + 1); g.stroke();
+  }
+}
+function hwSigil(g, cx, cy, r, kind) {   // sigillo tracciato col sangue
+  g.strokeStyle = 'rgba(128,8,12,.92)'; g.fillStyle = 'rgba(110,6,10,.9)'; g.lineWidth = 2.3; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.arc(cx, cy, r, 0, 7); g.stroke();
+  if (kind === 0) {   // pentagramma rovesciato
+    const P = []; for (let k = 0; k < 5; k++) { const a = Math.PI / 2 + k * 1.2566371; P.push([cx + (r - 2) * Math.cos(a), cy + (r - 2) * Math.sin(a)]); }
+    g.beginPath(); for (let k = 0; k <= 5; k++) { const p = P[(k * 2) % 5]; if (k) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); } g.stroke();
+  } else if (kind === 1) {   // occhio
+    g.beginPath(); g.moveTo(cx - r * 0.85, cy); g.quadraticCurveTo(cx, cy - r * 0.95, cx + r * 0.85, cy); g.quadraticCurveTo(cx, cy + r * 0.95, cx - r * 0.85, cy); g.stroke();
+    g.beginPath(); g.arc(cx, cy, r * 0.32, 0, 7); g.stroke(); g.beginPath(); g.ellipse(cx, cy, r * 0.08, r * 0.24, 0, 0, 7); g.fill();
+    for (let k = -2; k <= 2; k++) { g.beginPath(); g.moveTo(cx + k * r * 0.22, cy - r * 0.72 + Math.abs(k) * 4); g.lineTo(cx + k * r * 0.3, cy - r * 1.05 + Math.abs(k) * 5); g.stroke(); }
+  } else if (kind === 2) {   // croce rovesciata e raggi
+    g.beginPath(); g.moveTo(cx, cy - r * 0.9); g.lineTo(cx, cy + r * 0.9); g.moveTo(cx - r * 0.5, cy + r * 0.3); g.lineTo(cx + r * 0.5, cy + r * 0.3); g.stroke();
+    for (let k = 0; k < 8; k++) { const a = k * 0.7854; g.beginPath(); g.moveTo(cx + (r + 3) * Math.cos(a), cy + (r + 3) * Math.sin(a)); g.lineTo(cx + (r + 8) * Math.cos(a), cy + (r + 8) * Math.sin(a)); g.stroke(); }
+  } else {   // spirale
+    g.beginPath(); for (let t = 0; t <= 12.57; t += 0.2) { const rr = r * 0.9 * t / 12.57, x = cx + rr * Math.cos(t), y = cy + rr * Math.sin(t); if (t) g.lineTo(x, y); else g.moveTo(x, y); } g.stroke();
+    g.beginPath(); g.arc(cx, cy, 2.5, 0, 7); g.fill();
+  }
+  g.lineWidth = 1.8; for (let k = 0; k < 3; k++) { const x = cx + (k - 1) * r * 0.6; g.beginPath(); g.moveTo(x, cy + r * 0.85); g.lineTo(x + 1, cy + r * 1.2 + k * 6); g.stroke(); }
+}
+function hwBoneT(g, x1, y1, x2, y2, w, v) {   // osso lungo con le due teste
+  const c1 = 'rgb(' + (v | 0) + ',' + ((v * 0.94) | 0) + ',' + ((v * 0.78) | 0) + ')', dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, px = -dy / L * w * 0.5, py = dx / L * w * 0.5;
+  g.lineCap = 'round'; g.strokeStyle = c1; g.lineWidth = w; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  g.strokeStyle = 'rgba(255,255,235,.25)'; g.lineWidth = w * 0.35; g.beginPath(); g.moveTo(x1, y1 - w * 0.2); g.lineTo(x2, y2 - w * 0.2); g.stroke();
+  g.fillStyle = c1; for (const p of [[x1, y1], [x2, y2]]) for (const s of [-1, 1]) { g.beginPath(); g.arc(p[0] + px * s, p[1] + py * s, w * 0.62, 0, 7); g.fill(); }
+  g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x1, y1 + w * 0.5); g.lineTo(x2, y2 + w * 0.5); g.stroke();
+}
+function hwSkullT(g, x, y, s, seed) {   // teschio frontale per l'ossario
+  const R = hwRng(seed), br = 205 - R() * 55, tn = (d) => 'rgb(' + ((br + d) | 0) + ',' + ((br * 0.94 + d) | 0) + ',' + ((br * 0.78 + d) | 0) + ')';
+  const gr = g.createRadialGradient(x - 3 * s, y - 5 * s, 1, x, y, 13 * s); gr.addColorStop(0, tn(18)); gr.addColorStop(1, tn(-70));
+  g.fillStyle = gr; g.beginPath(); g.ellipse(x, y - s, 11 * s, 12 * s, 0, 0, 7); g.fill();
+  g.fillStyle = tn(-45); g.fillRect(x - 6.5 * s, y + 7 * s, 13 * s, 6 * s);
+  g.fillStyle = tn(10); for (let i = 0; i < 5; i++) g.fillRect(x - 5.5 * s + i * 2.5 * s, y + 8 * s, 1.8 * s, 4.5 * s);
+  g.fillStyle = 'rgba(0,0,0,.8)'; for (let i = 1; i < 5; i++) g.fillRect(x - 6.2 * s + i * 2.5 * s, y + 8 * s, 0.6 * s, 4.5 * s);
+  g.fillStyle = '#030201'; g.beginPath(); g.ellipse(x - 4.4 * s, y + 0.5 * s, 3.3 * s, 3.9 * s, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(x + 4.4 * s, y + 0.5 * s, 3.3 * s, 3.9 * s, 0, 0, 7); g.fill();
+  g.beginPath(); g.moveTo(x, y + 3.5 * s); g.lineTo(x - 1.8 * s, y + 7.2 * s); g.lineTo(x + 1.8 * s, y + 7.2 * s); g.fill();
+  if (R() < 0.5) { g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x + 2 * s, y - 11 * s); g.lineTo(x + 4 * s, y - 5 * s); g.lineTo(x + 2.5 * s, y - 1 * s); g.stroke(); }
+}
+function hwBlocks(g, R, o) {   // blocchi di pietra irregolari che si richiudono sui bordi della tessera
+  const rows = [22, 16, 24, 18, 26, 22], k0 = (R() * 6) | 0, rh = rows.slice(k0).concat(rows.slice(0, k0)), ins = o.ins || 1.5;
+  let y = 0;
+  for (const h of rh) {
+    const n = 3 + (R() < 0.5 ? 1 : 0), cuts = [0];
+    for (let i = 1; i < n; i++) cuts.push(Math.round((i + (R() - 0.5) * 0.36) * TS / n));
+    cuts.push(TS);
+    for (let i = 0; i < n; i++) {
+      const x = cuts[i], w = cuts[i + 1] - x, v = (R() - 0.5) * (o.v || 34);
+      g.fillStyle = hwRgb(o.base, v); g.fillRect(x + ins, y + ins, w - 2 * ins, h - 2 * ins);
+      if (R() < 0.75) {   // spigolo scheggiato
+        const left = R() < 0.5, top = R() < 0.5, cx = left ? x + ins : x + w - ins, cy = top ? y + ins : y + h - ins, s = 2 + R() * 4.5;
+        g.fillStyle = o.mortar; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + (left ? s : -s), cy); g.lineTo(cx, cy + (top ? s : -s)); g.fill();
+      }
+      g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + ins, y + ins, w - 2 * ins, 2); g.fillRect(x + ins, y + ins, 2, h - 2 * ins);
+      g.fillStyle = 'rgba(0,0,0,.42)'; g.fillRect(x + ins, y + h - ins - 3, w - 2 * ins, 3); g.fillRect(x + w - ins - 3, y + ins, 3, h - 2 * ins);
+      for (let q = 0; q < 5; q++) { g.fillStyle = 'rgba(0,0,0,' + (0.14 + R() * 0.22).toFixed(2) + ')'; g.fillRect(x + 3 + R() * (w - 9), y + 3 + R() * (h - 9), 1 + R() * 4, 1 + R() * 2); }
+    }
+    y += h;
+  }
+}
+function hwFlesh(g, R) {   // fondo di carne viva che si vede nelle fughe tra i blocchi
+  g.fillStyle = '#2b070c'; g.fillRect(0, 0, TS, TS);
+  for (let i = 0; i < 26; i++) {
+    const x = R() * TS, y = R() * TS, r = 6 + R() * 14, al = (0.18 + R() * 0.25).toFixed(2), cr = (90 + R() * 50) | 0;
+    hwWrap(x, y, r, (X, Y) => { g.fillStyle = 'rgba(' + cr + ',14,24,' + al + ')'; g.beginPath(); g.ellipse(X, Y, r, r * 0.7, 0, 0, 7); g.fill(); });
+  }
+  const v = hwCracks(R, 9, 70, 0.55); hwStroke(g, v, '#4c0a13', 3.6); hwStroke(g, v, 'rgba(200,70,72,.45)', 1);
+}
+
+// Una texture 128x128 per famiglia e variante: ritorna { c: colore, e: emissiva o null }
+function hwPaint(fam, k) {
+  const R = hwRng(1000 + k * 7919 + fam.length * 131 + fam.charCodeAt(0) * 17), cvs = hwCv(), c = cvs[0], g = cvs[1], MO = '#080605';
+  let e = null;
+  if (fam === 'ruin') {   // pietra annerita dal fumo, crepata, con sangue vecchio
+    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
+    hwBlocks(g, R, { base: [66 + k * 4, 61 + k * 3, 57 + k * 2], mortar: MO, v: 30 });
+    hwStroke(g, hwCracks(R, 3 + k, 40), 'rgba(0,0,0,.65)', 1.3);
+    hwStain(g, R, 4, 'rgba(0,0,0,.3)'); hwSoot(g, R, 6, 0.4);
+    if (k !== 1) hwBlood(g, R, k === 0 ? 2 : 1, { len: 50 });
+    if (k === 2) hwHandPrint(g, R, 40 + R() * 50, 40 + R() * 40, 1, (R() - 0.5) * 0.6);
+    hwGrain(g, R, 16);
+  } else if (fam === 'damp') {   // muffa, muschio quasi nero, funghi pallidi
+    g.fillStyle = '#050705'; g.fillRect(0, 0, TS, TS);
+    hwBlocks(g, R, { base: [56, 63, 55], mortar: '#050705', v: 28 });
+    hwStroke(g, hwCracks(R, 2, 36), 'rgba(0,0,0,.6)', 1.2);
+    hwStain(g, R, 6, 'rgba(8,30,20,.45)'); hwMoss(g, R, 20 + k * 8); hwFungus(g, R, 7 + k * 4); hwSoot(g, R, 3, 0.25);
+    if (k) hwBlood(g, R, 1, { len: 40 });
+    hwGrain(g, R, 16);
+  } else if (fam === 'claws') {   // graffi di artigli, mani e strisciate di sangue
+    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
+    hwBlocks(g, R, { base: [70, 63, 56], mortar: MO, v: 30 });
+    hwStain(g, R, 3, 'rgba(0,0,0,.28)');
+    for (let i = 0; i < 2 + k; i++) hwScratch(g, R, 20 + R() * 88, 20 + R() * 70, 0.9 + R() * 0.6, 30 + R() * 14);
+    hwSmear(g, R);
+    for (let i = 0; i < 1 + k; i++) hwHandPrint(g, R, 26 + R() * 76, 34 + R() * 50, 0.9 + R() * 0.25, (R() - 0.5) * 0.9);
+    hwBlood(g, R, 3, { len: 60 }); hwGrain(g, R, 16);
+  } else if (fam === 'sigil') {   // sigilli rituali di sangue
+    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
+    hwBlocks(g, R, { base: [60, 59, 64], mortar: MO, v: 28 });
+    hwStroke(g, hwCracks(R, 2, 36), 'rgba(0,0,0,.6)', 1.2); hwSoot(g, R, 5, 0.3);
+    hwSigil(g, 64, 58, 30, (k * 2 + (R() < 0.5 ? 0 : 1)) % 4);
+    hwBlood(g, R, 2, { len: 40 }); hwGrain(g, R, 16);
+  } else if (fam === 'flesh') {   // carne e vene nelle fughe
+    hwFlesh(g, R);
+    hwBlocks(g, R, { base: [56, 50, 49], mortar: '#2b070c', ins: 2.6, v: 24 });
+    const v2 = hwCracks(R, 4, 50, 0.5); hwStroke(g, v2, 'rgba(110,14,24,.55)', 2.2); hwStroke(g, v2, 'rgba(220,100,100,.2)', 0.8);
+    hwBlood(g, R, 1, { len: 40 }); hwGrain(g, R, 14);
+  } else if (fam === 'ossuary') {   // ossario: teschi e femori murati
+    g.fillStyle = '#0c0807'; g.fillRect(0, 0, TS, TS);
+    for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(' + ((70 + R() * 40) | 0) + ',' + ((56 + R() * 30) | 0) + ',38,.55)'; g.fillRect(R() * TS, R() * TS, 2 + R() * 7, 1 + R() * 3); }
+    for (const by of [36, 44, 52, 100, 108, 116]) {
+      const bx = R() * TS, len = 60 + R() * 30, tilt = (R() - 0.5) * 3, bone = 150 + R() * 70;
+      hwWrap(bx, by, len / 2 + 8, (X, Y) => hwBoneT(g, X - len / 2, Y - tilt, X + len / 2, Y + tilt, 5.5, bone));
+    }
+    for (let i = 0; i < 4; i++) {
+      const sd1 = 500 + i * 13 + k * 97, sd2 = 900 + i * 17 + k * 53;
+      hwWrap(16 + i * 32, 17, 16, (X, Y) => hwSkullT(g, X, Y, 1.05, sd1));
+      hwWrap(i * 32, 81, 16, (X, Y) => hwSkullT(g, X, Y, 1.05, sd2));
+    }
+    hwSoot(g, R, 4, 0.4); hwBlood(g, R, 2, { len: 40 }); hwGrain(g, R, 16);
+  } else {   // crepe incandescenti: la pietra e viva e brucia da dentro (emissiva animata)
+    g.fillStyle = MO; g.fillRect(0, 0, TS, TS);
+    hwBlocks(g, R, { base: [58, 54, 52], mortar: MO, v: 28 });
+    const cr = hwCracks(R, 5, 80, 0.9);
+    hwStroke(g, cr, 'rgba(0,0,0,.8)', 3.4); hwStroke(g, cr, 'rgba(150,30,8,.8)', 1.8);
+    hwSoot(g, R, 4, 0.3); hwGrain(g, R, 14);
+    const ec = hwCv(); e = ec[0]; ec[1].fillStyle = '#000'; ec[1].fillRect(0, 0, TS, TS);
+    hwStroke(ec[1], cr, 'rgba(255,60,10,.25)', 5); hwStroke(ec[1], cr, 'rgb(255,90,25)', 1.6); hwStroke(ec[1], cr, 'rgb(255,200,120)', 0.6);
+  }
+  return { c, e };
+}
+
+// ---------------- bassorilievi: disegnati come mappa delle altezze (grigio = quota), poi illuminati e colorati ----------------
+const hwL = (v) => { v = Math.max(0, Math.min(255, v)) | 0; return 'rgb(' + v + ',' + v + ',' + v + ')'; };
+function hwLine(g, x1, y1, x2, y2, w, v) { g.strokeStyle = hwL(v); g.lineWidth = w; g.lineCap = 'round'; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+function hwDisc(g, x, y, rx, ry, v, rot) { g.fillStyle = hwL(v); g.beginPath(); g.ellipse(x, y, rx, ry, rot || 0, 0, 7); g.fill(); }
+function hwPoly(g, pts, v) { g.fillStyle = hwL(v); g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); g.fill(); }
+function hwBoneH(g, x1, y1, x2, y2, w, v) {
+  hwLine(g, x1, y1, x2, y2, w, v);
+  const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, px = -dy / L * w * 0.55, py = dx / L * w * 0.55;
+  for (const p of [[x1, y1], [x2, y2]]) { hwDisc(g, p[0] + px, p[1] + py, w * 0.62, w * 0.62, v + 15); hwDisc(g, p[0] - px, p[1] - py, w * 0.62, w * 0.62, v + 15); }
+}
+function hwFrame(g, S) {
+  g.strokeStyle = hwL(205); g.lineWidth = 12; g.strokeRect(10, 10, S - 20, S - 20);
+  g.strokeStyle = hwL(30); g.lineWidth = 3; g.strokeRect(22, 22, S - 44, S - 44);
+  for (const p of [[16, 16], [S - 16, 16], [16, S - 16], [S - 16, S - 16]]) hwDisc(g, p[0], p[1], 9, 9, 240);
+}
+// g = altezze, m = maschera del sangue/carne (bianco = tinta rossa)
+const HW_DESIGN = [
+  (g, m, S, R) => {   // 0: teschio su ossa incrociate
+    hwBoneH(g, 40, 60, 216, 206, 15, 150); hwBoneH(g, 216, 60, 40, 206, 15, 150);
+    hwDisc(g, 128, 108, 52, 56, 215); g.fillStyle = hwL(195); g.fillRect(98, 150, 60, 30);
+    hwDisc(g, 106, 112, 15, 18, 12); hwDisc(g, 150, 112, 15, 18, 12); hwPoly(g, [[128, 126], [118, 148], [138, 148]], 18);
+    for (let i = 0; i < 6; i++) { g.fillStyle = hwL(240); g.fillRect(100 + i * 10, 158, 7, 20); }
+    hwLine(g, 150, 62, 138, 96, 2.5, 40);
+    hwLine(m, 106, 130, 102, 176, 7, 255); hwLine(m, 150, 130, 156, 190, 7, 255); hwDisc(m, 106, 112, 15, 18, 200); hwDisc(m, 150, 112, 15, 18, 200);
+  },
+  (g, m, S, R) => {   // 1: volto di demone urlante con corna
+    for (const s of [1, -1]) { g.strokeStyle = hwL(215); g.lineWidth = 15; g.lineCap = 'round'; g.beginPath(); g.moveTo(128 - 56 * s, 96); g.quadraticCurveTo(128 - 92 * s, 60, 128 - 74 * s, 22); g.stroke(); }
+    hwDisc(g, 128, 134, 62, 76, 190);
+    for (const s of [1, -1]) { hwLine(g, 128 - 24 * s, 98, 128 - 64 * s, 120, 11, 235); hwDisc(g, 128 - 34 * s, 128, 17, 8, 10, 0.4 * s); hwDisc(g, 128 - 34 * s, 128, 5, 5, 200); hwDisc(m, 128 - 34 * s, 128, 7, 7, 255); }
+    hwDisc(g, 120, 160, 4, 6, 15); hwDisc(g, 136, 160, 4, 6, 15);
+    hwDisc(g, 128, 190, 36, 26, 8); hwDisc(m, 128, 190, 36, 26, 255); hwDisc(g, 128, 200, 20, 10, 120);
+    for (let i = 0; i < 5; i++) hwPoly(g, [[100 + i * 14, 170], [108 + i * 14, 170], [104 + i * 14, 190]], 240);
+    for (let i = 0; i < 4; i++) hwPoly(g, [[104 + i * 14, 210], [112 + i * 14, 210], [108 + i * 14, 194]], 240);
+    hwLine(g, 76, 150, 88, 176, 3, 40); hwLine(g, 180, 150, 168, 176, 3, 40);
+  },
+  (g, m, S, R) => {   // 2: pentagramma rovesciato in un cerchio di rune
+    g.strokeStyle = hwL(215); g.lineWidth = 11; g.beginPath(); g.arc(128, 128, 96, 0, 7); g.stroke();
+    g.strokeStyle = hwL(170); g.lineWidth = 4; g.beginPath(); g.arc(128, 128, 78, 0, 7); g.stroke();
+    const P = []; for (let k = 0; k < 5; k++) { const a = Math.PI / 2 + k * 1.2566371; P.push([128 + 74 * Math.cos(a), 128 + 74 * Math.sin(a)]); }
+    for (let k = 0; k < 5; k++) { const A = P[k], B = P[(k + 2) % 5]; hwLine(g, A[0], A[1], B[0], B[1], 8, 235); hwLine(m, A[0], A[1], B[0], B[1], 8, 150); }
+    for (let k = 0; k < 24; k++) { const a = k * 0.2618; hwLine(g, 128 + 82 * Math.cos(a), 128 + 82 * Math.sin(a), 128 + 88 * Math.cos(a), 128 + 88 * Math.sin(a), 2.5, 60); }
+    hwDisc(g, 128, 128, 8, 8, 20);
+  },
+  (g, m, S, R) => {   // 3: occhio che piange con raggi
+    for (let k = 0; k < 28; k++) { const a = k * 0.2244, r2 = 108 + (k % 2) * 14; hwLine(g, 128 + 84 * Math.cos(a), 128 + 84 * Math.sin(a) * 0.75, 128 + r2 * Math.cos(a), 128 + r2 * Math.sin(a) * 0.75, 4, 175); }
+    g.fillStyle = hwL(160); g.beginPath(); g.moveTo(34, 128); g.quadraticCurveTo(128, 30, 222, 128); g.quadraticCurveTo(128, 226, 34, 128); g.closePath(); g.fill();
+    g.strokeStyle = hwL(235); g.lineWidth = 9; g.stroke();
+    hwDisc(g, 128, 128, 40, 40, 205); hwDisc(g, 128, 128, 9, 32, 10); hwDisc(m, 128, 128, 40, 40, 140); hwDisc(m, 128, 128, 9, 32, 255);
+    hwLine(g, 80, 160, 76, 206, 3.5, 30); hwLine(m, 80, 160, 76, 206, 5, 255); hwLine(g, 176, 160, 182, 214, 3.5, 30); hwLine(m, 176, 160, 182, 214, 5, 255);
+  },
+  (g, m, S, R) => {   // 4: mani che si protendono verso l'alto
+    const hand = (c, x, y, s, rot, v) => {
+      c.save(); c.translate(x, y); c.rotate(rot); c.scale(s, s);
+      hwLine(c, 0, 40, 0, 120, 30, v - 30); hwDisc(c, 0, 22, 24, 28, v);
+      for (const f of [[-20, -0.35, 44], [-8, -0.12, 56], [6, 0.1, 58], [19, 0.3, 48]]) hwLine(c, f[0], 6, f[0] + Math.sin(f[1]) * f[2], 6 - Math.cos(f[1]) * f[2], 11, v + 15);
+      hwLine(c, -22, 30, -46, 4, 12, v + 15);
+      c.restore();
+    };
+    hand(g, 88, 118, 1, -0.15, 200); hand(g, 170, 118, 1, 0.15, 200);
+    hwLine(m, 60, 74, 70, 100, 6, 255); hwLine(m, 196, 74, 186, 100, 6, 255);
+  },
+  (g, m, S, R) => {   // 5: croce rovesciata tra catene
+    for (let i = 0; i < 26; i++) { const a = i * 0.2417; hwDisc(g, 128 + 96 * Math.cos(a), 128 + 96 * Math.sin(a), 11, 6, i % 2 ? 150 : 185, a + 1.5708); }
+    g.fillStyle = hwL(210); g.fillRect(116, 38, 24, 176); g.fillRect(74, 150, 108, 24);
+    hwLine(g, 122, 50, 122, 204, 1.5, 170); hwLine(g, 82, 160, 174, 160, 1.5, 170);
+    for (const p of [[128, 50], [84, 162], [172, 162], [128, 204]]) { hwDisc(g, p[0], p[1], 6, 6, 255); hwDisc(m, p[0], p[1], 9, 9, 255); hwLine(m, p[0], p[1], p[0] + 2, p[1] + 26, 4, 255); }
+  },
+  (g, m, S, R) => {   // 6: arco pieno di teschi (ossario ornamentale)
+    const inside = (x, y) => x > 44 && x < 212 && (y > 98 ? y < 232 : (x - 128) * (x - 128) + (y - 98) * (y - 98) < 84 * 84), arch = () => { g.beginPath(); g.moveTo(44, 232); g.lineTo(44, 98); g.arc(128, 98, 84, Math.PI, 0); g.lineTo(212, 232); };
+    arch(); g.closePath(); g.fillStyle = hwL(95); g.fill();
+    for (let j = 0; j < 7; j++) for (let i = 0; i < 6; i++) {
+      const x = 62 + i * 26 + (j % 2) * 13, y = 40 + j * 27; if (!inside(x, y)) continue;
+      hwDisc(g, x, y, 12, 13, 190); hwDisc(g, x - 4.5, y + 1, 3.4, 4, 12); hwDisc(g, x + 4.5, y + 1, 3.4, 4, 12); hwPoly(g, [[x, y + 4], [x - 1.6, y + 8], [x + 1.6, y + 8]], 18); g.fillStyle = hwL(165); g.fillRect(x - 6, y + 9, 12, 5);
+    }
+    arch(); g.strokeStyle = hwL(230); g.lineWidth = 9; g.stroke();
+  },
+  (g, m, S, R) => {   // 7: cuore con vene e arterie
+    const heart = () => { g.beginPath(); g.moveTo(128, 214); g.bezierCurveTo(24, 150, 44, 56, 128, 104); g.bezierCurveTo(212, 56, 232, 150, 128, 214); g.closePath(); };
+    const r2 = hwRng(77);
+    for (let k = 0; k < 9; k++) {
+      let ang = -2.6 + k * 0.5, x = 128 + 22 * Math.cos(ang), y = 110 + 14 * Math.sin(ang);
+      for (let s = 0; s < 8; s++) { const nx = x + Math.cos(ang) * 16, ny = y + Math.sin(ang) * 16; hwLine(g, x, y, nx, ny, 5, 135); hwLine(m, x, y, nx, ny, 5, 255); x = nx; y = ny; ang += (r2() - 0.5) * 0.9; }
+    }
+    heart(); g.fillStyle = hwL(175); g.fill(); heart(); m.fillStyle = hwL(255); m.fill();
+    g.strokeStyle = hwL(95); g.lineWidth = 3; g.beginPath(); g.moveTo(128, 108); g.quadraticCurveTo(150, 160, 128, 206); g.stroke();
+    for (const l of [[112, 104, 100, 46, 14], [146, 100, 156, 40, 12], [128, 98, 128, 34, 10]]) { hwLine(g, l[0], l[1], l[2], l[3], l[4], 200); hwLine(m, l[0], l[1], l[2], l[3], l[4], 255); }
+  }
+];
+function hwPanel(i) {
+  if (HW.panels[i]) return HW.panels[i];
+  const S = 256, a = hwCv(S, S), b = hwCv(S, S), g = a[1], gm = b[1], R = hwRng(900 + i * 31);
+  g.fillStyle = hwL(72); g.fillRect(0, 0, S, S); gm.fillStyle = '#000'; gm.fillRect(0, 0, S, S);
+  HW_DESIGN[i](g, gm, S, R); hwFrame(g, S);
+  const hd = g.getImageData(0, 0, S, S).data, md = gm.getImageData(0, 0, S, S).data;
+  let h = new Float32Array(S * S), t = new Float32Array(S * S);
+  for (let k = 0; k < S * S; k++) h[k] = hd[k * 4] / 255;
+  for (let pass = 0; pass < 2; pass++) {   // sfumatura 3x3: spigoli morbidi, come pietra scolpita
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      let s = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= S || Y >= S) continue; s += h[Y * S + X]; n++; }
+      t[y * S + x] = s / n;
+    }
+    const sw = h; h = t; t = sw;
+  }
+  const cc = hwCv(S, S), cb = hwCv(S, S), ic = cc[1].createImageData(S, S), ib = cb[1].createImageData(S, S), D = ic.data, E = ib.data;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const k = y * S + x, x1 = Math.min(S - 1, x + 1), x0 = Math.max(0, x - 1), y1 = Math.min(S - 1, y + 1), y0 = Math.max(0, y - 1);
+    const dx = h[y * S + x1] - h[y * S + x0], dy = h[y1 * S + x] - h[y0 * S + x], lit = Math.max(-0.5, Math.min(0.5, -(dx + dy) * 3.2)), mk = md[k * 4] / 255 * 0.85, hv = h[k];
+    const sh = (0.5 + 0.95 * hv) * (1 + lit * 1.1) + (hwHash(x, y, i) - 0.5) * 0.12;
+    D[k * 4] = Math.max(0, Math.min(255, (138 + (120 - 138) * mk) * sh)); D[k * 4 + 1] = Math.max(0, Math.min(255, (128 + (12 - 128) * mk) * sh)); D[k * 4 + 2] = Math.max(0, Math.min(255, (114 + (16 - 114) * mk) * sh)); D[k * 4 + 3] = 255;
+    const bv = (hv * 255) | 0; E[k * 4] = E[k * 4 + 1] = E[k * 4 + 2] = bv; E[k * 4 + 3] = 255;
+  }
+  cc[1].putImageData(ic, 0, 0); cb[1].putImageData(ib, 0, 0);
+  return (HW.panels[i] = { map: new THREE.CanvasTexture(cc[0]), bump: new THREE.CanvasTexture(cb[0]), mat: null });
+}
+function hwPanelMat(i) { const P = hwPanel(i); if (!P.mat) P.mat = new THREE.MeshStandardMaterial({ map: P.map, bumpMap: P.bump, bumpScale: 2.5, roughness: 0.85, metalness: 0 }); return P.mat; }
+
+// ---------------- materiali delle pareti, scelta della variante per ogni blocco ----------------
+function hwPrepare() {
+  if (HW.fam) return HW;
+  const fam = {}, pulse = [];
+  for (const f in HW_FAMS) {
+    fam[f] = [];
+    for (let k = 0; k < HW_FAMS[f]; k++) {
+      const p = hwPaint(f, k), m = new THREE.MeshStandardMaterial({ map: t3Tex(p.c), roughness: f === 'flesh' ? 0.5 : 1, emissive: p.e ? 0xffffff : 0x000000, emissiveMap: p.e ? t3Tex(p.e) : null, emissiveIntensity: 0.7 });
+      if (p.e) pulse.push(m);
+      fam[f].push(m);
+    }
+  }
+  const tex = [0, 1, 2, 3].map(f => { const cv = hwCv(64, 80); paintFlame(cv[1], 32, 68, 10, 50, f, { sparks: 1 }); return new THREE.CanvasTexture(cv[0]); });   // fiamma delle torce: 4 fotogrammi
+  const flame = [0, 1, 2, 3].map(gp => ({ mat: new THREE.SpriteMaterial({ map: tex[gp], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), frames: [0, 1, 2, 3].map(i => tex[(i + gp) % 4]) }));   // 4 gruppi sfasati: le torce non battono tutte insieme
+  const sc = hwCv(64, 64), gr = sc[1].createRadialGradient(32, 50, 2, 32, 50, 31); gr.addColorStop(0, 'rgba(0,0,0,.6)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); sc[1].fillStyle = gr; sc[1].fillRect(0, 0, 64, 64);
+  HW.fam = fam; HW.pulse = pulse; HW.flame = flame; HW.soot = new THREE.CanvasTexture(sc[0]);
+  return HW;
+}
+function hwLevel() {   // per ogni piano: a che stanza appartiene ogni cella e che tema ha ogni stanza
+  const roomAt = new Int16Array(N * N).fill(-1);
+  rooms.forEach((r, k) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) roomAt[y * N + x] = k; });
+  const theme = rooms.map((r, k) => (hwHash(k, 17, 1) * 8) | 0);
+  for (const p of W1.plan) { const k = rooms.indexOf(p.room), v = HW_PLAN[p.kind]; if (k >= 0 && v !== undefined) theme[k] = v; }
+  HW.lvl = { roomAt, theme };
+}
+function hwRoomOf(x, y) {   // stanza che il muro (x,y) guarda: -1 per i corridoi
+  const L = HW.lvl;
+  for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + d[0], ny = y + d[1]; if (nx >= 0 && ny >= 0 && nx < N && ny < N && map[ny * N + nx] === 0) { const r = L.roomAt[ny * N + nx]; if (r >= 0) return r; } }
+  return -1;
+}
+function hwWallMat(t, x, y) {
+  let fam;
+  if (t === 4) fam = 'ossuary';   // la vecchia nicchia dei teschi diventa un ossario
+  else if (t === 3) fam = 'ruin';
+  else {
+    const rid = hwRoomOf(x, y), th = rid >= 0 ? HW.lvl.theme[rid] : -1, tab = th >= 0 && hwHash(x >> 1, y >> 1, 5) < 0.62 ? HW_THEME[th].fam : HW_GEN;
+    fam = hwPickW(tab, hwHash(x >> 1, y >> 1, 3));
+    if (t === 2 && hwHash(x, y, 7) < 0.5) fam = 'damp';
+  }
+  const arr = HW.fam[fam];
+  return arr[(hwHash(x, y, 9) * arr.length) | 0];
+}
+function hwWalls(root, by) {   // un InstancedMesh per ogni texture usata; la porta delle scale (tipo 5) resta quella di prima
+  const g = new THREE.Group(), grp = new Map();
+  for (const t in by) {
+    if (t === '5') continue;
+    const arr = by[t];
+    for (let i = 0; i < arr.length; i += 2) { const mat = hwWallMat(+t, arr[i], arr[i + 1]); let l = grp.get(mat); if (!l) grp.set(mat, l = []); l.push(arr[i], arr[i + 1]); }
+  }
+  for (const e of grp) {
+    const mat = e[0], list = e[1], im = new THREE.InstancedMesh(T3.wbox, mat, list.length / 2), m4 = new THREE.Matrix4();
+    for (let i = 0; i < list.length; i += 2) { m4.setPosition(list[i] + 0.5, 1, list[i + 1] + 0.5); im.setMatrixAt(i / 2, m4); }
+    g.add(im);
+  }
+  root.add(g);
+}
+
+// ---------------- elementi 3D che escono dai muri ----------------
+// Coordinate locali: a = lungo il muro (-0,5..0,5), b = altezza assoluta nel mondo, c = in fuori dalla faccia del muro.
+// Ogni pezzo e una piccola mesh con colori di vertice (piu scuri vicino al muro); tutto e fuso in pochi blocchi per zona.
+const HW_BONE = [0.80, 0.74, 0.60], HW_IRON = [0.17, 0.16, 0.17], HW_DARK = [0.03, 0.02, 0.02], HW_FLESH = [0.42, 0.07, 0.10], HW_VEIN = [0.34, 0.05, 0.11], HW_STONE = [0.40, 0.38, 0.35];
+const hwTone = (c, R, k) => { const f = 1 - (k || 0.25) * R(); return [c[0] * f, c[1] * f, c[2] * f]; };
+function hwPush(M, T, a, b, c, col) {
+  const s = 0.5 + 0.5 * Math.min(1, Math.max(0, c) / 0.06);
+  M.p.push(T.ox + T.tx * a + T.nx * c, T.oy + b, T.oz + T.tz * a + T.nz * c); M.c.push(col[0] * s, col[1] * s, col[2] * s);
+  return M.p.length / 3 - 1;
+}
+function hwEll(M, T, a, b, c, rx, ry, rz, col, seg) {   // ellissoide
+  seg = seg || 8; const ring = Math.max(3, seg >> 1), base = M.p.length / 3;
+  for (let i = 0; i <= ring; i++) {
+    const ph = Math.PI * i / ring, sy = Math.cos(ph), sr = Math.sin(ph);
+    for (let j = 0; j <= seg; j++) { const th = 6.2831853 * j / seg; hwPush(M, T, a + rx * sr * Math.cos(th), b + ry * sy, c + rz * sr * Math.sin(th), col); }
+  }
+  for (let i = 0; i < ring; i++) for (let j = 0; j < seg; j++) { const p0 = base + i * (seg + 1) + j, p1 = p0 + 1, p2 = p0 + seg + 1, p3 = p2 + 1; M.i.push(p0, p2, p1, p1, p2, p3); }
+}
+function hwCyl(M, T, A, B, r0, r1, col, seg) {   // cilindro o cono tra due punti locali
+  seg = seg || 6;
+  const d = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], L = Math.hypot(d[0], d[1], d[2]) || 1e-6, n = [d[0] / L, d[1] / L, d[2] / L], h = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  let u = [n[1] * h[2] - n[2] * h[1], n[2] * h[0] - n[0] * h[2], n[0] * h[1] - n[1] * h[0]]; const ul = Math.hypot(u[0], u[1], u[2]) || 1; u = [u[0] / ul, u[1] / ul, u[2] / ul];
+  const v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]], base = M.p.length / 3;
+  for (let e = 0; e < 2; e++) {
+    const P = e ? B : A, r = e ? r1 : r0;
+    for (let j = 0; j <= seg; j++) { const th = 6.2831853 * j / seg, cs = Math.cos(th) * r, sn = Math.sin(th) * r; hwPush(M, T, P[0] + u[0] * cs + v[0] * sn, P[1] + u[1] * cs + v[1] * sn, P[2] + u[2] * cs + v[2] * sn, col); }
+  }
+  for (let j = 0; j < seg; j++) { const p0 = base + j, p1 = p0 + 1, p2 = p0 + seg + 1, p3 = p2 + 1; M.i.push(p0, p2, p1, p1, p2, p3); }
+  for (let e = 0; e < 2; e++) { const P = e ? B : A, ci = hwPush(M, T, P[0], P[1], P[2], col), r0i = base + e * (seg + 1); for (let j = 0; j < seg; j++) M.i.push(ci, r0i + j, r0i + j + 1); }
+}
+function hwBox(M, T, a, b, c, hx, hy, hz, col) {   // parallelepipedo allineato al muro
+  const F = [[1, 3, 7, 5], [0, 4, 6, 2], [2, 6, 7, 3], [0, 1, 5, 4], [4, 5, 7, 6], [0, 2, 3, 1]];
+  for (const f of F) { const base = M.p.length / 3; for (const k of f) hwPush(M, T, a + ((k & 1) ? hx : -hx), b + ((k & 2) ? hy : -hy), c + ((k & 4) ? hz : -hz), col); M.i.push(base, base + 1, base + 2, base, base + 2, base + 3); }
+}
+function hwSkull3(M, T, a, b, c, s, bone) {   // teschio mezzo incassato nel muro
+  hwEll(M, T, a, b, c, 0.06 * s, 0.066 * s, 0.064 * s, bone, 8);
+  hwEll(M, T, a, b - 0.052 * s, c + 0.014 * s, 0.04 * s, 0.032 * s, 0.042 * s, bone, 6);
+  for (const k of [-1, 1]) hwEll(M, T, a + k * 0.022 * s, b + 0.005 * s, c + 0.05 * s, 0.017 * s, 0.02 * s, 0.014 * s, HW_DARK, 5);
+  hwEll(M, T, a, b - 0.025 * s, c + 0.062 * s, 0.009 * s, 0.013 * s, 0.009 * s, HW_DARK, 4);
+  hwBox(M, T, a, b - 0.07 * s, c + 0.05 * s, 0.03 * s, 0.01 * s, 0.007 * s, [0.84, 0.8, 0.68]);
+}
+function hwPile3(M, T, R, a, b0) {   // mucchio di teschi e ossa ai piedi del muro
+  const bone = () => hwTone(HW_BONE, R, 0.45), base = [[-0.12, 0.05, 0.07], [0, 0.05, 0.09], [0.12, 0.05, 0.07], [-0.06, 0.13, 0.07], [0.07, 0.13, 0.08]];
+  for (const p of base) hwSkull3(M, T, a + p[0] + (R() - 0.5) * 0.03, b0 + p[1], p[2], 0.8 + R() * 0.25, bone());
+  for (let i = 0; i < 3; i++) { const y = b0 + 0.02 + R() * 0.16, x = a + (R() - 0.5) * 0.3, z = 0.05 + R() * 0.08; hwCyl(M, T, [x - 0.07, y, z], [x + 0.07, y + (R() - 0.5) * 0.04, z + (R() - 0.5) * 0.03], 0.008, 0.008, bone(), 4); }
+}
+function hwHand3(M, T, R, a, b) {   // braccio di scheletro che esce dalla pietra e artiglia l'aria
+  const bone = hwTone(HW_BONE, R, 0.35), W = [a + (R() - 0.5) * 0.05, b + 0.04 + R() * 0.06, 0.085], curl = R() < 0.5 ? 1 : -1;
+  hwCyl(M, T, [a, b, -0.03], W, 0.018, 0.012, bone, 5); hwEll(M, T, W[0], W[1], W[2], 0.016, 0.016, 0.016, bone, 4);
+  hwBox(M, T, W[0], W[1] + 0.004, W[2] + 0.02, 0.03, 0.013, 0.02, bone);
+  for (let i = 0; i < 4; i++) {
+    const len = (i === 1 || i === 2) ? 1.12 : 1; let P = [W[0] + (i - 1.5) * 0.017, W[1] + 0.006, W[2] + 0.04];
+    for (let s = 0; s < 3; s++) { const q = [P[0] + (R() - 0.5) * 0.004, P[1] + curl * (0.004 + 0.011 * s), P[2] + (0.02 - 0.003 * s) * len]; hwCyl(M, T, P, q, 0.0062, 0.0054, bone, 4); P = q; }
+    hwCyl(M, T, P, [P[0], P[1] + curl * 0.012, P[2] + 0.006], 0.005, 0.0006, [0.35, 0.3, 0.22], 4);
+  }
+  hwCyl(M, T, [W[0] - 0.03, W[1], W[2] + 0.012], [W[0] - 0.05, W[1] + 0.014, W[2] + 0.044], 0.007, 0.0055, bone, 4);
+}
+function hwFace3(M, T, R, a, b) {   // volto di pietra che urla
+  const st = hwTone(HW_STONE, R, 0.3);
+  hwEll(M, T, a, b, 0.02, 0.105, 0.145, 0.05, st, 10); hwEll(M, T, a, b + 0.055, 0.06, 0.092, 0.02, 0.026, st, 8);
+  for (const k of [-1, 1]) { hwEll(M, T, a + k * 0.042, b + 0.028, 0.062, 0.024, 0.017, 0.014, HW_DARK, 5); hwEll(M, T, a + k * 0.042, b + 0.026, 0.071, 0.006, 0.006, 0.004, [0.9, 0.12, 0.05], 3); }
+  hwEll(M, T, a, b - 0.012, 0.07, 0.015, 0.032, 0.02, st, 6);
+  hwEll(M, T, a, b - 0.078, 0.05, 0.043, 0.05, 0.02, HW_DARK, 7);
+  for (let i = 0; i < 5; i++) hwBox(M, T, a - 0.03 + i * 0.015, b - 0.043, 0.064, 0.005, 0.009, 0.004, [0.84, 0.8, 0.68]);
+}
+function hwChain3(M, T, R, a, top, n) {   // catena appesa a una staffa, con un polsino in fondo
+  hwBox(M, T, a, top + 0.005, 0.012, 0.022, 0.016, 0.012, HW_IRON); hwEll(M, T, a, top - 0.012, 0.03, 0.012, 0.012, 0.012, HW_IRON, 5);
+  let y = top - 0.026;
+  for (let i = 0; i < n; i++) { const e = i % 2 === 0; hwBox(M, T, a + (R() - 0.5) * 0.004, y, 0.03 + i * 0.002, e ? 0.011 : 0.0035, 0.0165, e ? 0.0035 : 0.011, [0.2, 0.19, 0.2]); y -= 0.027; }
+  hwCyl(M, T, [a - 0.03, y, 0.03 + n * 0.002], [a + 0.03, y, 0.03 + n * 0.002], 0.028, 0.028, HW_IRON, 8);
+}
+function hwHook3(M, T, R, a, b) {   // gancio da macellaio, a volte con un brandello appeso
+  const rust = [0.30, 0.17, 0.10];
+  hwBox(M, T, a, b, 0.008, 0.026, 0.045, 0.008, HW_IRON);
+  hwCyl(M, T, [a, b + 0.01, 0.01], [a, b + 0.01, 0.1], 0.011, 0.009, HW_IRON, 5);
+  hwCyl(M, T, [a, b + 0.01, 0.1], [a, b - 0.025, 0.125], 0.009, 0.008, rust, 5);
+  hwCyl(M, T, [a, b - 0.025, 0.125], [a, b - 0.075, 0.11], 0.008, 0.0055, rust, 5);
+  hwCyl(M, T, [a, b - 0.075, 0.11], [a, b - 0.095, 0.075], 0.0055, 0.0008, rust, 5);
+  if (R() < 0.6) hwEll(M, T, a, b - 0.125, 0.1, 0.032, 0.052, 0.03, hwTone(HW_FLESH, R, 0.3), 6);
+}
+function hwRibs3(M, T, R, a, b) {   // costole che sbucano dal muro come i cerchi di una gabbia
+  const bone = hwTone(HW_BONE, R, 0.3), w = 0.26, n = 5;
+  for (let i = 0; i < n; i++) {
+    const y = b + (i - (n - 1) / 2) * 0.075, a0 = a - w / 2 + (R() - 0.5) * 0.02, dep = 0.12 - Math.abs(i - 2) * 0.015, pts = [];
+    for (let k = 0; k <= 6; k++) { const t = k / 6; pts.push([a0 + w * t, y + Math.sin(t * Math.PI) * 0.012, Math.sin(t * Math.PI) * dep - 0.01]); }
+    for (let k = 0; k < 6; k++) hwCyl(M, T, pts[k], pts[k + 1], 0.011, 0.011, bone, 5);
+  }
+}
+function hwVein3(M, T, R, a, b, lo, hi) {   // vena o radice carnosa che striscia sul muro, con qualche pustola
+  const col = hwTone(HW_VEIN, R, 0.3), n = 7 + ((R() * 5) | 0); let ang = R() * 6.28, P = [a, b, 0.02];
+  for (let i = 0; i < n; i++) {
+    ang += (R() - 0.5) * 1.3; const L = 0.055 + R() * 0.03, r = 0.016 * (1 - i / (n + 2)) + 0.004;
+    const q = [Math.max(-0.45, Math.min(0.45, P[0] + Math.cos(ang) * L)), P[1] + Math.sin(ang) * L * 0.9, 0.012 + 0.018 * R()];
+    if (q[1] < lo || q[1] > hi) { ang = -ang; q[1] = Math.max(lo, Math.min(hi, q[1])); }
+    hwCyl(M, T, P, q, r, r * 0.9, col, 5); hwEll(M, T, q[0], q[1], q[2], r * 1.05, r * 1.05, r * 1.05, col, 4);
+    if (R() < 0.3) hwEll(M, T, q[0], q[1], q[2] + 0.012, 0.022, 0.022, 0.018, [0.72, 0.55, 0.4], 6);
+    P = q;
+  }
+}
+function hwHorns3(M, T, R, a, b) {   // coppia di corna da trofeo
+  const col = hwTone([0.55, 0.48, 0.38], R, 0.3);
+  for (const s of [-1, 1]) {
+    const pts = [[0.05, 0, 0], [0.09, 0.04, 0.045], [0.115, 0.10, 0.085], [0.105, 0.17, 0.105], [0.07, 0.235, 0.1]].map(p => [a + s * p[0], b + p[1], p[2]]);
+    for (let k = 0; k < 4; k++) hwCyl(M, T, pts[k], pts[k + 1], 0.024 * (1 - k * 0.2), 0.024 * (1 - (k + 1) * 0.2) + 0.002, col, 6);
+  }
+  hwEll(M, T, a, b - 0.01, 0.02, 0.08, 0.04, 0.03, hwTone(HW_STONE, R, 0.3), 7);
+}
+function hwMaw3(M, T, R, a, b) {   // bocca spalancata nel muro, piena di denti
+  hwEll(M, T, a, b, 0.004, 0.21, 0.135, 0.016, hwTone(HW_FLESH, R, 0.3), 9);
+  hwEll(M, T, a, b, 0.014, 0.165, 0.098, 0.014, [0.06, 0.005, 0.015], 9);
+  hwEll(M, T, a, b - 0.035, 0.024, 0.07, 0.028, 0.012, [0.5, 0.08, 0.12], 6);
+  for (let i = 0; i < 7; i++) {
+    const x = a - 0.135 + i * (0.27 / 6), tl = 0.045 + 0.02 * R();
+    hwCyl(M, T, [x, b + 0.088, 0.02], [x, b + 0.088 - tl, 0.034], 0.013, 0.0012, [0.84, 0.8, 0.68], 5);
+    hwCyl(M, T, [x + 0.019, b - 0.088, 0.02], [x + 0.019, b - 0.088 + tl * 0.9, 0.034], 0.013, 0.0012, [0.84, 0.8, 0.68], 5);
+  }
+}
+function hwTorch(M, T, R, b0) {   // sostegno di ferro a braccio con torcia, teschietto e brace (la fiamma e uno sprite a parte)
+  const I = HW_IRON;
+  hwBox(M, T, 0, b0, 0.008, 0.04, 0.078, 0.008, I);
+  for (const p of [[-0.024, 0.052], [0.024, 0.052], [-0.024, -0.052], [0.024, -0.052]]) hwEll(M, T, p[0], b0 + p[1], 0.017, 0.008, 0.008, 0.006, [0.3, 0.29, 0.3], 4);
+  hwSkull3(M, T, 0, b0 + 0.135, 0.034, 0.55, hwTone(HW_BONE, R, 0.3));
+  hwCyl(M, T, [0, b0 + 0.005, 0.015], [0, b0 + 0.035, 0.12], 0.012, 0.011, I, 4);
+  hwCyl(M, T, [0, b0 - 0.065, 0.012], [0, b0 + 0.012, 0.085], 0.008, 0.008, I, 4);
+  hwCyl(M, T, [0, b0 + 0.03, 0.12], [0, b0 + 0.058, 0.12], 0.03, 0.026, I, 7);
+  hwCyl(M, T, [0, b0 + 0.02, 0.12], [0, b0 + 0.26, 0.142], 0.015, 0.016, [0.2, 0.12, 0.07], 5);
+  hwCyl(M, T, [0, b0 + 0.2, 0.14], [0, b0 + 0.29, 0.15], 0.022, 0.038, [0.1, 0.07, 0.05], 6);
+  hwEll(M, T, 0, b0 + 0.295, 0.15, 0.03, 0.02, 0.03, [0.95, 0.45, 0.1], 5);
+}
+// Metto tutto insieme per l'intero piano; il risultato resta in cache finche non si cambia piano (le ricostruzioni della porta lo riusano).
+function hwDecor(root, hw) {
+  for (const f of hw.flame) T3.torchMats.push(f);   // le fiamme animate (T3.torchMats si azzera a ogni t3Build)
+  const key = W1.ver + '|' + N + '|' + torches.length + '|' + rooms.length;
+  if (HW.grp && HW.key === key) { root.add(HW.grp); return; }
+  const grp = new THREE.Group(), DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]], occ = new Uint8Array(N * N * 4), chunks = new Map(), panels = [], flames = [], soots = [];
+  const isOpen = (x, y) => x >= 0 && y >= 0 && x < N && y < N && (map[y * N + x] === 0 || W1.rail[y * N + x] === 1);
+  const chunk = (x, y) => { const k = (x >> 4) + ',' + (y >> 4); let m = chunks.get(k); if (!m) { m = { p: [], c: [], i: [] }; chunks.set(k, m); } return m; };
+  const frame = (x, y, d) => ({ ox: x + 0.5 + DIRS[d][0] * 0.5, oy: 0, oz: y + 0.5 + DIRS[d][1] * 0.5, tx: DIRS[d][1], tz: -DIRS[d][0], nx: DIRS[d][0], nz: DIRS[d][1] });   // base locale sulla faccia del muro: a verso destra, c verso la stanza
+  for (const s of W1.shooters) { const i = (s.y | 0) * N + (s.x | 0); for (let d = 0; d < 4; d++) occ[i * 4 + d] = 1; }   // le feritoie delle trappole restano libere
+  // bassorilievi: in alcune stanze, su uno o due lati
+  for (let rid = 0; rid < rooms.length; rid++) {
+    const r = rooms[rid]; if (r.w < 5 || r.h < 5 || hwHash(rid, 3, 4) > 0.55) continue;
+    const th = hw.lvl.theme[rid], sides = [[r.x + (r.w >> 1), r.y - 1, 2, 1, 0], [r.x + (r.w >> 1), r.y + r.h, 3, 1, 0], [r.x - 1, r.y + (r.h >> 1), 0, 0, 1], [r.x + r.w, r.y + (r.h >> 1), 1, 0, 1]], first = (hwHash(rid, 9, 6) * 4) | 0;
+    let got = 0;
+    for (let q = 0; q < 4 && got < 2; q++) {
+      const s = sides[(first + q) % 4];
+      for (const off of [0, 1, -1, 2, -2]) {
+        const wx = s[0] + s[3] * off, wy = s[1] + s[4] * off; if (wx < 1 || wy < 1 || wx >= N - 1 || wy >= N - 1) continue;
+        const t = map[wy * N + wx];
+        if ((t !== 1 && t !== 2) || W1.rail[wy * N + wx] || !isOpen(wx + DIRS[s[2]][0], wy + DIRS[s[2]][1]) || occ[(wy * N + wx) * 4 + s[2]]) continue;
+        occ[(wy * N + wx) * 4 + s[2]] = 1; panels.push({ x: wx, y: wy, d: s[2], design: HW_THEME[th].relief }); got++; break;
+      }
+    }
+  }
+  const tIdx = new Map(); for (const q of torches) tIdx.set((q.y | 0) * N + (q.x | 0), q);
+  for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+    const i = y * N + x, t = map[i]; if (t === 0 || t === 5 || W1.rail[i]) continue;
+    if (t === 3) {   // torcia: scelgo la faccia che guarda la zona piu aperta
+      const q = tIdx.get(i); if (!q) continue;
+      let bd = -1, bs = -1;
+      for (let d = 0; d < 4; d++) { const nx = x + DIRS[d][0], ny = y + DIRS[d][1]; if (!isOpen(nx, ny)) continue; let s = 0; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (isOpen(nx + a, ny + b)) s++; if (s > bs) { bs = s; bd = d; } }
+      if (bd < 0) continue;
+      const nx = x + DIRS[bd][0], ny = y + DIRS[bd][1], H0 = W1.H[ny * N + nx], b0 = H0 + 0.4, T = frame(x, y, bd), R = hwRng((x * 73856093 ^ y * 19349663) >>> 0);
+      hwTorch(chunk(x, y), T, R, b0); for (let d = 0; d < 4; d++) occ[i * 4 + d] = 1;
+      const fx = T.ox + T.nx * 0.15, fz = T.oz + T.nz * 0.15;
+      q.lx = fx; q.ly = b0 + 0.4; q.lz = fz;   // la luce della torcia ora sta davanti al muro, sulla fiamma
+      flames.push([fx, b0 + 0.31 + 0.1406, fz, (hwHash(x, y, 77) * 4) | 0]);
+      soots.push([T.ox + T.nx * 0.004, b0 + 0.36, T.oz + T.nz * 0.004, T.tx, T.tz, T.nx, T.nz]);
+      continue;
+    }
+    const rid = hwRoomOf(x, y), th = rid >= 0 ? hw.lvl.theme[rid] : -1, tab = th >= 0 ? HW_THEME[th].deco : HW_GENDECO, rate = th >= 0 ? 0.12 : 0.06;
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
+      if (!isOpen(nx, ny) || occ[i * 4 + d] || hwHash(x, y, 20 + d) > rate) continue;
+      const ni = ny * N + nx, H0 = W1.H[ni], hgt = W1.C[ni] - H0; if (hgt < 0.9) continue;
+      const R = hwRng((x * 73856093 ^ y * 19349663 ^ d * 83492791) >>> 0), kind = hwPickW(tab, hwHash(x, y, 30 + d)), T = frame(x, y, d), m = chunk(x, y), a = (R() - 0.5) * 0.5;
+      switch (kind) {
+        case 'skull': hwSkull3(m, T, a, H0 + 0.2 + R() * Math.min(0.7, hgt - 0.5), 0.02, 0.9 + R() * 0.3, hwTone(HW_BONE, R, 0.4)); break;
+        case 'pile': hwPile3(m, T, R, a * 0.6, H0); break;
+        case 'hand': hwHand3(m, T, R, a, H0 + 0.25 + R() * Math.min(0.5, hgt - 0.6)); break;
+        case 'face': hwFace3(m, T, R, a * 0.5, H0 + 0.4 + R() * Math.min(0.3, hgt - 0.8)); break;
+        case 'chain': hwChain3(m, T, R, a, H0 + Math.min(hgt - 0.08, 1.05), 5 + ((R() * 5) | 0)); break;
+        case 'hook': hwHook3(m, T, R, a, H0 + 0.5 + R() * 0.3); break;
+        case 'ribs': hwRibs3(m, T, R, a * 0.4, H0 + 0.5); break;
+        case 'vein': hwVein3(m, T, R, a, H0 + 0.1 + R() * 0.5, H0 + 0.06, H0 + hgt - 0.1); break;
+        case 'horns': hwHorns3(m, T, R, a * 0.5, H0 + 0.5); break;
+        default: hwMaw3(m, T, R, a * 0.4, H0 + 0.5);
+      }
+    }
+  }
+  const dm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.05, side: THREE.DoubleSide });
+  for (const m of chunks.values()) {
+    if (!m.i.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(m.c, 3)); g.setIndex(m.i); g.computeVertexNormals();
+    grp.add(new THREE.Mesh(g, dm));
+  }
+  const m4 = new THREE.Matrix4(), vx = new THREE.Vector3(), vy = new THREE.Vector3(), vz = new THREE.Vector3(), plane = new THREE.PlaneGeometry(1, 1), byD = {};
+  for (const p of panels) (byD[p.design] = byD[p.design] || []).push(p);
+  for (const dsg in byD) {   // bassorilievi: un piano per ognuno, con colore e rilievo (bump) dipinti
+    const arr = byD[dsg], im = new THREE.InstancedMesh(plane, hwPanelMat(+dsg), arr.length);
+    arr.forEach((p, k) => {
+      const T = frame(p.x, p.y, p.d), ni = (p.y + DIRS[p.d][1]) * N + (p.x + DIRS[p.d][0]), H0 = W1.H[ni], hgt = W1.C[ni] - H0, s = Math.min(0.92, 0.62 * hgt);
+      vx.set(T.tx * s, 0, T.tz * s); vy.set(0, s, 0); vz.set(T.nx, 0, T.nz); m4.makeBasis(vx, vy, vz); m4.setPosition(T.ox + T.nx * 0.008, H0 + Math.min(hgt * 0.5, 0.7), T.oz + T.nz * 0.008); im.setMatrixAt(k, m4);
+    });
+    grp.add(im);
+  }
+  if (soots.length) {   // annerimento sopra ogni torcia
+    const im = new THREE.InstancedMesh(plane, new THREE.MeshBasicMaterial({ map: hw.soot, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), soots.length);
+    soots.forEach((s, k) => { vx.set(s[3] * 0.7, 0, s[4] * 0.7); vy.set(0, 0.9, 0); vz.set(s[5], 0, s[6]); m4.makeBasis(vx, vy, vz); m4.setPosition(s[0], s[1], s[2]); im.setMatrixAt(k, m4); });
+    grp.add(im);
+  }
+  for (const f of flames) { const sp = new THREE.Sprite(hw.flame[f[3]].mat); sp.scale.set(0.3, 0.375, 1); sp.position.set(f[0], f[1], f[2]); grp.add(sp); }
+  HW.grp = grp; HW.key = key; root.add(grp);
+}
+
 // ---------- il livello: muri, pavimento, soffitto, scale ----------
 function t3Build() {
   const sc = T3.scene, P = PAL[0];
@@ -478,8 +1112,12 @@ function t3Build() {
     if (t > 0 && !W1.rail[y * N + x] && (open(x + 1, y) || open(x - 1, y) || open(x, y + 1) || open(x, y - 1))) (by[t] = by[t] || []).push(x, y);
   }
   T3.torchMats = [];
+  let hw = null, hwDone = false;
+  try { hw = hwPrepare(); hwLevel(); } catch (err) { hw = null; console.error('Pareti horror non disponibili, uso i muri di prima:', err); }
   T3.wbox = T3.wbox || (() => { const g = t3Box(1, 6, 1), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 6); return g; })();   // muro alto 6, texture ripetuta ogni unita
+  if (hw) { try { hwWalls(root, by); hwDone = true; } catch (err) { console.error('Pareti horror non disponibili, uso i muri di prima:', err); } }
   for (const t in by) {
+    if (hwDone && t !== '5') continue;   // le pareti horror hanno gia preso tutti i tipi di muro tranne la porta delle scale
     const tx = wallTex[t]; if (!tx) continue;
     const arr = Array.isArray(tx), mat = new THREE.MeshStandardMaterial({ map: t3Tex(arr ? tx[0] : tx), roughness: 1 });
     if (arr) T3.torchMats.push({ mat, frames: tx.map(t3Tex) });
@@ -488,6 +1126,7 @@ function t3Build() {
     for (let i = 0; i < by[t].length; i += 2) { m4.setPosition(by[t][i] + 0.5, 1, by[t][i + 1] + 0.5); im.setMatrixAt(i / 2, m4); }
     root.add(im);
   }
+  if (hwDone) { try { hwDecor(root, hw); } catch (err) { console.error('Decorazioni murali non disponibili:', err); } }   // torce a braccio, bassorilievi, teschi, mani, catene...
   // scale: otto gradini veri che salgono verso il portale
   if (stairs) {
     const g = new THREE.Group(), y0 = stairs.y - 0.5;
@@ -2139,9 +2778,10 @@ function t3Sync() {
   // luci: le 6 torce piu vicine illuminano davvero i muri
   const gc = P.glow.split(',').map(Number), col = new THREE.Color(gc[0] / 255, gc[1] / 255, gc[2] / 255);
   const near = torches.map(q => ({ q, d: (q.x - px) ** 2 + (q.y - py) ** 2 })).sort((a, b) => a.d - b.d);
-  T3.lights.forEach((l, i) => { const o = near[i]; l.visible = !!o && o.d < 100; if (o) { l.position.set(o.q.x, 0.75 + world1Hn(o.q.x, o.q.y), o.q.y); l.color.copy(col); l.intensity = (o.q.k || 1) * T3CFG.torch * flick; } });
+  T3.lights.forEach((l, i) => { const o = near[i]; l.visible = !!o && o.d < 100; if (o) { if (o.q.lx !== undefined) l.position.set(o.q.lx, o.q.ly, o.q.lz); else l.position.set(o.q.x, 0.75 + world1Hn(o.q.x, o.q.y), o.q.y); l.color.copy(col); l.intensity = (o.q.k || 1) * T3CFG.torch * flick; } });
   T3.amb.intensity = T3CFG.ambient * powerK; T3.hand.position.copy(cam.position); T3.hand.intensity = T3CFG.hand * powerK;
-  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];   // fiamme delle torce animate; le crepe dei demoni pulsano
+  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];
+  { const hb = 0.35 + 0.6 * Math.pow(Math.max(0, Math.sin(tNow * 3.1)), 3); for (const m of HW.pulse) m.emissiveIntensity = hb; }   // le crepe incandescenti battono come un cuore   // fiamme delle torce animate; le crepe dei demoni pulsano
   if (doorAnim && T3.doorTex) T3.doorTex.needsUpdate = true;
   // mostri
   for (const e of enemies) {

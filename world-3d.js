@@ -450,31 +450,32 @@ function t3Init() {
 
 // =====================================================================================================================
 // PARETI HORROR (piano 1)
-// Pietra sporca, umida, marcia: ogni parete e una base di blocchi con sporco continuo e, sopra, un segno morbido
-// (fumo, muffa, carne che spunta dalle fughe, crepe incandescenti, ombre di figure e, a 256 punti con rilievo vero: artigliate
-// di ogni grandezza e angolazione, chiazze e strisciate di sangue rappreso, scritte incomprensibili e simboli demoniaci
-// tracciati col sangue). I segni sono sfumati e si dissolvono verso i bordi della cella, cosi
-// tra una parete e l'altra non ci sono stacchi netti. Ogni stanza ha un tema (sudario, macello, presenze, carne...),
-// con bassorilievi dal rilievo vero (bump map) e, sui muri, elementi 3D: corpi avvolti appesi, capelli che escono
-// dalle fessure, braccia smunte, ganci, catene, punte arrugginite, vene con pustole, costole.
+// Pietra sporca, umida, marcia: ogni parete e una base di blocchi (a 512 punti) con sporco continuo e, sopra, un segno morbido
+// (fumo, muffa, carne che spunta dalle fughe, crepe incandescenti, ombre di figure). Sopra la pietra stanno i SEGNI DI SANGUE,
+// immagini trasparenti ad alta risoluzione disegnate in centimetri veri: artigliate di vecchi attacchi dei demoni (in stile Wolverine),
+// e quello che hanno lasciato i giocatori precedenti, impazziti: mani insanguinate, scritte incomprensibili, simboli demoniaci,
+// chiazze e strisciate di sangue rappreso. Ogni stanza ha un tema (sudario, macello, presenze, carne...) che decide la pietra,
+// i segni e gli elementi 3D sui muri: corpi avvolti appesi, capelli che escono dalle fessure, ganci, catene, punte arrugginite, vene, costole.
 // E solo estetica: la griglia di gioco non cambia. Se qualcosa va storto, t3Build torna ai muri di prima.
 // =====================================================================================================================
-const HW = { base: null, mats: new Map(), panels: {}, flame: null, soot: null, pulse: [], grp: null, key: '', lvl: null, winC: {}, ready: false };
-const HW_FAMS = { ruin: 2, damp: 2, bleed: 4, claws: 8, scrawl: 6, drag: 4, flesh: 2, cracks: 2, shadow: 2, sigil: 8 };   // famiglie di segni e numero di varianti
+const HW = { base: null, mats: new Map(), flame: null, soot: null, pulse: [], grp: null, key: '', lvl: null, winC: {}, ready: false };
+const HW_FAMS = { ruin: 2, damp: 2, flesh: 2, cracks: 2, shadow: 2 };   // famiglie di pietra (muffa, crepe, carne...) e numero di varianti
 const HW_PLAN = { cripta: 0, fossa: 4, cattedrale: 2, anfiteatro: 1, ziggurat: 6, terrazza: 7 };   // stanze speciali: tema fisso
-// Temi di stanza: segni sulle pareti, elementi 3D e bassorilievo (indice di HW_DESIGN). Pesi relativi.
+// Temi di stanza: pietra, elementi 3D e segni di sangue (mark: artigliate, mani, scritte, simboli, chiazze). Pesi relativi.
 const HW_THEME = [
-  { fam: [['shadow', 10], ['ruin', 16], ['damp', 18], ['clean', 8], ['scrawl', 14], ['bleed', 12], ['claws', 10], ['sigil', 8], ['drag', 4]], deco: [['bundle', 30], ['hook', 10], ['chain', 20], ['hair', 25], ['ribs', 5], ['hand', 10]], relief: 2 },   // 0 sudario
-  { fam: [['bleed', 30], ['drag', 22], ['claws', 14], ['scrawl', 8], ['sigil', 6], ['ruin', 10], ['clean', 6]], deco: [['hook', 32], ['chain', 26], ['bundle', 16], ['hand', 8], ['spikes', 8], ['vein', 10]], relief: 3 },   // 1 macello
-  { fam: [['shadow', 20], ['scrawl', 22], ['sigil', 14], ['ruin', 14], ['clean', 8], ['cracks', 8], ['bleed', 8], ['claws', 6]], deco: [['hair', 32], ['hand', 28], ['chain', 14], ['bundle', 14], ['ribs', 6], ['vein', 6]], relief: 6 },   // 2 presenze
-  { fam: [['flesh', 34], ['bleed', 20], ['damp', 10], ['claws', 10], ['drag', 8], ['sigil', 6], ['clean', 6], ['ruin', 6]], deco: [['vein', 42], ['ribs', 16], ['hair', 16], ['hand', 12], ['bundle', 8], ['hook', 6]], relief: 7 },   // 3 carne
-  { fam: [['claws', 32], ['drag', 20], ['scrawl', 14], ['bleed', 12], ['sigil', 6], ['ruin', 8], ['clean', 6]], deco: [['hand', 46], ['chain', 20], ['hair', 12], ['hook', 10], ['spikes', 6], ['bundle', 6]], relief: 1 },   // 4 supplici
-  { fam: [['damp', 34], ['flesh', 14], ['bleed', 12], ['claws', 10], ['scrawl', 8], ['ruin', 10], ['clean', 6], ['drag', 6]], deco: [['vein', 34], ['hair', 30], ['ribs', 12], ['bundle', 12], ['hand', 12]], relief: 0 },   // 5 marcio
-  { fam: [['cracks', 30], ['ruin', 22], ['sigil', 14], ['bleed', 10], ['claws', 8], ['shadow', 8], ['clean', 8]], deco: [['chain', 34], ['hook', 24], ['spikes', 24], ['bundle', 10], ['hand', 8]], relief: 5 },   // 6 fornace
-  { fam: [['scrawl', 30], ['claws', 26], ['drag', 10], ['sigil', 10], ['bleed', 10], ['ruin', 8], ['clean', 6]], deco: [['hand', 30], ['chain', 28], ['hair', 20], ['hook', 10], ['bundle', 12]], relief: 4 }   // 7 isolamento
+  { fam: [['shadow', 14], ['ruin', 26], ['damp', 28], ['clean', 32]], deco: [['bundle', 30], ['hook', 10], ['chain', 20], ['hair', 25], ['ribs', 5]], mark: [['scrawl', 24], ['sigil', 22], ['stain', 20], ['print', 16], ['claws', 18]] },   // 0 sudario
+  { fam: [['ruin', 30], ['damp', 14], ['clean', 40]], deco: [['hook', 32], ['chain', 26], ['bundle', 16], ['spikes', 8], ['vein', 10]], mark: [['stain', 40], ['print', 22], ['claws', 20], ['scrawl', 10], ['sigil', 8]] },   // 1 macello
+  { fam: [['shadow', 28], ['ruin', 24], ['clean', 36], ['cracks', 12]], deco: [['hair', 32], ['chain', 14], ['bundle', 14], ['ribs', 6], ['vein', 6]], mark: [['scrawl', 30], ['sigil', 26], ['print', 22], ['claws', 12], ['stain', 10]] },   // 2 presenze
+  { fam: [['flesh', 46], ['damp', 18], ['clean', 22], ['ruin', 14]], deco: [['vein', 42], ['ribs', 16], ['hair', 16], ['bundle', 8], ['hook', 6]], mark: [['stain', 36], ['claws', 24], ['print', 20], ['scrawl', 10], ['sigil', 10]] },   // 3 carne
+  { fam: [['ruin', 30], ['damp', 14], ['clean', 40]], deco: [['chain', 20], ['hair', 12], ['hook', 10], ['spikes', 6], ['bundle', 6]], mark: [['claws', 34], ['print', 26], ['stain', 18], ['scrawl', 14], ['sigil', 8]] },   // 4 supplici
+  { fam: [['damp', 48], ['flesh', 18], ['ruin', 16], ['clean', 18]], deco: [['vein', 34], ['hair', 30], ['ribs', 12], ['bundle', 12]], mark: [['stain', 34], ['claws', 26], ['print', 18], ['scrawl', 12], ['sigil', 10]] },   // 5 marcio
+  { fam: [['cracks', 36], ['ruin', 30], ['shadow', 10], ['clean', 24]], deco: [['chain', 34], ['hook', 24], ['spikes', 24], ['bundle', 10]], mark: [['sigil', 34], ['scrawl', 24], ['claws', 16], ['stain', 14], ['print', 12]] },   // 6 fornace
+  { fam: [['ruin', 30], ['damp', 10], ['clean', 50]], deco: [['chain', 28], ['hair', 20], ['hook', 10], ['bundle', 12]], mark: [['scrawl', 34], ['print', 28], ['claws', 20], ['stain', 10], ['sigil', 8]] }   // 7 isolamento
 ];
-const HW_GEN = [['clean', 22], ['ruin', 14], ['damp', 10], ['bleed', 14], ['claws', 14], ['scrawl', 9], ['drag', 7], ['sigil', 5], ['flesh', 2], ['cracks', 1], ['shadow', 2]];   // corridoi e stanze senza tema
-const HW_GENDECO = [['hair', 22], ['chain', 22], ['hook', 14], ['hand', 14], ['vein', 10], ['bundle', 8], ['spikes', 6], ['ribs', 4]];
+const HW_GEN = [['clean', 46], ['ruin', 26], ['damp', 16], ['flesh', 3], ['cracks', 3], ['shadow', 6]];
+const HW_MARK_GEN = [['stain', 30], ['claws', 22], ['print', 18], ['scrawl', 18], ['sigil', 12]];   // segni nei corridoi e nelle stanze senza tema
+const HW_MARK_NICHE = [['stain', 60], ['print', 25], ['claws', 15]];   // la vecchia nicchia dei teschi
+const HW_GENDECO = [['hair', 22], ['chain', 22], ['hook', 14], ['vein', 10], ['bundle', 8], ['spikes', 6], ['ribs', 4]];
 
 const hwRng = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 const hwHash = (x, y, k) => { let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(k | 0, 2246822519)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; };
@@ -614,457 +615,7 @@ function hwBase(k) {
 }
 
 // ---------------- i segni: ognuno morbido, sfumato e dissolto verso i bordi ----------------
-// ---------------- sangue rappreso, artigli, scritte e simboli: pareti disegnate a 256 punti, con rilievo vero (bump) ----------------
-// Ogni famiglia qui sotto (bleed, drag, claws, scrawl, sigil) produce una parete con la pietra di base e, sopra, un livello di sangue
-// e di solchi; da quel livello nasce anche la mappa di rilievo: il sangue rappreso e in rilievo con le sue croste, gli artigli sono incisi.
-const HWB = 256;
-const HW_BLOODF = { bleed: 1, drag: 1, claws: 1, scrawl: 1, sigil: 1 };
-const hwBC = (r, g, b, a) => 'rgba(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ',' + a.toFixed(2) + ')';
-
-function hwWinS(S, m) {   // finestra a S punti: 0 sul bordo, 1 dentro
-  const k = S + '_' + m; let w = HW.winC[k];
-  if (!w) { w = new Float32Array(S * S); for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) w[y * S + x] = hwSs(0, m, Math.min(x, y, S - 1 - x, S - 1 - y)); HW.winC[k] = w; }
-  return w;
-}
-function hwMaskA(g, S, m) {   // dissolve verso i bordi della cella: tra una parete e l'altra niente stacchi
-  const im = g.getImageData(0, 0, S, S), d = im.data, W = hwWinS(S, m);
-  for (let i = 0; i < S * S; i++) d[i * 4 + 3] *= W[i];
-  g.putImageData(im, 0, 0);
-}
-function hwPath(g, pts, sharp) {   // linea morbida (curve tra i punti medi) o spezzata
-  g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
-  if (sharp || pts.length < 3) { for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); return; }
-  for (let i = 1; i < pts.length - 1; i++) g.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
-  g.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
-}
-function hwClosed(g, pts) {   // contorno chiuso e liscio
-  const n = pts.length; g.beginPath(); g.moveTo((pts[n - 1][0] + pts[0][0]) / 2, (pts[n - 1][1] + pts[0][1]) / 2);
-  for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; g.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2); }
-  g.closePath();
-}
-function hwBlob(R, cx, cy, rx, ry, rot, n) {   // contorno irregolare, come una chiazza che si e allargata da sola
-  n = n || 14; rot = rot || 0;
-  const ph = [R() * 6.28, R() * 6.28, R() * 6.28], am = [0.2 + R() * 0.16, 0.1 + R() * 0.09, 0.06 + R() * 0.06], c = Math.cos(rot), s = Math.sin(rot), pts = [];
-  for (let i = 0; i < n; i++) {
-    const a = i / n * 6.2832, k = 1 + am[0] * Math.sin(2 * a + ph[0]) + am[1] * Math.sin(3 * a + ph[1]) + am[2] * Math.sin(5 * a + ph[2]) + (R() - 0.5) * 0.1, x = Math.cos(a) * rx * k, y = Math.sin(a) * ry * k;
-    pts.push([cx + x * c - y * s, cy + x * s + y * c]);
-  }
-  return pts;
-}
-
-// Pennellata di sangue: alone che si infiltra nella pietra, corpo rosso scuro, nucleo piu cupo e un filo di riflesso umido
-function hwBStroke(L, pts, w, o) {
-  o = o || {}; const a = o.a === undefined ? 1 : o.a;
-  if (pts.length < 2) { const p = pts[0]; L.fillStyle = hwBC(98, 10, 12, 0.93 * a); L.beginPath(); L.arc(p[0], p[1], w * 0.75, 0, 6.2832); L.fill(); return; }
-  L.lineCap = 'round'; L.lineJoin = 'round';
-  hwPath(L, pts, o.sharp); L.strokeStyle = hwBC(70, 8, 8, 0.2 * a); L.lineWidth = w * 2.4; L.stroke();
-  hwPath(L, pts, o.sharp); L.strokeStyle = hwBC(100, 10, 12, 0.93 * a); L.lineWidth = w; L.stroke();
-  hwPath(L, pts, o.sharp); L.strokeStyle = hwBC(40, 3, 5, 0.6 * a); L.lineWidth = w * 0.42; L.stroke();
-  L.save(); L.translate(-w * 0.2, -w * 0.2); hwPath(L, pts, o.sharp); L.strokeStyle = hwBC(176, 58, 50, 0.3 * a); L.lineWidth = Math.max(0.7, w * 0.14); L.stroke(); L.restore();
-}
-// Colatura rappresa: si assottiglia scendendo e finisce in una goccia gonfia
-function hwDrip(L, R, x, y, len, w) {
-  const wob = (R() - 0.5) * 8, steps = Math.max(3, (len / 5) | 0), P = [];
-  for (let i = 0; i <= steps; i++) { const t = i / steps; P.push([x + wob * t * t, y + len * t]); }
-  L.lineCap = 'round';
-  for (let i = 0; i < steps; i++) {
-    const t = i / steps, ww = w * (1 - 0.45 * t);
-    L.strokeStyle = hwBC(70, 8, 8, 0.2); L.lineWidth = ww * 2.2; L.beginPath(); L.moveTo(P[i][0], P[i][1]); L.lineTo(P[i + 1][0], P[i + 1][1]); L.stroke();
-    L.strokeStyle = hwBC(98 - 14 * t, 9, 11, 0.93 - 0.12 * t); L.lineWidth = ww; L.beginPath(); L.moveTo(P[i][0], P[i][1]); L.lineTo(P[i + 1][0], P[i + 1][1]); L.stroke();
-  }
-  L.strokeStyle = hwBC(176, 58, 50, 0.26); L.lineWidth = Math.max(0.6, w * 0.16); L.beginPath(); L.moveTo(P[0][0] - w * 0.22, P[0][1]);
-  for (let i = 1; i < steps; i++) L.lineTo(P[i][0] - w * 0.22 * (1 - 0.45 * i / steps), P[i][1]); L.stroke();
-  const e = P[steps], r = w * 0.78;
-  L.fillStyle = hwBC(88, 8, 10, 0.94); L.beginPath(); L.ellipse(e[0], e[1] + r * 0.5, r, r * 1.35, 0, 0, 6.2832); L.fill();
-  L.fillStyle = hwBC(176, 58, 50, 0.3); L.beginPath(); L.ellipse(e[0] - r * 0.3, e[1] + r * 0.2, r * 0.28, r * 0.5, 0, 0, 6.2832); L.fill();
-}
-function hwDryCracks(L, R, cx, cy, rx, ry, n) {   // crepe da essiccazione dentro una chiazza
-  L.lineCap = 'round'; L.lineJoin = 'round';
-  for (let i = 0; i < n; i++) {
-    let x = cx + (R() - 0.5) * rx * 0.5, y = cy + (R() - 0.5) * ry * 0.5, a = R() * 6.2832;
-    const pts = [[x, y]], steps = 4 + ((R() * 7) | 0);
-    for (let s = 0; s < steps; s++) {
-      a += (R() - 0.5) * 1.5; x += Math.cos(a) * (3 + R() * 4); y += Math.sin(a) * (3 + R() * 4);
-      const u = (x - cx) / rx, q = (y - cy) / ry; if (u * u + q * q > 0.72) break; pts.push([x, y]);
-    }
-    if (pts.length > 1) {
-      hwPath(L, pts, true); L.strokeStyle = hwBC(14, 1, 2, 0.85); L.lineWidth = 1.2; L.stroke();
-      L.save(); L.translate(1, 1); hwPath(L, pts, true); L.strokeStyle = hwBC(150, 52, 42, 0.26); L.lineWidth = 0.8; L.stroke(); L.restore();
-    }
-  }
-}
-// Chiazza di sangue rappreso: alone di siero, corpo scuro e denso, croste piu chiare e piu scure, crepe, riflessi umidi
-function hwClot(L, R, cx, cy, rx, ry, rot, cr) {
-  hwClosed(L, hwBlob(R, cx, cy, rx * 1.25, ry * 1.25, rot, 12)); L.fillStyle = hwBC(72, 10, 8, 0.2); L.fill();
-  const gr = L.createRadialGradient(cx, cy, 0, cx, cy, Math.max(rx, ry) * 1.1);
-  gr.addColorStop(0, hwBC(44, 4, 6, 0.97)); gr.addColorStop(0.6, hwBC(76, 7, 9, 0.95)); gr.addColorStop(1, hwBC(104, 14, 12, 0.9));
-  hwClosed(L, hwBlob(R, cx, cy, rx, ry, rot, 16)); L.fillStyle = gr; L.fill(); L.lineWidth = 1.8; L.strokeStyle = hwBC(26, 3, 3, 0.7); L.stroke();
-  const isl = 5 + ((R() * 5) | 0);
-  for (let i = 0; i < isl; i++) {
-    const a = R() * 6.2832, d = Math.sqrt(R()), r = 3 + R() * Math.min(rx, ry) * 0.3;
-    hwClosed(L, hwBlob(R, cx + Math.cos(a) * rx * 0.78 * d, cy + Math.sin(a) * ry * 0.78 * d, r, r * (0.6 + R() * 0.5), R() * 3, 8));
-    L.fillStyle = R() < 0.5 ? hwBC(18, 2, 3, 0.55) : hwBC(124, 30, 24, 0.32); L.fill();
-  }
-  hwDryCracks(L, R, cx, cy, rx, ry, cr === undefined ? 5 : cr);
-  for (let i = 0; i < 3; i++) {
-    const a = R() * 6.2832, d = Math.sqrt(R()) * 0.6;
-    L.fillStyle = hwBC(200, 80, 70, 0.2); L.beginPath(); L.ellipse(cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, 3 + R() * 5, 1.2 + R() * 1.6, R() * 3, 0, 6.2832); L.fill();
-  }
-}
-function hwSpatter(L, R, cx, cy, spread, n, ang) {   // schizzi: gocce piu grosse vicino al centro, allungate nella direzione del colpo
-  for (let i = 0; i < n; i++) {
-    const a = ang + (R() - 0.5) * 1.5, d = Math.pow(R(), 0.6) * spread, r = Math.max(0.7, (1 + R() * 3.2) * (1 - 0.6 * d / spread));
-    const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
-    L.fillStyle = hwBC(92 - R() * 24, 8, 10, 0.85 + R() * 0.12); L.beginPath(); L.ellipse(x, y, r * (1 + 1.2 * d / spread), r, a, 0, 6.2832); L.fill();
-    if (r > 2) { L.fillStyle = hwBC(176, 58, 50, 0.25); L.beginPath(); L.arc(x - r * 0.3, y - r * 0.3, r * 0.28, 0, 6.2832); L.fill(); }
-  }
-}
-// Strisciata di dita: densa all'inizio, a strisce e sempre piu rada alla fine, con un grumo dove e cominciata
-function hwSmear(L, R, x0, y0, x1, y1, w, o) {
-  o = o || {};
-  const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len, ns = o.streaks || 5, bend = o.bend === undefined ? (R() - 0.5) * len * 0.3 : o.bend;
-  const P = (t, off) => { const b = off + Math.sin(Math.PI * t) * bend; return [x0 + dx * t + nx * b, y0 + dy * t + ny * b]; };
-  L.lineCap = 'round'; L.lineJoin = 'round'; L.strokeStyle = hwBC(70, 10, 8, 0.15); L.lineWidth = w * 1.5; L.beginPath();
-  for (let j = 0; j <= 12; j++) { const p = P(j / 12 * 0.85, 0); if (j) L.lineTo(p[0], p[1]); else L.moveTo(p[0], p[1]); }
-  L.stroke();
-  for (let k = 0; k < ns; k++) {
-    const off = ns > 1 ? (k / (ns - 1) - 0.5) * w : 0, end = 0.5 + R() * 0.5, wk = Math.max(1.2, w / ns * (1.4 + R() * 0.6)), steps = 16;
-    for (let j = 0; j < steps; j++) {
-      const f = j / steps; if (f > 0.45 && R() < 0.12) continue;   // la striscia si interrompe dove le dita hanno perso sangue
-      const p0 = P(f * end, off), p1 = P((j + 1) / steps * end, off);
-      L.strokeStyle = hwBC(100 - f * 26, 9, 11, (0.95 - f * 0.55) * (0.85 + R() * 0.15)); L.lineWidth = wk * (1 - f * 0.4);
-      L.beginPath(); L.moveTo(p0[0], p0[1]); L.lineTo(p1[0], p1[1]); L.stroke();
-    }
-  }
-  if (!o.noClot) hwClot(L, R, x0, y0, w * 0.55, w * 0.42, Math.atan2(dy, dx), 3);
-}
-function hwHandPrint(L, R, x, y, ang, sc, drag) {   // mano insanguinata premuta sul muro (dita verso ang), con la scia dietro se trascinata
-  const fx = Math.cos(ang), fy = Math.sin(ang), rx = -fy, ry = fx, O = [-1.5, -0.5, 0.5, 1.5], Ln = [0.82, 1, 0.95, 0.72];
-  if (drag > 0) for (let k = 0; k < 4; k++) hwSmear(L, R, x + rx * O[k] * 8.5 * sc, y + ry * O[k] * 8.5 * sc, x + rx * O[k] * 8.5 * sc - fx * drag * (0.7 + R() * 0.3), y + ry * O[k] * 8.5 * sc - fy * drag * (0.7 + R() * 0.3), 7 * sc, { streaks: 1, noClot: true, bend: (R() - 0.5) * 8 });
-  hwClot(L, R, x, y, 17 * sc, 21 * sc, ang + 1.5708, 2);
-  for (let k = 0; k < 4; k++) {
-    const ox = x + rx * O[k] * 8.5 * sc + fx * 18 * sc, oy = y + ry * O[k] * 8.5 * sc + fy * 18 * sc, fl = (22 + 8 * Ln[k]) * sc;
-    hwBStroke(L, [[ox, oy], [ox + fx * fl * 0.5 + (R() - 0.5) * 2, oy + fy * fl * 0.5], [ox + fx * fl, oy + fy * fl]], 6.5 * sc);
-  }
-  const tx = x - rx * 16 * sc, ty = y - ry * 16 * sc;
-  hwBStroke(L, [[tx, ty], [tx - rx * 10 * sc + fx * 12 * sc, ty - ry * 10 * sc + fy * 12 * sc], [tx - rx * 14 * sc + fx * 26 * sc, ty - ry * 14 * sc + fy * 26 * sc]], 7 * sc);
-}
-
-// ---------------- artigli: solchi profondi nella pietra ----------------
-// Un solco: profondo all'ingresso, sempre piu sottile in uscita; bordo di pietra scheggiata, polvere chiara, a volte sangue rappreso dentro.
-function hwGash(L, G, R, x, y, ang, len, w, curve, o) {
-  o = o || {};
-  const ca = Math.cos(ang), sa = Math.sin(ang), nx = -sa, ny = ca, n = Math.max(6, (len / 4) | 0), ph = R() * 6.28;
-  const pt = (t) => { const off = Math.sin(Math.PI * t) * curve + Math.sin(t * 8 + ph) * 0.7; return [x + ca * len * t + nx * off, y + sa * len * t + ny * off]; };
-  const wd = (t) => w * (0.25 + 0.75 * Math.pow(Math.sin(Math.PI * Math.min(1, Math.pow(t, 0.7))), 0.7));
-  L.lineCap = 'round';
-  for (let pass = 0; pass < 3; pass++) for (let j = 0; j < n; j++) {
-    const t0 = j / n, t1 = (j + 1) / n, a = pt(t0), b = pt(t1), ww = wd((t0 + t1) / 2);
-    if (pass === 0) { L.strokeStyle = hwBC(214, 202, 180, 0.34); L.lineWidth = ww + 2.4; L.beginPath(); L.moveTo(a[0] + 0.9, a[1] + 1); L.lineTo(b[0] + 0.9, b[1] + 1); L.stroke(); }
-    else if (pass === 1) {
-      L.strokeStyle = hwBC(7, 5, 4, 0.94); L.lineWidth = ww; L.beginPath(); L.moveTo(a[0], a[1]); L.lineTo(b[0], b[1]); L.stroke();
-      if (G) { G.lineCap = 'round'; G.strokeStyle = 'rgba(255,255,255,1)'; G.lineWidth = ww + 1.4; G.beginPath(); G.moveTo(a[0], a[1]); G.lineTo(b[0], b[1]); G.stroke(); }
-    } else { L.strokeStyle = hwBC(0, 0, 0, 0.8); L.lineWidth = ww * 0.45; L.beginPath(); L.moveTo(a[0], a[1]); L.lineTo(b[0], b[1]); L.stroke(); }
-  }
-  const s0 = pt(0);
-  for (let k = 0; k < 7; k++) {   // schegge e polvere all'ingresso del colpo
-    L.fillStyle = k % 2 ? hwBC(206, 194, 172, 0.5) : hwBC(8, 6, 5, 0.6);
-    L.fillRect(s0[0] + (R() - 0.5) * 12 + ca * R() * 8, s0[1] + (R() - 0.5) * 12 + sa * R() * 8, 1 + R() * 1.6, 1 + R() * 1.2);
-  }
-  if (o.blood) {   // sangue rappreso dentro il solco, e una colatura da dove e piu in basso
-    const t0 = R() * 0.3, t1 = 0.55 + R() * 0.45; L.strokeStyle = hwBC(92, 8, 10, 0.85); L.lineWidth = Math.max(1.2, w * 0.55); L.beginPath();
-    for (let j = 0; j <= 10; j++) { const p = pt(t0 + (t1 - t0) * j / 10); if (j) L.lineTo(p[0], p[1]); else L.moveTo(p[0], p[1]); }
-    L.stroke();
-    const e = pt(1), low = e[1] > s0[1] ? e : s0; hwDrip(L, R, low[0], low[1], 12 + R() * 40, Math.max(1.6, w * 0.45));
-  }
-}
-function hwRake(L, G, R, cx, cy, ang, len, cnt, sp, w, curve, blood) {   // un colpo a mano aperta: piu solchi quasi paralleli, di lunghezza diversa
-  const ca = Math.cos(ang), sa = Math.sin(ang), nx = -sa, ny = ca;
-  for (let k = 0; k < cnt; k++) {
-    const mid = (k - (cnt - 1) / 2), off = mid * sp * (1 + (R() - 0.5) * 0.25), st = (R() - 0.3) * len * 0.12, ln = len * (0.8 + R() * 0.28) * (1 - 0.1 * Math.abs(mid) / Math.max(1, cnt / 2));
-    hwGash(L, G, R, cx + nx * off - ca * len / 2 + ca * st, cy + ny * off - sa * len / 2 + sa * st, ang + (R() - 0.5) * 0.06, ln, w * (0.75 + R() * 0.5), curve, { blood: blood && R() < 0.6 });
-  }
-}
-function hwClawsScene(L, G, R, v) {
-  const rp = (a, b) => a + R() * (b - a);
-  switch (v) {
-    case 0: {   // un rastrello enorme in diagonale, con sangue nei solchi e schizzi all'attacco
-      const cx = rp(100, 156), cy = rp(100, 156), ang = rp(0.4, 1.2) + (R() < 0.5 ? 0 : 1.5708);
-      hwRake(L, G, R, cx, cy, ang, rp(160, 200), 4, rp(14, 18), rp(5, 7), rp(-12, 12), true);
-      hwSpatter(L, R, cx - Math.cos(ang) * 70, cy - Math.sin(ang) * 70, 60, 14, ang); break;
-    }
-    case 1: {   // tre colpi di media grandezza da angolazioni diverse, che si incrociano
-      const base = rp(0, 3.14);
-      hwRake(L, G, R, rp(70, 100), rp(70, 100), base, rp(80, 115), 3 + ((R() * 2) | 0), rp(9, 12), rp(3.4, 4.6), rp(-6, 6), false);
-      hwRake(L, G, R, rp(150, 180), rp(100, 130), base + rp(1, 2), rp(80, 115), 3 + ((R() * 2) | 0), rp(9, 12), rp(3.4, 4.6), rp(-6, 6), true);
-      hwRake(L, G, R, rp(100, 150), rp(160, 190), base + rp(2.2, 3.4), rp(80, 115), 3, rp(9, 12), rp(3.4, 4.6), rp(-6, 6), false); break;
-    }
-    case 2: {   // graffi piccoli e frenetici, tanti, in ogni direzione
-      for (let i = 0; i < 7; i++) hwRake(L, G, R, rp(60, 196), rp(60, 196), rp(0, 6.28), rp(26, 48), 2 + ((R() * 2) | 0), rp(5, 8), rp(2, 2.6), rp(-3, 3), i % 3 === 0);
-      break;
-    }
-    case 3: {   // due rastrelli altissimi, quasi verticali, dal soffitto al pavimento
-      hwRake(L, G, R, rp(80, 100), 128, 1.5708 + rp(-0.2, 0.2), rp(200, 225), 5, rp(11, 14), rp(6, 8), rp(-10, 10), true);
-      hwRake(L, G, R, rp(160, 180), 128, 1.5708 + rp(-0.2, 0.2), rp(200, 225), 4, rp(12, 15), rp(5, 7), rp(-10, 10), true); break;
-    }
-    case 4: {   // raggiera: colpi da cinque direzioni attorno a uno stesso punto
-      const a0 = R() * 6.28;
-      for (let k = 0; k < 5; k++) { const a = a0 + k * 1.2566 + rp(-0.2, 0.2); hwRake(L, G, R, 128 + Math.cos(a) * 52, 128 + Math.sin(a) * 52, a, rp(70, 100), 3, rp(8, 11), rp(3.4, 4.6), rp(-5, 5), k % 2 === 0); }
-      break;
-    }
-    case 5: {   // un triplo squarcio gigantesco, quasi orizzontale, con le colature che partono dall'inizio
-      hwRake(L, G, R, 128, rp(100, 150), rp(-0.35, 0.35) + (R() < 0.5 ? 0 : 3.14), 215, 3, rp(24, 30), rp(8, 10), rp(-18, 18), true); break;
-    }
-    case 6: {   // un rastrello grande, uno piccolo e una pozza rappresa in basso
-      hwClot(L, R, rp(80, 176), rp(190, 206), rp(44, 60), rp(18, 26), rp(-0.2, 0.2), 6);
-      hwRake(L, G, R, rp(90, 150), rp(80, 120), rp(0.5, 1.1), rp(130, 165), 4, rp(12, 15), rp(4.4, 5.6), rp(-8, 8), true);
-      hwRake(L, G, R, rp(160, 200), rp(60, 90), rp(1.8, 2.6), rp(40, 60), 3, rp(7, 9), rp(2.4, 3.2), rp(-4, 4), false); break;
-    }
-    default: {   // tanti solchi singoli e un colpo medio
-      for (let i = 0; i < 8; i++) hwGash(L, G, R, rp(50, 206), rp(50, 206), rp(0, 6.28), rp(18, 42), rp(1.8, 2.6), rp(-3, 3), { blood: i === 3 });
-      hwRake(L, G, R, rp(90, 170), rp(90, 170), rp(0, 3.14), 95, 3, rp(9, 12), rp(3.2, 4), rp(-5, 5), true);
-    }
-  }
-}
-
-// ---------------- scritte incomprensibili col sangue ----------------
-function hwGlyph(R, style) {   // una lettera che nessuna lingua conosce, su un riquadro 0..1 (y verso il basso)
-  const st = [];
-  if (style === 0) {   // runica: solo tratti dritti
-    const gx = [0.12, 0.5, 0.88], gy = [0, 0.34, 0.66, 1], steps = 2 + ((R() * 3) | 0);
-    let cx = (R() * 3) | 0, cy = (R() * 4) | 0; const pts = [[gx[cx], gy[cy]]];
-    for (let i = 0; i < steps; i++) { let nx = cx, ny = cy, g = 0; while (nx === cx && ny === cy && g++ < 8) { nx = (R() * 3) | 0; ny = (R() * 4) | 0; } cx = nx; cy = ny; pts.push([gx[cx], gy[cy]]); }
-    pts.sharp = true; st.push(pts);
-    if (R() < 0.55) { const s = [[0.5, -0.06], [0.5, 1.06]]; s.sharp = true; st.push(s); }
-    if (R() < 0.3) { const s = [[0.04, 0.3 + R() * 0.4], [0.96, 0.3 + R() * 0.4]]; s.sharp = true; st.push(s); }
-    if (R() < 0.25) st.push([[0.1 + R() * 0.8, -0.28]]);
-  } else if (style === 1) {   // corsiva: occhielli e volute
-    const f1 = 1 + R() * 1.4, f2 = 1.4 + R() * 1.8, p1 = R() * 6.28, p2 = R() * 6.28, T = 2.4 + R() * 2.4, pts = [];
-    for (let i = 0; i <= 16; i++) { const t = i / 16 * T; pts.push([0.5 + 0.48 * Math.sin(f1 * t + p1), 0.5 + 0.5 * Math.sin(f2 * t + p2)]); }
-    st.push(pts);
-    if (R() < 0.4) st.push([[0.2 + R() * 0.6, -0.28]]);
-  } else {   // a cerchi e archi
-    const r = 0.22 + R() * 0.14, cx = 0.5, cy = 0.3 + R() * 0.3, arc = [], a0 = R() * 6.28, sw = 3.4 + R() * 2.8;
-    for (let i = 0; i <= 14; i++) { const a = a0 + i / 14 * sw; arc.push([cx + Math.cos(a) * r * 1.2, cy + Math.sin(a) * r]); }
-    st.push(arc);
-    if (R() < 0.7) st.push([[cx + (R() - 0.5) * 0.3, cy + r], [cx + (R() - 0.5) * 0.3, 1.05]]);
-    if (R() < 0.5) st.push([[0.5, -0.2]]);
-    if (R() < 0.4) { const s = [[0.1, 0.9], [0.9, 0.9 + (R() - 0.5) * 0.2]]; s.sharp = true; st.push(s); }
-  }
-  return st;
-}
-function hwGlyphDraw(L, R, st, ox, oy, gw, gh, rot, w, drips) {   // disegna una lettera centrata in (ox,oy), ruotata, con colature dal punto piu basso di ogni tratto
-  const c = Math.cos(rot), s = Math.sin(rot);
-  for (const stroke of st) {
-    const pts = stroke.map(p => { const lx = (p[0] - 0.5) * gw, ly = (p[1] - 0.5) * gh; return [ox + lx * c - ly * s, oy + lx * s + ly * c]; });
-    hwBStroke(L, pts, w * (0.8 + R() * 0.4), { sharp: stroke.sharp });
-    if (drips && R() < drips) { let e = pts[0]; for (const p of pts) if (p[1] > e[1]) e = p; hwDrip(L, R, e[0], e[1], 8 + R() * gh * 1.5, Math.max(1.2, w * 0.5)); }
-  }
-}
-function hwGlyphRow(L, R, x, y, size, n, style, w, drips, maxX) {   // una riga di lettere sconosciute: scende un poco, qualche spazio tra le parole
-  let cx = x, cy = y;
-  for (let i = 0; i < n; i++) {
-    const gw = size * (0.5 + R() * 0.35); if (cx + gw > maxX) break;
-    hwGlyphDraw(L, R, hwGlyph(R, style < 0 ? (R() * 3) | 0 : style), cx + gw / 2 + (R() - 0.5) * size * 0.08, cy + size / 2 + (R() - 0.5) * size * 0.12, gw, size, 0, w, drips);
-    cx += gw + size * (0.22 + R() * 0.3) + (R() < 0.15 ? size * 0.5 : 0); cy += size * 0.05 * (R() - 0.3);
-  }
-}
-function hwStrike(L, R, x0, x1, y, amp, w) {   // cancellatura a zig-zag
-  const pts = [], n = 7 + ((R() * 4) | 0);
-  for (let i = 0; i <= n; i++) pts.push([x0 + (x1 - x0) * i / n + (R() - 0.5) * 5, y + (i % 2 ? amp : -amp) * (0.6 + R() * 0.6)]);
-  hwBStroke(L, pts, w, { sharp: true });
-}
-function hwScrawlScene(L, G, R, v) {
-  const rp = (a, b) => a + R() * (b - a);
-  switch (v) {
-    case 0: for (let r = 0; r < 3; r++) hwGlyphRow(L, R, rp(40, 54), 46 + r * 62 + rp(-4, 4), 34, 8, 0, 3.2, 0.2, 218); break;   // tre righe di lettere runiche
-    case 1: for (let r = 0; r < 4; r++) hwGlyphRow(L, R, rp(38, 52), 42 + r * 48 + rp(-3, 3), 25, 12, 1, 2.4, 0.15, 218); break;   // quattro righe di corsivo
-    case 2: hwGlyphRow(L, R, rp(36, 50), rp(60, 90), 100, 3, -1, 8, 0.7, 222); break;   // due o tre lettere enormi, scritte in preda al panico
-    case 3: for (let r = 0; r < 7; r++) hwGlyphRow(L, R, rp(36, 48), 38 + r * 25 + rp(-2, 2), 15, 16, -1, 1.8, 0.05, 220); break;   // scrittura fitta e minuscola
-    case 4: {   // iscrizione circolare attorno a una macchia
-      hwClot(L, R, 128, 128, 22, 20, rp(0, 3), 4);
-      const n = 15 + ((R() * 4) | 0), a0 = R() * 6.28;
-      for (let i = 0; i < n; i++) { const a = a0 + i / n * 6.2832; hwGlyphDraw(L, R, hwGlyph(R, (R() * 3) | 0), 128 + Math.cos(a) * 78, 128 + Math.sin(a) * 78, 17, 24, a + 1.5708, 2.2, 0.12); }
-      break;
-    }
-    default: {   // righe cancellate con furia
-      for (let r = 0; r < 3; r++) hwGlyphRow(L, R, rp(40, 54), 52 + r * 56, 26, 9, r % 2, 2.6, 0.12, 218);
-      for (let i = 0; i < 3; i++) hwStrike(L, R, rp(36, 70), rp(150, 214), 60 + ((R() * 120) | 0), rp(9, 15), 4.4);
-      hwSmear(L, R, rp(50, 100), rp(40, 80), rp(150, 210), rp(150, 210), 30, { streaks: 4 });
-    }
-  }
-}
-
-// ---------------- simboli demoniaci tracciati col sangue ----------------
-function hwRing(L, R, cx, cy, r, w) {   // cerchio fatto a mano: non si chiude mai bene
-  const pts = [], a0 = R() * 6.28, n = 30, over = 0.15 + R() * 0.12;
-  for (let i = 0; i <= n; i++) { const a = a0 + i / n * (6.2832 + over), k = 1 + 0.03 * i / n + 0.012 * Math.sin(a * 3 + a0) + (R() - 0.5) * 0.01; pts.push([cx + Math.cos(a) * r * k, cy + Math.sin(a) * r * k]); }
-  hwBStroke(L, pts, w);
-}
-function hwPenta(L, R, cx, cy, r, w, inv) {   // pentagramma (rovesciato: una punta verso il basso), cinque tratti con le sbavature agli incroci
-  const V = []; for (let k = 0; k < 5; k++) { const a = (inv ? 1.5708 : -1.5708) + k * 1.2566; V.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
-  for (let k = 0; k < 5; k++) {
-    const A = V[(k * 2) % 5], B = V[((k + 1) * 2) % 5], dx = B[0] - A[0], dy = B[1] - A[1], o1 = 0.03 + R() * 0.04, o2 = 0.03 + R() * 0.04, q = (R() - 0.5) * r * 0.04;
-    hwBStroke(L, [[A[0] - dx * o1, A[1] - dy * o1], [(A[0] + B[0]) / 2 - dy * q / r, (A[1] + B[1]) / 2 + dx * q / r], [B[0] + dx * o2, B[1] + dy * o2]], w, { sharp: true });
-  }
-  return V;
-}
-function hwLeviathan(L, R, cx, cy, r, w) {   // croce doppia sopra il segno dell'infinito
-  hwBStroke(L, [[cx, cy - r], [cx + 1, cy + r * 0.92]], w);
-  hwBStroke(L, [[cx - r * 0.42, cy - r * 0.68], [cx + r * 0.44, cy - r * 0.67]], w);
-  hwBStroke(L, [[cx - r * 0.28, cy - r * 0.34], [cx + r * 0.3, cy - r * 0.35]], w);
-  const pts = []; for (let i = 0; i <= 28; i++) { const t = i / 28 * 6.2832, d = 1 + Math.sin(t) * Math.sin(t); pts.push([cx + r * 0.55 * Math.cos(t) / d, cy + r * 0.32 + r * 0.55 * Math.sin(t) * Math.cos(t) / d]); }
-  hwBStroke(L, pts, w);
-}
-function hwHorned(L, R, cx, cy, r, w) {   // triangolo rovesciato con le corna e un occhio al centro
-  hwBStroke(L, [[cx - r * 0.72, cy - r * 0.2], [cx + r * 0.72, cy - r * 0.2], [cx, cy + r * 0.72], [cx - r * 0.72, cy - r * 0.2]], w, { sharp: true });
-  for (const s of [-1, 1]) { const pts = []; for (let i = 0; i <= 10; i++) { const t = i / 10; pts.push([cx + s * (r * 0.5 + r * 0.35 * Math.sin(t * 2.8)), cy - r * 0.2 - r * 0.95 * t]); } hwBStroke(L, pts, w); }
-  const e = []; for (let i = 0; i <= 14; i++) { const a = i / 14 * 6.2832; e.push([cx + Math.cos(a) * r * 0.2, cy + r * 0.1 + Math.sin(a) * r * 0.2]); } hwBStroke(L, e, w * 0.8);
-  hwBStroke(L, [[cx, cy + r * 0.72], [cx, cy + r * 1.1]], w); hwBStroke(L, [[cx - r * 0.2, cy + r * 0.92], [cx + r * 0.2, cy + r * 0.92]], w);
-}
-function hwSeal(L, R, cx, cy, r, w) {   // sigillo inventato: nodi collegati da linee dritte, ognuno chiuso da un piccolo segno
-  const n = 5 + ((R() * 3) | 0), nodes = [], a0 = R() * 6.28;
-  for (let i = 0; i < n; i++) { const a = a0 + i / n * 6.2832 + (R() - 0.5) * 0.7, rr = r * (0.45 + R() * 0.55); nodes.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, a]); }
-  const order = nodes.map((_, i) => i).sort(() => R() - 0.5);
-  hwBStroke(L, order.map(i => [nodes[i][0], nodes[i][1]]), w, { sharp: true });
-  for (let k = 0; k < 2; k++) { const A = nodes[(R() * n) | 0], B = nodes[(R() * n) | 0]; if (A !== B) hwBStroke(L, [[A[0], A[1]], [B[0], B[1]]], w * 0.8, { sharp: true }); }
-  for (const nd of nodes) {
-    const t = (R() * 4) | 0, px = -Math.sin(nd[2]), py = Math.cos(nd[2]), q = r * 0.14;
-    if (t === 0) { const c = []; for (let i = 0; i <= 10; i++) { const a = i / 10 * 6.2832; c.push([nd[0] + Math.cos(a) * q * 0.7, nd[1] + Math.sin(a) * q * 0.7]); } hwBStroke(L, c, w * 0.7); }
-    else if (t === 1) hwBStroke(L, [[nd[0] - px * q, nd[1] - py * q], [nd[0] + px * q, nd[1] + py * q]], w * 0.8, { sharp: true });
-    else if (t === 2) { hwBStroke(L, [[nd[0] + px * q - Math.cos(nd[2]) * q, nd[1] + py * q - Math.sin(nd[2]) * q], [nd[0], nd[1]], [nd[0] - px * q - Math.cos(nd[2]) * q, nd[1] - py * q - Math.sin(nd[2]) * q]], w * 0.8, { sharp: true }); }
-    else hwBStroke(L, [[nd[0], nd[1]]], w * 0.9);
-  }
-  const c = []; for (let i = 0; i <= 10; i++) { const a = i / 10 * 6.2832; c.push([cx + Math.cos(a) * r * 0.1, cy + Math.sin(a) * r * 0.1]); } hwBStroke(L, c, w * 0.7);
-}
-function hwEye(L, R, cx, cy, r, w) {   // occhio a mandorla con la pupilla a fessura, raggi sopra e una lacrima di sangue
-  const top = [], bot = [];
-  for (let i = 0; i <= 12; i++) { const t = i / 12, x = cx + (t - 0.5) * 2 * r, k = Math.sin(t * Math.PI); top.push([x, cy - r * 0.42 * k]); bot.push([x, cy + r * 0.42 * k]); }
-  hwBStroke(L, top.concat(bot.reverse()), w);
-  L.fillStyle = hwBC(60, 5, 7, 0.95); L.beginPath(); L.ellipse(cx, cy, r * 0.09, r * 0.34, 0, 0, 6.2832); L.fill();
-  for (let i = 0; i < 7; i++) { const a = -2.6 + i * 0.35; hwBStroke(L, [[cx + Math.cos(a) * r * 0.66, cy + Math.sin(a) * r * 0.66], [cx + Math.cos(a) * r * 0.98, cy + Math.sin(a) * r * 0.98]], w * 0.8, { sharp: true }); }
-  hwDrip(L, R, cx + r * 0.1, cy + r * 0.4, 50 + R() * 40, Math.max(2, w * 0.7));
-}
-function hwInvCross(L, R, cx, cy, r, w) {   // croce rovesciata
-  hwBStroke(L, [[cx, cy - r], [cx, cy + r]], w); hwBStroke(L, [[cx - r * 0.5, cy + r * 0.36], [cx + r * 0.5, cy + r * 0.4]], w);
-}
-function hwGlyphRing(L, R, cx, cy, r, n, size, w) {   // corona di lettere sconosciute lungo un cerchio, con la testa verso l'esterno
-  for (let i = 0; i < n; i++) { const a = i / n * 6.2832 + (R() - 0.5) * 0.05; hwGlyphDraw(L, R, hwGlyph(R, (R() * 3) | 0), cx + Math.cos(a) * r, cy + Math.sin(a) * r, size * 0.6, size, a + 1.5708, w, 0); }
-}
-function hwSigilScene(L, G, R, v) {
-  const rp = (a, b) => a + R() * (b - a), dr = (cx, cy, r, n, wmax) => { for (let i = 0; i < n; i++) { const a = 1.5708 + rp(-1.1, 1.1); hwDrip(L, R, cx + Math.cos(a) * r, cy + Math.sin(a) * r, rp(20, 62), rp(2, wmax)); } };
-  switch (v) {
-    case 0: {   // pentagramma rovesciato in un doppio cerchio, con la corona di lettere
-      const cx = 128 + rp(-6, 6), cy = 126 + rp(-4, 6), r = 86;
-      hwRing(L, R, cx, cy, r, 4.2); hwRing(L, R, cx, cy, r * 0.72, 3.4); hwGlyphRing(L, R, cx, cy, r * 0.86, 16, 15, 1.8); hwPenta(L, R, cx, cy, r * 0.7, 4, true); dr(cx, cy, r, 3, 3.4); break;
-    }
-    case 1: {   // croce del Leviatano nel cerchio, con una riga di lettere sotto
-      const cx = 128, cy = 106 + rp(-4, 4);
-      hwRing(L, R, cx, cy, 72, 4); hwLeviathan(L, R, cx, cy, 58, 4.2); hwGlyphRow(L, R, 62, 196, 17, 9, -1, 2.2, 0.2, 200); dr(cx, cy, 72, 2, 3); break;
-    }
-    case 2: {   // il sigillo cornuto, dentro un anello
-      const cx = 128, cy = 118 + rp(-4, 4);
-      hwRing(L, R, cx, cy, 92, 3.8); hwHorned(L, R, cx, cy, 66, 4); dr(cx, cy, 92, 3, 3.2); break;
-    }
-    case 3: {   // sigillo inventato, con quattro lettere agli angoli
-      const cx = 128, cy = 128;
-      hwRing(L, R, cx, cy, 86, 3.8); hwSeal(L, R, cx, cy, 74, 4);
-      for (let k = 0; k < 4; k++) { const a = 0.785 + k * 1.5708; hwGlyphDraw(L, R, hwGlyph(R, (R() * 3) | 0), cx + Math.cos(a) * 104, cy + Math.sin(a) * 104, 16, 24, a + 1.5708, 2.4, 0.1); }
-      dr(cx, cy, 86, 3, 3.4); break;
-    }
-    case 4: {   // l'occhio che sanguina, sopra e sotto righe di lettere
-      hwEye(L, R, 128, 118, 84, 4); hwGlyphRow(L, R, 52, 48, 15, 11, 0, 2.2, 0.1, 208); hwGlyphRow(L, R, 52, 198, 15, 11, 1, 2.2, 0.1, 208); break;
-    }
-    case 5: {   // pentagramma grande, senza cerchio: le punte finiscono in grumi, schizzi e lunghe colature
-      const cx = 128 + rp(-8, 8), cy = 126 + rp(-4, 6), V = hwPenta(L, R, cx, cy, 92, 4.6, true);
-      for (const p of V) hwClot(L, R, p[0], p[1], rp(7, 12), rp(6, 10), rp(0, 3), 2);
-      hwSpatter(L, R, cx, cy, 110, 26, rp(0, 6.28)); for (let i = 0; i < 4; i++) { const p = V[(R() * 5) | 0]; hwDrip(L, R, p[0], p[1], rp(34, 90), rp(2.6, 4.4)); } break;
-    }
-    case 6: {   // croce rovesciata con un cerchio al centro, tre colature
-      const cx = 128, cy = 124;
-      hwInvCross(L, R, cx, cy, 92, 5); hwRing(L, R, cx, cy + 34, 28, 3.4); dr(cx, cy, 70, 3, 3.6); break;
-    }
-    default: {   // tre piccoli sigilli uniti da una strisciata e una riga di lettere
-      hwSmear(L, R, 74, 66, 176, 132, 12, { streaks: 3, noClot: true });
-      hwSmear(L, R, 176, 132, 98, 188, 12, { streaks: 3, noClot: true });
-      hwRing(L, R, 74, 66, 40, 3); hwSeal(L, R, 74, 66, 32, 3); hwRing(L, R, 176, 132, 40, 3); hwSeal(L, R, 176, 132, 32, 3); hwRing(L, R, 98, 188, 36, 3); hwSeal(L, R, 98, 188, 28, 3);
-    }
-  }
-}
-
-// ---------------- chiazze e strisciate di sangue rappreso ----------------
-function hwBleedScene(L, G, R, v) {
-  const rp = (a, b) => a + R() * (b - a);
-  switch (v) {
-    case 0: {   // una grande chiazza rappresa con le colature che scendono dal bordo
-      const cx = rp(100, 156), cy = rp(88, 118), rx = rp(56, 74), ry = rp(36, 50), nd = 4 + ((R() * 3) | 0);
-      for (let i = 0; i < nd; i++) hwDrip(L, R, cx + rp(-rx * 0.7, rx * 0.7), cy + ry * 0.6, rp(30, 100), rp(3, 6));
-      hwClot(L, R, cx, cy, rx, ry, rp(-0.4, 0.4), 8); hwSpatter(L, R, cx, cy, 100, 22, rp(0, 6.28)); break;
-    }
-    case 1: {   // tre chiazze di grandezza diversa, schizzi tra l'una e l'altra
-      hwClot(L, R, rp(60, 110), rp(60, 100), rp(28, 40), rp(22, 34), rp(-0.5, 0.5), 5);
-      hwClot(L, R, rp(150, 196), rp(100, 140), rp(18, 28), rp(14, 24), rp(-0.5, 0.5), 3);
-      hwClot(L, R, rp(80, 170), rp(165, 198), rp(14, 24), rp(10, 18), rp(-0.5, 0.5), 2);
-      hwSpatter(L, R, 128, 128, 110, 30, rp(0, 6.28)); hwDrip(L, R, rp(60, 110), 110, rp(24, 60), 3.4); break;
-    }
-    case 2: {   // sangue che cola dall'alto: una fascia rappresa e colature lunghe di spessore diverso
-      hwClot(L, R, 128, 52, rp(80, 96), rp(10, 16), rp(-0.1, 0.1), 5);
-      const nd = 5 + ((R() * 3) | 0); for (let i = 0; i < nd; i++) hwDrip(L, R, 48 + i * (160 / nd) + rp(-8, 8), 56, rp(40, 150), rp(2.4, 6.4)); break;
-    }
-    default: {   // pozza alla base, schizzi che salgono sul muro e due strisciate verso l'alto
-      hwClot(L, R, 128, 192, rp(84, 100), rp(26, 34), rp(-0.1, 0.1), 8);
-      hwSpatter(L, R, 128, 186, 150, 44, -1.5708);
-      hwSmear(L, R, rp(80, 110), 170, rp(70, 120), rp(80, 100), 18, { streaks: 4, noClot: true }); hwSmear(L, R, rp(150, 180), 170, rp(150, 190), rp(90, 120), 14, { streaks: 3, noClot: true });
-    }
-  }
-}
-function hwDragScene(L, G, R, v) {
-  const rp = (a, b) => a + R() * (b - a);
-  switch (v) {
-    case 0: hwHandPrint(L, R, rp(108, 148), rp(78, 100), -1.5708 + rp(-0.3, 0.3), 1.2, rp(80, 110)); break;   // una mano trascinata lungo il muro verso il basso
-    case 1: {   // una lunga strisciata diagonale a dita, con la mano all'inizio
-      const x0 = rp(40, 70), y0 = rp(50, 80);
-      hwSmear(L, R, x0, y0, rp(190, 220), rp(150, 190), 34, { streaks: 6 }); hwHandPrint(L, R, x0 - 6, y0 - 2, rp(0.3, 1.2) + 3.14, 0.8, 0); break;
-    }
-    case 2: {   // il segno di un corpo trascinato: fascia larga e a strisce, con due mani ai lati
-      hwSmear(L, R, rp(70, 100), 50, rp(150, 190), 215, 70, { streaks: 9 });
-      hwHandPrint(L, R, rp(40, 60), rp(90, 130), rp(-0.5, 0.5), 0.8, 0); hwHandPrint(L, R, rp(190, 210), rp(130, 170), 3.14 + rp(-0.5, 0.5), 0.8, 0); break;
-    }
-    default: {   // tre strisciate corte da angolazioni diverse e un'impronta
-      hwSmear(L, R, rp(50, 90), rp(50, 80), rp(120, 160), rp(100, 130), rp(14, 20), { streaks: 3 });
-      hwSmear(L, R, rp(170, 210), rp(60, 100), rp(110, 150), rp(150, 190), rp(14, 20), { streaks: 3 });
-      hwSmear(L, R, rp(60, 100), rp(170, 200), rp(170, 210), rp(150, 190), rp(14, 20), { streaks: 3 });
-      hwHandPrint(L, R, rp(110, 150), rp(100, 130), rp(0, 6.28), 0.9, 0);
-    }
-  }
-}
-const HW_BSCENE = { bleed: hwBleedScene, drag: hwDragScene, claws: hwClawsScene, scrawl: hwScrawlScene, sigil: hwSigilScene };
-
-// Compone la parete: pietra di base riportata a 256 punti, sopra il livello di sangue e di solchi (sfumato verso i bordi), e la mappa di rilievo
-function hwBloodFeat(fam, v, kb) {
-  const S = HWB, R = hwRng(9100 + fam.charCodeAt(0) * 211 + fam.length * 37 + v * 523 + kb * 71), cv = hwCv(S, S), c = cv[0], g = cv[1];
-  g.imageSmoothingEnabled = true; g.drawImage(HW.base[kb].c, 0, 0, S, S);
-  const gi = g.getImageData(0, 0, S, S), gp = gi.data;   // un po' di grana fine, per non far sembrare la pietra ingrandita
-  for (let i = 0; i < S * S; i++) { const q = (R() - 0.5) * 12; gp[i * 4] += q; gp[i * 4 + 1] += q; gp[i * 4 + 2] += q; }
-  g.putImageData(gi, 0, 0);
-  const bl = hwCv(S, S), gl = hwCv(S, S), B = bl[1], G = gl[1];
-  B.lineCap = B.lineJoin = 'round';
-  HW_BSCENE[fam](B, G, R, v);
-  hwMaskA(B, S, 34); hwMaskA(G, S, 34);
-  g.drawImage(bl[0], 0, 0);
-  const bd = B.getImageData(0, 0, S, S).data, gd = G.getImageData(0, 0, S, S).data, hh = new Float32Array(S * S);
-  for (let i = 0; i < S * S; i++) {   // rilievo: il sangue e in rilievo (piu le croste chiare), i solchi sono incavati
-    const k = i * 4, a = bd[k + 3] / 255, ga = gd[k + 3] / 255, lum = (bd[k] * 0.6 + bd[k + 1] * 0.3 + bd[k + 2] * 0.1) / 255;
-    hh[i] = 0.45 + a * (0.1 + 0.8 * lum) - 0.4 * ga + (R() - 0.5) * 0.03 * a;
-  }
-  const sm = hwBlurF(hh, S, 1), bc = hwCv(S, S), bim = bc[1].createImageData(S, S), bo = bim.data;
-  for (let i = 0; i < S * S; i++) { const q = Math.max(0, Math.min(255, sm[i] * 255)) | 0; bo[i * 4] = bo[i * 4 + 1] = bo[i * 4 + 2] = q; bo[i * 4 + 3] = 255; }
-  bc[1].putImageData(bim, 0, 0);
-  return { c, e: null, b: bc[0] };
-}
-
-function hwFeat(fam, v, kb) {   // ritorna { c: colore, e: emissiva o null, b: rilievo o assente }
-  if (HW_BLOODF[fam]) return hwBloodFeat(fam, v, kb);
+function hwFeat(fam, v, kb) {   // ritorna { c: colore, e: emissiva o null }
   const R = hwRng(7000 + fam.charCodeAt(0) * 131 + fam.length * 17 + v * 389 + kb * 53), cv = hwCv(), c = cv[0], g = cv[1], rp = (a, b) => a + R() * (b - a), n = TS * TS;
   g.drawImage(HW.base[kb].c, 0, 0);
   let e = null;
@@ -1108,118 +659,497 @@ function hwFeat(fam, v, kb) {   // ritorna { c: colore, e: emissiva o null, b: r
 }
 function hwMat(fam, v, kb) {   // materiale creato solo quando serve
   const key = fam + ':' + v + ':' + kb; let m = HW.mats.get(key); if (m) return m;
-  let c = HW.base[kb].c, e = null, b = null;
-  if (fam !== 'clean') {
-    try { const f = hwFeat(fam, v, kb); c = f.c; e = f.e; b = f.b || null; }
-    catch (err) { console.error('Segno sulla parete non disponibile (' + fam + '), resta la pietra nuda:', err); }
-  }
-  m = new THREE.MeshStandardMaterial({ map: hwTex(c), roughness: fam === 'flesh' ? 0.5 : b ? 0.82 : 0.95, emissive: e ? 0xffffff : 0x000000, emissiveMap: e ? hwTex(e) : null, emissiveIntensity: 0.7 });
-  if (b) { m.bumpMap = hwTex(b); m.bumpScale = 2.2; }
+  let c = HW.base[kb].c, e = null;
+  if (fam !== 'clean') { const f = hwFeat(fam, v, kb); c = f.c; e = f.e; }
+  c = hwHiRes(c, 31 * kb + 7 * v + fam.length);
+  m = new THREE.MeshStandardMaterial({ map: hwTex(c), roughness: fam === 'flesh' ? 0.5 : 0.95, emissive: e ? 0xffffff : 0x000000, emissiveMap: e ? hwTex(e) : null, emissiveIntensity: 0.7 });
   if (e) HW.pulse.push(m);
   HW.mats.set(key, m); return m;
 }
 
-// ---------------- bassorilievi: campo di altezze con forme morbide (rilievi e incavi), poi illuminato e sporcato ----------------
-// A = altezze (base 0,3) o maschera; mode: undefined somma, 'm' porta almeno a base+amp, 'k' maschera al massimo
-function hwE(A, S, cx, cy, rx, ry, amp, rot, mode) {   // ellissoide morbido: amp>0 rilievo, amp<0 incavo
-  rot = rot || 0; const c = Math.cos(rot), s = Math.sin(rot), R = Math.max(rx, ry) + 1, x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(S - 1, Math.ceil(cx + R)), y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(S - 1, Math.ceil(cy + R));
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const dx = x - cx, dy = y - cy, u = (dx * c + dy * s) / rx, v = (-dx * s + dy * c) / ry, d2 = u * u + v * v; if (d2 >= 1) continue;
-    const val = amp * Math.pow(1 - d2, 0.8), k = y * S + x;
-    if (mode === 'm') A[k] = Math.max(A[k], 0.3 + val); else if (mode === 'k') A[k] = Math.max(A[k], val); else A[k] += val;
-  }
+// ---------------- segni di sangue e artigli: decalcomanie ad alta risoluzione, disegnate in centimetri veri ----------------
+// Ogni segno e un'immagine trasparente appoggiata sulla parete (non fa parte della pietra): densita 1000-1500 punti per unita,
+// quindi nitida anche a un passo dal muro. Si disegna in centimetri (1 unita = HWD_U cm), cosi una mano misura davvero 19 cm.
+// I segni dei giocatori (mani, scritte, simboli) sono sangue steso con le dita; le artigliate sono vecchi colpi dei demoni.
+const HWD_U = 280;   // centimetri per unita di mondo (un muro alto 1 e circa 2,8 m)
+
+function hwdRGBA(k, age, a) {   // colore del sangue: k = spessore (0 sottile e rosso, 1 spesso e quasi nero), age = invecchiamento (0 fresco, 1 secco e bruno)
+  const r = 146 - 96 * k - 36 * age * (1 - 0.3 * k), g = 24 - 18 * k + 9 * age, b = 20 - 12 * k + 4 * age;
+  return 'rgba(' + (Math.max(0, r) | 0) + ',' + (Math.max(0, g) | 0) + ',' + (Math.max(0, b) | 0) + ',' + Math.max(0, Math.min(1, a)).toFixed(3) + ')';
 }
-function hwC(A, S, x1, y1, x2, y2, r, amp, mode) {   // capsula morbida (dita, arti, pieghe)
-  const x0 = Math.max(0, Math.floor(Math.min(x1, x2) - r)), xe = Math.min(S - 1, Math.ceil(Math.max(x1, x2) + r)), y0 = Math.max(0, Math.floor(Math.min(y1, y2) - r)), ye = Math.min(S - 1, Math.ceil(Math.max(y1, y2) + r)), dx = x2 - x1, dy = y2 - y1, L2 = dx * dx + dy * dy || 1;
-  for (let y = y0; y <= ye; y++) for (let x = x0; x <= xe; x++) {
-    const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / L2)), d = Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)) / r; if (d >= 1) continue;
-    const val = amp * Math.pow(1 - d * d, 0.8), k = y * S + x;
-    if (mode === 'm') A[k] = Math.max(A[k], 0.3 + val); else if (mode === 'k') A[k] = Math.max(A[k], val); else A[k] += val;
-  }
-}
-function hwP(A, S, pts, r, amp, mode) { for (let i = 0; i + 1 < pts.length; i++) hwC(A, S, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], r, amp, mode); }
-function hwFrameF(H, S) {   // cornice a rilievo con una gola interna
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) { const d = Math.min(x, y, S - 1 - x, S - 1 - y); H[y * S + x] += 0.24 * Math.exp(-Math.pow((d - 14) / 6, 2)) - 0.05 * Math.exp(-Math.pow((d - 26) / 2.5, 2)); }
-}
-const HW_DESIGN = [
-  (H, K, S, R) => {   // 0: un volto che spinge da dietro la pietra, come sotto un telo teso
-    hwE(H, S, 128, 124, 62, 86, 0.34, 0, 'm'); hwE(H, S, 128, 72, 50, 30, 0.07, 0);
-    for (const s of [-1, 1]) { hwE(H, S, 128 + s * 34, 118, 18, 8, -0.3, s * 0.12); hwE(H, S, 128 + s * 34, 107, 19, 5, 0.07, s * 0.12); hwE(H, S, 128 + s * 48, 150, 16, 12, 0.06, 0); hwE(K, S, 128 + s * 34, 118, 19, 9, 1, s * 0.12, 'k'); hwE(H, S, 128 + s * 8, 162, 5, 4, -0.12, 0); }
-    hwC(H, S, 128, 122, 128, 158, 9, 0.14); hwE(H, S, 128, 190, 22, 11, -0.34, 0); hwE(H, S, 128, 178, 22, 6, 0.06, 0); hwE(H, S, 128, 203, 20, 6, 0.07, 0); hwE(K, S, 128, 190, 23, 12, 1, 0, 'k');
-    for (let k = 0; k < 14; k++) { const a = k / 14 * 6.2832 + 0.2, c = Math.cos(a), s = Math.sin(a); hwC(H, S, 128 + c * 62 * 1.04, 124 + s * 86 * 1.04, 128 + c * 62 * 1.55, 124 + s * 86 * 1.45, 2.6, 0.035); }   // pieghe di tensione
-  },
-  (H, K, S, R) => {   // 1: mani che premono dall'altra parte del muro
-    const hand = (cx, cy, ang, sc, amp) => {
-      const fx = Math.sin(ang), fy = -Math.cos(ang), rx = Math.cos(ang), ry = Math.sin(ang), L = [34, 44, 46, 38], O = [-15, -5, 5, 15];
-      hwE(H, S, cx, cy, 22 * sc, 26 * sc, amp, ang, 'm');
-      for (let k = 0; k < 4; k++) {
-        const bx = cx + fx * 18 * sc + rx * O[k] * sc, by = cy + fy * 18 * sc + ry * O[k] * sc;
-        hwP(H, S, [[bx, by], [bx + fx * L[k] * 0.55 * sc + rx * O[k] * 0.12 * sc, by + fy * L[k] * 0.55 * sc + ry * O[k] * 0.12 * sc], [bx + fx * L[k] * sc + rx * O[k] * 0.35 * sc, by + fy * L[k] * sc + ry * O[k] * 0.35 * sc]], 6 * sc, amp, 'm');
-      }
-      hwP(H, S, [[cx - rx * 18 * sc, cy - ry * 18 * sc + 4], [cx - rx * 36 * sc + fx * 12 * sc, cy - ry * 36 * sc + fy * 12 * sc], [cx - rx * 44 * sc + fx * 30 * sc, cy - ry * 44 * sc + fy * 30 * sc]], 6.5 * sc, amp, 'm');
-    };
-    hand(100, 152, -0.1, 1.15, 0.34); hand(172, 112, 0.28, 0.9, 0.3); hand(160, 206, 0.05, 0.7, 0.26);
-  },
-  (H, K, S, R) => {   // 2: un corpo avvolto in un sudario, fasciato e macchiato
-    hwC(H, S, 128, 70, 128, 222, 30, 0.3, 'm'); hwE(H, S, 128, 56, 24, 28, 0.33, 0, 'm'); hwE(H, S, 128, 92, 46, 18, 0.3, 0, 'm');
-    for (let y = 104; y <= 212; y += 14) hwC(H, S, 98, y, 158, y + (R() - 0.5) * 8, 3.2, 0.05);
-    for (const y of [86, 168, 206]) hwC(H, S, 96, y, 160, y, 4.5, 0.1);
-    hwE(H, S, 121, 54, 6, 4, -0.05, 0); hwE(H, S, 135, 54, 6, 4, -0.05, 0); hwE(H, S, 128, 70, 6, 5, -0.08, 0);
-    hwE(K, S, 118, 120, 26, 34, 0.9, 0.1, 'k'); hwC(K, S, 118, 150, 121, 212, 5, 0.8, 'k');
-  },
-  (H, K, S, R) => {   // 3: una ferita lunga, cucita con grossi punti
-    const pts = [], lipL = [], lipR = [];
-    for (let y = 34; y <= 222; y += 12) { const x = 128 + Math.sin(y * 0.05) * 8; pts.push([x, y]); lipL.push([x - 21, y]); lipR.push([x + 21, y]); }
-    hwP(H, S, pts, 13, -0.34); hwP(H, S, lipL, 10, 0.13); hwP(H, S, lipR, 10, 0.13);
-    for (let y = 50; y <= 210; y += 17) { const cx = 128 + Math.sin(y * 0.05) * 8; hwC(H, S, cx - 30, y - 5, cx + 30, y + 5, 3, 0.22, 'm'); hwE(H, S, cx - 32, y - 5, 5, 5, 0.1, 0, 'm'); hwE(H, S, cx + 32, y + 5, 5, 5, 0.1, 0, 'm'); }
-    hwP(K, S, pts, 13, 1, 'k'); for (let i = 0; i < 4; i++) { const y = 60 + i * 40, x = 128 + Math.sin(y * 0.05) * 8 + (i % 2 ? 6 : -6); hwC(K, S, x, y, x + 1, y + 30 + R() * 30, 3, 0.9, 'k'); }
-  },
-  (H, K, S, R) => {   // 4: colonna vertebrale e costole, in rilievo nell'intonaco
-    for (let y = 40; y <= 208; y += 24) {
-      hwE(H, S, 128, y, 19, 10, 0.3, 0, 'm'); hwE(H, S, 128, y + 12, 16, 3, -0.06, 0);
-      if (y <= 160) for (const s of [-1, 1]) hwP(H, S, [[128 + s * 20, y], [128 + s * 58, y + 8], [128 + s * 84, y + 34]], 5.5, 0.22, 'm');
-    }
-    hwC(K, S, 128, 30, 128, 220, 22, 0.35, 'k');
-  },
-  (H, K, S, R) => {   // 5: un groviglio di corpi: arti, mani e facce che emergono dalla massa
-    for (let i = 0; i < 18; i++) {
-      let x = 40 + R() * 176, y = 40 + R() * 176, a = R() * 6.28; const pts = [[x, y]], r = 8 + R() * 2.5, amp = 0.2 + R() * 0.1;
-      for (let s = 0; s < 3; s++) { a += (R() - 0.5) * 1.8; x += Math.cos(a) * (34 + R() * 18); y += Math.sin(a) * (34 + R() * 18); pts.push([x, y]); }
-      hwP(H, S, pts, r, amp, 'm'); hwE(H, S, x, y, 11, 9, amp, a, 'm');
-      for (let f = -1; f <= 1; f++) hwC(H, S, x, y, x + Math.cos(a + f * 0.5) * 18, y + Math.sin(a + f * 0.5) * 18, 3, amp, 'm');
-    }
-    for (let k = 0; k < 3; k++) { const cx = 70 + R() * 116, cy = 80 + R() * 100, rot = (R() - 0.5) * 0.8; hwE(H, S, cx, cy, 19, 25, 0.3, rot, 'm'); hwE(H, S, cx - 7, cy - 4, 5, 3, -0.2, 0); hwE(H, S, cx + 7, cy - 4, 5, 3, -0.2, 0); hwE(H, S, cx, cy + 11, 6, 5, -0.22, 0); hwE(K, S, cx, cy + 11, 7, 6, 1, 0, 'k'); }
-  },
-  (H, K, S, R) => {   // 6: figura incappucciata, il volto e un vuoto
-    hwE(H, S, 128, 206, 76, 44, 0.28, 0, 'm'); hwC(H, S, 128, 110, 128, 210, 56, 0.3, 'm'); hwE(H, S, 128, 78, 42, 50, 0.34, 0, 'm'); hwE(H, S, 128, 90, 24, 32, -0.42, 0); hwE(K, S, 128, 90, 26, 36, 1, 0, 'k');
-    for (const dx of [-40, -24, -8, 8, 24, 40]) hwP(H, S, [[128 + dx * 0.8, 128], [128 + dx * 1.05, 170], [128 + dx * 1.4, 226]], 3.5, 0.05);
-    for (const s of [-1, 1]) { hwP(H, S, [[128 + s * 40, 118], [128 + s * 50, 160], [128 + s * 44, 196]], 14, 0.12, 'm'); for (let k = 0; k < 4; k++) hwC(H, S, 128 + s * 44 + (k - 1.5) * 3, 196, 128 + s * 46 + (k - 1.5) * 4, 232, 2.6, 0.14, 'm'); }
-  },
-  (H, K, S, R) => {   // 7: un'apertura carnosa a pieghe radiali, che affonda nel buio
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      const dx = x - 128, dy = y - 128, r = Math.hypot(dx, dy), a = Math.atan2(dy, dx), k = y * S + x;
-      H[k] += 0.22 * Math.pow(Math.max(0, 1 - r / 108), 0.7) - 0.55 * Math.exp(-Math.pow(r / 26, 2)) + 0.07 * Math.sin(16 * a + r * 0.08) * Math.min(1, r / 24) * Math.max(0, 1 - r / 100) + 0.06 * Math.exp(-Math.pow((r - 62) / 6, 2));
-      K[k] = Math.max(K[k], Math.exp(-Math.pow(r / 30, 2)), 0.7 * Math.exp(-Math.pow((r - 62) / 8, 2)));
+function hwdSpline(P, sub) {   // curva morbida che passa per i punti (Catmull-Rom)
+  if (P.length < 3) return P.map(p => p.slice());
+  const out = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    for (let k = 0; k < sub; k++) {
+      const t = k / sub, t2 = t * t, t3 = t2 * t;
+      out.push([0.5 * (2 * p1[0] + (p2[0] - p0[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (3 * p1[0] - p0[0] - 3 * p2[0] + p3[0]) * t3),
+                0.5 * (2 * p1[1] + (p2[1] - p0[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * t3)]);
     }
   }
-];
-function hwPanel(i) {
-  if (HW.panels[i]) return HW.panels[i];
-  const S = 256, H = new Float32Array(S * S).fill(0.3), K = new Float32Array(S * S), R = hwRng(900 + i * 31);
-  HW_DESIGN[i](H, K, S, R); hwFrameF(H, S);
-  const h = hwBlurF(hwBlurF(H, S, 1), S, 1), big = hwBlurF(h, S, 8), mk = hwBlurF(K, S, 3), gn = hwFbm(R, S, 6), gs = hwNoise(R, 24, 3, S);
-  const cc = hwCv(S, S), cb = hwCv(S, S), ic = cc[1].createImageData(S, S), ib = cb[1].createImageData(S, S), D = ic.data, E = ib.data;
-  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const k = y * S + x, x1 = Math.min(S - 1, x + 1), x0 = Math.max(0, x - 1), y1 = Math.min(S - 1, y + 1), y0 = Math.max(0, y - 1);
-    const dx = h[y * S + x1] - h[y * S + x0], dy = h[y1 * S + x] - h[y0 * S + x], lit = Math.max(-0.5, Math.min(0.5, -(dx + dy) * 3.2)), ao = Math.max(0, Math.min(1, (big[k] - h[k]) * 4)), m = Math.min(1, mk[k] * 1.1);
-    const sh = (0.45 + 0.9 * h[k]) * (1 + lit * 1.1) * (1 - 0.5 * ao) * (0.75 + 0.5 * gn[k]) * (1 - 0.35 * hwSs(0.6, 0.9, gs[k]));   // luce da sinistra, ombra negli incavi, sporco e colature
-    D[k * 4] = Math.max(0, Math.min(255, (132 * (1 - m) + 62 * m) * sh)); D[k * 4 + 1] = Math.max(0, Math.min(255, (124 * (1 - m) + 10 * m) * sh)); D[k * 4 + 2] = Math.max(0, Math.min(255, (112 * (1 - m) + 12 * m) * sh)); D[k * 4 + 3] = 255;
-    const bv = Math.max(0, Math.min(255, h[k] * 255)) | 0; E[k * 4] = E[k * 4 + 1] = E[k * 4 + 2] = bv; E[k * 4 + 3] = 255;
-  }
-  cc[1].putImageData(ic, 0, 0); cb[1].putImageData(ib, 0, 0);
-  return (HW.panels[i] = { map: new THREE.CanvasTexture(cc[0]), bump: new THREE.CanvasTexture(cb[0]), mat: null });
+  out.push(P[P.length - 1].slice()); return out;
 }
-function hwPanelMat(i) { const P = hwPanel(i); if (!P.mat) P.mat = new THREE.MeshStandardMaterial({ map: P.map, bumpMap: P.bump, bumpScale: 2.5, roughness: 0.85, metalness: 0 }); return P.mat; }
+function hwdResample(P, step) {   // punti a distanza costante lungo la linea
+  const out = [P[0].slice()]; let acc = 0;
+  for (let i = 1; i < P.length; i++) {
+    const a = P[i - 1], b = P[i], d = Math.hypot(b[0] - a[0], b[1] - a[1]); if (d < 1e-6) continue;
+    let s = step - acc;
+    while (s <= d) { const t = s / d; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); s += step; }
+    acc = d - (s - step);
+  }
+  const l = P[P.length - 1], e = out[out.length - 1]; if (Math.hypot(l[0] - e[0], l[1] - e[1]) > step * 0.3) out.push(l.slice());
+  return out;
+}
+function hwdOutline(P, wf, R, jit) {   // da una linea a un nastro con i bordi irregolari
+  const n = P.length, l = [], r = [];
+  for (let i = 0; i < n; i++) {
+    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)]; let dx = b[0] - a[0], dy = b[1] - a[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const t = n > 1 ? i / (n - 1) : 0, w = Math.max(0.02, wf(t)) / 2, j1 = 1 + (R() - 0.5) * jit, j2 = 1 + (R() - 0.5) * jit;
+    l.push([P[i][0] - dy * w * j1, P[i][1] + dx * w * j1]); r.push([P[i][0] + dy * w * j2, P[i][1] - dx * w * j2]);
+  }
+  return { c: P, l, r };
+}
+function hwdFill(L, O, k) {   // riempie il nastro, scalato di k rispetto alla linea centrale
+  const n = O.c.length; L.beginPath();
+  for (let i = 0; i < n; i++) { const x = O.c[i][0] + (O.l[i][0] - O.c[i][0]) * k, y = O.c[i][1] + (O.l[i][1] - O.c[i][1]) * k; if (i) L.lineTo(x, y); else L.moveTo(x, y); }
+  for (let i = n - 1; i >= 0; i--) L.lineTo(O.c[i][0] + (O.r[i][0] - O.c[i][0]) * k, O.c[i][1] + (O.r[i][1] - O.c[i][1]) * k);
+  L.closePath(); L.fill();
+}
+function hwdEdge(L, E, c) {   // contorno sottile di un bordo
+  L.beginPath(); for (let i = 0; i < E.length; i++) { if (i) L.lineTo(E[i][0], E[i][1]); else L.moveTo(E[i][0], E[i][1]); } L.stroke();
+}
+// Un tratto di sangue: alone di siero, corpo, centro piu denso, bordi piu scuri dove il sangue si accumula, filo di riflesso umido
+function hwdBlood(L, R, P, wf, o) {
+  o = o || {}; const age = o.age === undefined ? 0.5 : o.age, al = o.a === undefined ? 1 : o.a, O = hwdOutline(P, wf, R, o.jit === undefined ? 0.14 : o.jit);
+  L.fillStyle = hwdRGBA(0.2, age, 0.2 * al); hwdFill(L, O, 1.25);
+  L.fillStyle = hwdRGBA(0.42, age, 0.95 * al); hwdFill(L, O, 1);
+  L.fillStyle = hwdRGBA(0.85, age, 0.3 * al); hwdFill(L, O, 0.62);
+  L.lineWidth = 0.09; L.lineJoin = 'round'; L.strokeStyle = hwdRGBA(0.95, age, 0.22 * al); hwdEdge(L, O.l); hwdEdge(L, O.r);
+  const g = []; for (let i = 0; i < O.c.length; i++) g.push([O.c[i][0] + (O.l[i][0] - O.c[i][0]) * 0.45, O.c[i][1] + (O.l[i][1] - O.c[i][1]) * 0.45]);
+  L.lineWidth = 0.08; L.strokeStyle = 'rgba(214,96,84,' + (0.3 * al).toFixed(2) + ')'; hwdEdge(L, g);
+  return O;
+}
+function hwdDot(L, x, y, r, o) {
+  o = o || {}; const age = o.age === undefined ? 0.5 : o.age, al = o.a === undefined ? 1 : o.a;
+  L.fillStyle = hwdRGBA(0.2, age, 0.2 * al); L.beginPath(); L.arc(x, y, r * 1.25, 0, 6.2832); L.fill();
+  L.fillStyle = hwdRGBA(0.6, age, 0.95 * al); L.beginPath(); L.arc(x, y, r, 0, 6.2832); L.fill();
+  L.fillStyle = hwdRGBA(0.95, age, 0.5 * al); L.beginPath(); L.arc(x, y, r * 0.55, 0, 6.2832); L.fill();
+}
+// Tratto fatto con un dito: parte con una piccola goccia, cala di spessore, e se e lungo finisce a strisce quasi senza sangue
+let HWD_WS = 1;   // spessore dei tratti, per categoria
+function hwdStroke(L, R, pts, w, o) {
+  o = o || {}; w *= HWD_WS;
+  const P = hwdResample(o.sharp ? pts : hwdSpline(pts, 8), 0.35);
+  if (P.length < 2) { hwdDot(L, pts[0][0], pts[0][1], w * 0.6, o); return P; }
+  const ph = R() * 6.28, f1 = 3 + R() * 4, st = 1 + 0.3 * (R() < 0.6 ? 1 : 0), endk = o.end === undefined ? 0.45 : o.end;
+  const wf = t => w * (1 + 0.14 * Math.sin(t * f1 + ph)) * (1 + (st - 1) * (1 - hwSs(0, 0.07, t))) * (endk + (1 - endk) * (1 - hwSs(0.8, 1, t)));
+  hwdBlood(L, R, P, wf, o);
+  if (!o.wet && P.length > 45) {   // a secco: le ultime righe del tratto si interrompono
+    L.save(); L.globalCompositeOperation = 'destination-out'; L.lineCap = 'round';
+    const ns = 2 + ((R() * 3) | 0);
+    for (let k = 0; k < ns; k++) {
+      const i0 = Math.floor(P.length * (0.62 + R() * 0.28)), off = (R() - 0.5) * w * 0.7; L.lineWidth = 0.07 + R() * 0.12; L.strokeStyle = 'rgba(0,0,0,' + (0.6 + R() * 0.4).toFixed(2) + ')'; L.beginPath();
+      for (let i = i0; i < P.length; i++) { const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1; const x = P[i][0] - dy / d * off, y = P[i][1] + dx / d * off; if (i === i0) L.moveTo(x, y); else L.lineTo(x, y); }
+      L.stroke();
+    }
+    L.restore();
+  }
+  return P;
+}
+function hwdWob(R, a, b, amp, step) {   // linea a mano libera tra due punti: oscilla un poco, come una mano che trema
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, n = Math.max(2, Math.round(d / (step || 6))), nx = -(b[1] - a[1]) / d, ny = (b[0] - a[0]) / d, P = [];
+  for (let i = 0; i <= n; i++) { const t = i / n, o = (i === 0 || i === n) ? 0 : (R() - 0.5) * 2 * amp; P.push([a[0] + (b[0] - a[0]) * t + nx * o, a[1] + (b[1] - a[1]) * t + ny * o]); }
+  return P;
+}
+function hwdArc(R, cx, cy, r, a0, a1, amp) {   // arco tracciato a mano
+  const n = Math.max(6, Math.round(Math.abs(a1 - a0) * r / 5)), P = [];
+  for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n, k = r + (R() - 0.5) * amp * 2; P.push([cx + Math.cos(a) * k, cy + Math.sin(a) * k]); }
+  return P;
+}
+// Colatura: scende dritta per gravita, si assottiglia e finisce in una goccia piu grossa
+function hwdDrip(L, R, x, y, len, w, o) {
+  o = o || {}; const wob = (R() - 0.5) * Math.min(2.4, len * 0.07), n = Math.max(8, Math.round(len / 0.45)), P = [], bead = 1.45 + R() * 0.5;
+  for (let i = 0; i <= n; i++) { const t = i / n; P.push([x + wob * t * t + Math.sin(t * 7 + x) * 0.07, y + len * t]); }
+  const wf = t => w * (t < 0.1 ? 1.05 : 0.66 - 0.1 * t) * (t > 0.9 ? 1 + (bead / 0.6 - 1) * hwSs(0.9, 0.965, t) : 1) * (t > 0.965 ? Math.sqrt(Math.max(0.001, 1 - (t - 0.965) / 0.035)) : 1);
+  hwdBlood(L, R, P, wf, { age: o.age, a: o.a, jit: 0.06 });
+}
+function hwdBlob(R, cx, cy, rx, ry, rot, n) {   // contorno irregolare di una chiazza
+  const ph = [R() * 6.28, R() * 6.28, R() * 6.28], am = [0.18 + R() * 0.14, 0.09 + R() * 0.08, 0.05 + R() * 0.05], c = Math.cos(rot || 0), s = Math.sin(rot || 0), pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = i / n * 6.2832, k = 1 + am[0] * Math.sin(2 * a + ph[0]) + am[1] * Math.sin(3 * a + ph[1]) + am[2] * Math.sin(5 * a + ph[2]) + (R() - 0.5) * 0.08, x = Math.cos(a) * rx * k, y = Math.sin(a) * ry * k;
+    pts.push([cx + x * c - y * s, cy + x * s + y * c]);
+  }
+  return pts;
+}
+function hwdClosed(g, pts) {
+  const n = pts.length; g.beginPath(); g.moveTo((pts[n - 1][0] + pts[0][0]) / 2, (pts[n - 1][1] + pts[0][1]) / 2);
+  for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; g.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2); }
+  g.closePath();
+}
+// Pozza o grumo rappreso: alone, corpo denso scuro al centro, croste, crepe da essiccazione, riflessi lucidi
+function hwdPool(L, R, cx, cy, rx, ry, o) {
+  o = o || {}; const age = o.age === undefined ? 0.6 : o.age, rot = o.rot || 0;
+  hwdClosed(L, hwdBlob(R, cx, cy, rx * 1.07, ry * 1.07, rot, 16)); L.fillStyle = hwdRGBA(0.2, age, 0.1); L.fill();
+  const gr = L.createRadialGradient(cx, cy, 0, cx, cy, Math.max(rx, ry) * 1.05);
+  gr.addColorStop(0, hwdRGBA(0.97, age, 0.97)); gr.addColorStop(0.55, hwdRGBA(0.72, age, 0.95)); gr.addColorStop(1, hwdRGBA(0.38, age, 0.9));
+  hwdClosed(L, hwdBlob(R, cx, cy, rx, ry, rot, 18)); L.fillStyle = gr; L.fill(); L.lineWidth = 0.18; L.strokeStyle = hwdRGBA(1, age, 0.55); L.stroke();
+  const isl = 4 + Math.round(Math.min(rx, ry) * 0.6);
+  for (let i = 0; i < isl; i++) {
+    const a = R() * 6.2832, d = Math.sqrt(R()) * 0.8, r = 0.35 + R() * Math.min(rx, ry) * 0.22;
+    hwdClosed(L, hwdBlob(R, cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, r, r * (0.6 + R() * 0.5), R() * 3, 8));
+    L.fillStyle = R() < 0.55 ? hwdRGBA(1, age, 0.5) : hwdRGBA(0.1, age, 0.3); L.fill();
+  }
+  L.lineCap = 'round'; L.lineJoin = 'round';
+  const nc = Math.round(4 + Math.min(rx, ry) * 1.4);   // crepe da essiccazione
+  for (let i = 0; i < nc; i++) {
+    let x = cx + (R() - 0.5) * rx * 1.1, y = cy + (R() - 0.5) * ry * 1.1, a = R() * 6.2832; const pts = [[x, y]], steps = 3 + ((R() * 6) | 0);
+    for (let s = 0; s < steps; s++) { a += (R() - 0.5) * 1.5; x += Math.cos(a) * (0.5 + R() * 1); y += Math.sin(a) * (0.5 + R() * 1); const u = (x - cx) / rx, q = (y - cy) / ry; if (u * u + q * q > 0.8) break; pts.push([x, y]); }
+    if (pts.length > 1) { L.beginPath(); pts.forEach((p, j) => j ? L.lineTo(p[0], p[1]) : L.moveTo(p[0], p[1])); L.strokeStyle = 'rgba(12,1,2,.85)'; L.lineWidth = 0.1; L.stroke(); L.save(); L.translate(0.09, 0.09); L.beginPath(); pts.forEach((p, j) => j ? L.lineTo(p[0], p[1]) : L.moveTo(p[0], p[1])); L.strokeStyle = 'rgba(190,70,58,.25)'; L.lineWidth = 0.07; L.stroke(); L.restore(); }
+  }
+  for (let i = 0; i < 3; i++) { const a = R() * 6.2832, d = Math.sqrt(R()) * 0.55; L.fillStyle = 'rgba(230,120,106,.2)'; L.beginPath(); L.ellipse(cx + Math.cos(a) * rx * d, cy + Math.sin(a) * ry * d, 0.5 + R() * 1, 0.2 + R() * 0.3, R() * 3, 0, 6.2832); L.fill(); }
+}
+// Schizzi: gocce allungate nella direzione del colpo, piu grosse vicino all'origine, con le piccole gocce satelliti
+function hwdDrops(L, R, cx, cy, dir, spread, n, rmax, o) {
+  o = o || {}; const age = o.age === undefined ? 0.6 : o.age, cone = o.cone === undefined ? 1.3 : o.cone;
+  for (let i = 0; i < n; i++) {
+    const a = dir + (R() - 0.5) * cone, d = Math.pow(R(), 0.65) * spread, r = Math.max(0.1, rmax * Math.pow(R(), 2.2) * (1 - 0.5 * d / spread)), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d, el = 1 + 1.6 * d / spread;
+    if (r > 0.3) { L.strokeStyle = hwdRGBA(0.6, age, 0.8); L.lineWidth = r * 0.5; L.lineCap = 'round'; L.beginPath(); L.moveTo(x, y); L.lineTo(x - Math.cos(a) * r * (1.5 + el * 1.6), y - Math.sin(a) * r * (1.5 + el * 1.6)); L.stroke(); }
+    L.fillStyle = hwdRGBA(0.55 + 0.4 * R(), age, 0.9); L.beginPath(); L.ellipse(x, y, r * el, r, a, 0, 6.2832); L.fill();
+    if (r > 0.38) { L.fillStyle = 'rgba(226,110,98,.26)'; L.beginPath(); L.arc(x - r * 0.25, y - r * 0.3, r * 0.26, 0, 6.2832); L.fill(); }
+  }
+}
+// Strisciata di dita o di palmo: densa all'inizio, a strisce sempre piu rade, con un grumo dove e cominciata
+function hwdSmear(L, R, x0, y0, x1, y1, w, n, o) {
+  o = o || {}; const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len, bend = o.bend === undefined ? (R() - 0.5) * len * 0.12 : o.bend;
+  for (let k = 0; k < n; k++) {
+    const off = n > 1 ? (k / (n - 1) - 0.5) * w : 0, wk = Math.max(0.5, w / n * (1.1 + R() * 0.5)), end = 0.55 + R() * 0.45, P = [];
+    for (let i = 0; i <= 14; i++) { const t = i / 14 * end, b = off + Math.sin(Math.PI * t) * bend + (R() - 0.5) * 0.25; P.push([x0 + dx * t + nx * b, y0 + dy * t + ny * b]); }
+    hwdStroke(L, R, P, wk, { age: o.age, a: 0.9 + R() * 0.1, end: 0.3, wet: false });
+  }
+  if (!o.noClot) hwdPool(L, R, x0, y0, w * 0.5, w * 0.36, { age: o.age, rot: Math.atan2(dy, dx) });
+}
+
+// ---------------- la mano: dimensioni vere (palmo 8 x 9 cm, dita da 6 a 8 cm larghe 2) ----------------
+function hwdCapsule(g, x1, y1, x2, y2, r1, r2) {
+  const a = Math.atan2(y2 - y1, x2 - x1); g.beginPath(); g.arc(x1, y1, r1, a + Math.PI / 2, a + Math.PI * 1.5); g.arc(x2, y2, r2, a - Math.PI / 2, a + Math.PI / 2); g.closePath();
+}
+// Impronta di una mano premuta sul muro (dita verso l'alto, ruotata di rot). Non e piena: il palmo ha l'arco vuoto, le dita le pieghe, qualche vuoto.
+function hwdHand(L, R, x, y, rot, sc, left, o) {
+  o = o || {}; const pc = o.pc || 5, age = o.age === undefined ? 0.5 : o.age, al = o.a === undefined ? 1 : o.a, wt = o.wet === undefined ? 0.5 : o.wet;
+  const tw = Math.ceil(19 * pc), th = Math.ceil(23 * pc), T = hwCv(tw, th), g = T[1];
+  g.translate(9.5 * pc, 15.5 * pc); g.scale(left ? -pc : pc, pc); g.lineJoin = 'round';
+  const j = () => (R() - 0.5) * 0.2, F = [[-3.05, -0.13 + j(), 6.9 + R() * 0.8, 1.9], [-1.0, -0.03 + j(), 7.8 + R() * 0.8, 2.0], [1.05, 0.05 + j(), 7.1 + R() * 0.8, 1.9], [3.0, 0.17 + j(), 5.5 + R() * 0.7, 1.6]];
+  const shapes = [];
+  const palm = () => { g.beginPath(); g.moveTo(-3.7, 5.0); g.bezierCurveTo(-5.0, 2.4, -4.7, -1.5, -4.2, -4.0); g.lineTo(4.1, -4.2); g.bezierCurveTo(4.7, -1.0, 4.6, 2.4, 3.5, 5.0); g.bezierCurveTo(1.8, 6.5, -1.8, 6.5, -3.7, 5.0); g.closePath(); };
+  shapes.push(palm);
+  for (const f of F) shapes.push(() => hwdCapsule(g, f[0], -3.6, f[0] + Math.sin(f[1]) * f[2], -3.6 - Math.cos(f[1]) * f[2], f[3] / 2, f[3] * 0.46));
+  const tj = j();
+  shapes.push(() => hwdCapsule(g, -3.0, 2.7, -6.1, -0.1, 1.45, 1.3)); shapes.push(() => hwdCapsule(g, -6.1, -0.1, -7.5 + tj, -3.0, 1.3, 1.12));
+  g.fillStyle = hwdRGBA(0.35 + wt * 0.15, age, 0.9);
+  for (const s of shapes) { s(); g.fill(); }
+  g.lineWidth = 0.2; g.strokeStyle = hwdRGBA(0.95, age, 0.5);
+  for (const s of shapes) { s(); g.stroke(); }
+  g.globalCompositeOperation = 'destination-out'; g.lineCap = 'round';
+  for (const f of F) for (const s of [0.34, 0.66]) if (R() < 0.85) {   // pieghe delle falangi
+    const px = f[0] + Math.sin(f[1]) * f[2] * s, py = -3.6 - Math.cos(f[1]) * f[2] * s; g.lineWidth = 0.12 + R() * 0.1; g.strokeStyle = 'rgba(0,0,0,' + (0.7 + R() * 0.3).toFixed(2) + ')';
+    g.beginPath(); g.moveTo(px - 1.1 * Math.cos(f[1]), py - 1.1 * Math.sin(f[1])); g.lineTo(px + 1.1 * Math.cos(f[1]), py + 1.1 * Math.sin(f[1])); g.stroke();
+  }
+  const ag = g.createRadialGradient(-0.2, 2.0, 0, -0.2, 2.0, 2.8); ag.addColorStop(0, 'rgba(0,0,0,.7)'); ag.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = ag; g.beginPath(); g.ellipse(-0.2, 2.0, 2.8, 1.9, 0.3, 0, 6.2832); g.fill();   // arco del palmo
+  g.lineWidth = 0.14; g.strokeStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.arc(-1.8, 0.2, 3.4, 0.1, 1.5); g.stroke();   // linea della vita
+  for (let i = 0; i < 30; i++) {   // vuoti: il sangue non ha toccato tutto
+    const px = (R() - 0.5) * 9.5, py = -3.6 + R() * 9, r = 0.1 + R() * 0.34; if (py < -3.6 - 5.6 && R() < 0.8) continue;
+    g.fillStyle = 'rgba(0,0,0,' + (0.45 + R() * 0.5).toFixed(2) + ')'; g.beginPath(); g.ellipse(px, py, r * (1 + R()), r, R() * 3, 0, 6.2832); g.fill();
+  }
+  for (let i = 0; i < 40; i++) { const f = F[(R() * 4) | 0], s = 0.15 + R() * 0.55, px = f[0] + Math.sin(f[1]) * f[2] * s + (R() - 0.5) * 1.2, py = -3.6 - Math.cos(f[1]) * f[2] * s; g.fillStyle = 'rgba(0,0,0,' + (0.4 + R() * 0.5).toFixed(2) + ')'; g.beginPath(); g.ellipse(px, py, 0.08 + R() * 0.22, 0.08 + R() * 0.2, R() * 3, 0, 6.2832); g.fill(); }
+  if (o.slip) { L.save(); L.translate(x + o.slip[0], y + o.slip[1]); L.rotate(rot + 0.04); L.scale(sc, sc); L.globalAlpha = al * 0.4; L.drawImage(T[0], -9.5, -15.5, 19, 23); L.restore(); }
+  L.save(); L.translate(x, y); L.rotate(rot); L.scale(sc, sc); L.globalAlpha = al; L.drawImage(T[0], -9.5, -15.5, 19, 23); L.restore();
+}
+function hwdPad(L, R, x, y, ang, o) {   // polpastrello premuto: ovale pieno di piccoli vuoti
+  o = o || {}; const age = o.age === undefined ? 0.5 : o.age;
+  L.save(); L.translate(x, y); L.rotate(ang); L.fillStyle = hwdRGBA(0.42, age, 0.93); L.beginPath(); L.ellipse(0, 0, 1.0, 1.35, 0, 0, 6.2832); L.fill();
+  L.lineWidth = 0.14; L.strokeStyle = hwdRGBA(0.95, age, 0.4); L.stroke(); L.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 6; i++) { L.fillStyle = 'rgba(0,0,0,.6)'; L.beginPath(); L.arc((R() - 0.5) * 1.5, (R() - 0.5) * 2.1, 0.08 + R() * 0.16, 0, 6.2832); L.fill(); }
+  L.restore();
+}
+function hwdFingerTips(x, y, rot, sc, left) {   // dove cadono i polpastrelli di una mano disegnata con hwdHand, in centimetri della tela
+  const X = [-3.05, -1.0, 1.05, 3.0], Ln = [7.3, 8.2, 7.5, 5.8], P = [], c = Math.cos(rot), s = Math.sin(rot);
+  for (let i = 0; i < 4; i++) { const lx = (left ? -X[i] : X[i]) * sc, ly = (-3.6 - Ln[i]) * sc; P.push([x + lx * c - ly * s, y + lx * s + ly * c]); }
+  return P;
+}
+
+// ---------------- artigli: solchi di vecchi colpi di demone, in stile Wolverine ----------------
+// Un solco lungo e pulito: ingresso profondo e largo, poi si assottiglia fino a una punta; bordi di pietra scheggiata, lato illuminato piu chiaro,
+// polvere e schegge sotto. Vecchio: il fondo e sporco, i bordi sono grigi e non bianchi.
+function hwdGash(L, R, x0, y0, ang, len, wmax, curve, o) {
+  o = o || {}; const N = Math.max(14, Math.round(len / 0.45)), ca = Math.cos(ang), sa = Math.sin(ang), nx = -sa, ny = ca, ph = R() * 6.28, C = [], Wd = [], K = [];
+  for (let i = 0; i < 9; i++) K.push(0.75 + R() * 0.5);
+  const skips = []; if (o.skip) for (let k = 0; k < o.skip; k++) { const a = 0.25 + R() * 0.55; skips.push([a, a + 0.03 + R() * 0.05]); }
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, off = Math.sin(Math.PI * t) * curve + Math.sin(t * 6 + ph) * 0.35;
+    C.push([x0 + ca * len * t + nx * off, y0 + sa * len * t + ny * off]);
+    const kk = t * 8, ki = Math.min(7, Math.floor(kk)), kn = K[ki] + (K[ki + 1] - K[ki]) * (kk - ki);
+    let w = wmax * (0.38 + 0.62 * hwSs(0, 0.1, t)) * Math.pow(1 - t, 0.7) * kn;
+    for (const s of skips) if (t > s[0] && t < s[1]) w *= 0.12;
+    Wd.push(Math.max(0.04, w));
+  }
+  const side = ((nx * 0.5 + ny * 0.85) >= 0) ? 1 : -1, Lf = [], Rg = [];
+  for (let i = 0; i <= N; i++) { const j1 = 1 + (R() - 0.5) * 0.38, j2 = 1 + (R() - 0.5) * 0.38; Lf.push([C[i][0] + nx * Wd[i] / 2 * j1, C[i][1] + ny * Wd[i] / 2 * j1]); Rg.push([C[i][0] - nx * Wd[i] / 2 * j2, C[i][1] - ny * Wd[i] / 2 * j2]); }
+  const poly = (k, A, B) => { L.beginPath(); for (let i = 0; i <= N; i++) { const x = C[i][0] + (A[i][0] - C[i][0]) * k, y = C[i][1] + (A[i][1] - C[i][1]) * k; if (i) L.lineTo(x, y); else L.moveTo(x, y); } for (let i = N; i >= 0; i--) L.lineTo(C[i][0] + (B[i][0] - C[i][0]) * k, C[i][1] + (B[i][1] - C[i][1]) * k); L.closePath(); L.fill(); };
+  L.lineJoin = 'round'; L.lineCap = 'round';
+  L.fillStyle = 'rgba(34,27,20,.2)'; poly(3.6, Lf, Rg);   // sporco e polvere attorno al solco
+  L.fillStyle = 'rgba(70,62,52,.6)'; poly(1.7, Lf, Rg);   // bordo di pietra rotta
+  L.fillStyle = 'rgba(14,11,9,.97)'; poly(1, Lf, Rg);
+  L.fillStyle = 'rgba(2,1,1,.96)'; poly(0.5, Lf, Rg);   // il fondo, nerissimo
+  const Lit = side > 0 ? Rg : Lf, Dk = side > 0 ? Lf : Rg;   // il lato rivolto alla luce (in alto a sinistra) e quello in basso a destra
+  L.fillStyle = 'rgba(150,138,118,.5)'; L.beginPath();
+  for (let i = 0; i <= N; i++) { const x = C[i][0] + (Lit[i][0] - C[i][0]) * 1.0, y = C[i][1] + (Lit[i][1] - C[i][1]) * 1.0; if (i) L.lineTo(x, y); else L.moveTo(x, y); }
+  for (let i = N; i >= 0; i--) L.lineTo(C[i][0] + (Lit[i][0] - C[i][0]) * 0.42, C[i][1] + (Lit[i][1] - C[i][1]) * 0.42);
+  L.closePath(); L.fill();
+  L.lineWidth = 0.1; L.strokeStyle = 'rgba(206,194,170,.62)'; hwdEdge(L, Dk.map((p, i) => [C[i][0] + (p[0] - C[i][0]) * 1.04, C[i][1] + (p[1] - C[i][1]) * 1.04]));   // filo di luce sul labbro
+  L.strokeStyle = 'rgba(6,5,4,.7)'; L.lineWidth = 0.08; hwdEdge(L, Lit.map((p, i) => [C[i][0] + (Lit[i][0] - C[i][0]) * 1.02, C[i][1] + (Lit[i][1] - C[i][1]) * 1.02]));
+  const nch = Math.round(len / 4);   // schegge staccate dai bordi
+  for (let k = 0; k < nch; k++) {
+    const i = (R() * N) | 0, sd = R() < 0.5 ? Lf : Rg, p = sd[i], r = 0.4 + R() * 1.3 * Math.min(1, Wd[i] / 1.2 + 0.4), a0 = R() * 6.28, m = 3 + ((R() * 3) | 0);
+    L.beginPath(); for (let q = 0; q < m; q++) { const a = a0 + q / m * 6.2832, rr = r * (0.6 + R() * 0.6); const x = p[0] + (sd === Lf ? nx : -nx) * r * 0.4 + Math.cos(a) * rr, y = p[1] + (sd === Lf ? ny : -ny) * r * 0.4 + Math.sin(a) * rr; if (q) L.lineTo(x, y); else L.moveTo(x, y); } L.closePath();
+    L.fillStyle = R() < 0.55 ? 'rgba(138,127,108,.5)' : 'rgba(10,8,6,.7)'; L.fill();
+  }
+  L.lineCap = 'round'; L.lineWidth = 0.07;   // crepe sottili che partono dall'ingresso e da qualche punto lungo il solco
+  for (let k = 0; k < 5; k++) { const i = k < 3 ? (R() * 6) | 0 : (R() * N) | 0, p = C[i], a = (k < 3 ? ang + (R() - 0.5) * 2.4 : ang + (R() < 0.5 ? 1.5708 : -1.5708) + (R() - 0.5) * 0.8), d = 1.2 + R() * 3.2; L.strokeStyle = 'rgba(8,6,5,.6)'; L.beginPath(); L.moveTo(p[0], p[1]); L.lineTo(p[0] + Math.cos(a) * d * 0.5 + (R() - 0.5) * 0.5, p[1] + Math.sin(a) * d * 0.5 + (R() - 0.5) * 0.5); L.lineTo(p[0] + Math.cos(a) * d, p[1] + Math.sin(a) * d); L.stroke(); }
+  for (let k = 0; k < Math.round(len * 0.7); k++) {   // polvere e briciole di pietra, piu sotto che sopra
+    const i = (R() * N) | 0, p = C[i]; L.fillStyle = R() < 0.7 ? 'rgba(158,146,126,' + (0.18 + R() * 0.3).toFixed(2) + ')' : 'rgba(10,8,6,.4)';
+    L.beginPath(); L.arc(p[0] + (R() - 0.5) * (4 + wmax * 3), p[1] + R() * (3 + wmax * 2.4), 0.06 + R() * 0.16, 0, 6.2832); L.fill();
+  }
+  if (o.blood) {   // sangue del giocatore rappreso nel solco: bruno, secco, a macchie
+    const t0 = R() * 0.35, t1 = 0.5 + R() * 0.5, i0 = Math.floor(t0 * N), i1 = Math.floor(t1 * N);
+    L.fillStyle = hwdRGBA(0.85, 0.9, 0.82); L.beginPath();
+    for (let i = i0; i <= i1; i++) { const x = C[i][0] + (Lf[i][0] - C[i][0]) * 0.55, y = C[i][1] + (Lf[i][1] - C[i][1]) * 0.55; if (i > i0) L.lineTo(x, y); else L.moveTo(x, y); }
+    for (let i = i1; i >= i0; i--) L.lineTo(C[i][0] + (Rg[i][0] - C[i][0]) * 0.55, C[i][1] + (Rg[i][1] - C[i][1]) * 0.55);
+    L.closePath(); L.fill();
+    const low = C[N][1] > C[0][1] ? C[i1] : C[i0]; hwdDrip(L, R, low[0], low[1], 6 + R() * 24, Math.max(0.5, wmax * 0.3), { age: 0.9 });
+  }
+  return C;
+}
+function hwdRake(L, R, cx, cy, ang, len, n, sp, wmax, curve, o) {   // un colpo a mano aperta: 3 (o 4) solchi paralleli, quello al centro piu lungo
+  o = o || {}; const ca = Math.cos(ang), sa = Math.sin(ang), nx = -sa, ny = ca;
+  for (let k = 0; k < n; k++) {
+    const mid = k - (n - 1) / 2, off = mid * sp * (1 + (R() - 0.5) * 0.12), st = (R() * 0.07 + (Math.abs(mid) > 0.6 ? 0.03 : 0)) * len, ln = len * (1 - 0.07 * Math.abs(mid)) * (0.93 + R() * 0.12) - st;
+    hwdGash(L, R, cx + nx * off - ca * len / 2 + ca * st, cy + ny * off - sa * len / 2 + sa * st, ang + (R() - 0.5) * 0.016, ln, wmax * (0.82 + R() * 0.36) * (1 - 0.08 * Math.abs(mid)), curve, { skip: o.skip ? (R() < 0.35 ? 1 : 0) : 0, blood: o.blood && R() < 0.5 });
+  }
+}
+
+// ---------------- scritte incomprensibili: lettere che nessuna lingua conosce ----------------
+function hwdGlyph(R, style) {   // una lettera su un riquadro 0..1 (y verso il basso); style: 0 runica, 1 corsiva, 2 archi e cerchi
+  const st = [];
+  if (style === 0) {
+    const gx = [0.1, 0.5, 0.9], gy = [0, 0.34, 0.66, 1], steps = 2 + ((R() * 3) | 0);
+    let cx = (R() * 3) | 0, cy = (R() * 4) | 0; const pts = [[gx[cx], gy[cy]]];
+    for (let i = 0; i < steps; i++) { let nx = cx, ny = cy, g = 0; while (nx === cx && ny === cy && g++ < 8) { nx = (R() * 3) | 0; ny = (R() * 4) | 0; } cx = nx; cy = ny; pts.push([gx[cx], gy[cy]]); }
+    pts.sharp = true; st.push(pts);
+    if (R() < 0.55) { const s = [[0.5, -0.06], [0.5, 1.06]]; s.sharp = true; st.push(s); }
+    if (R() < 0.3) { const s = [[0.04, 0.3 + R() * 0.4], [0.96, 0.3 + R() * 0.4]]; s.sharp = true; st.push(s); }
+    if (R() < 0.22) st.push([[0.1 + R() * 0.8, -0.3]]);
+  } else if (style === 1) {
+    const f1 = 1 + R() * 1.4, f2 = 1.4 + R() * 1.8, p1 = R() * 6.28, p2 = R() * 6.28, T = 2.4 + R() * 2.4, pts = [];
+    for (let i = 0; i <= 14; i++) { const t = i / 14 * T; pts.push([0.5 + 0.48 * Math.sin(f1 * t + p1), 0.5 + 0.5 * Math.sin(f2 * t + p2)]); }
+    st.push(pts);
+    if (R() < 0.4) st.push([[0.2 + R() * 0.6, -0.3]]);
+  } else {
+    const r = 0.22 + R() * 0.14, cx = 0.5, cy = 0.3 + R() * 0.3, arc = [], a0 = R() * 6.28, sw = 3.4 + R() * 2.8;
+    for (let i = 0; i <= 12; i++) { const a = a0 + i / 12 * sw; arc.push([cx + Math.cos(a) * r * 1.2, cy + Math.sin(a) * r]); }
+    st.push(arc);
+    if (R() < 0.7) st.push([[cx + (R() - 0.5) * 0.3, cy + r], [cx + (R() - 0.5) * 0.3, 1.05]]);
+    if (R() < 0.5) st.push([[0.5, -0.22]]);
+    if (R() < 0.4) { const s = [[0.1, 0.9], [0.9, 0.9 + (R() - 0.5) * 0.2]]; s.sharp = true; st.push(s); }
+  }
+  return st;
+}
+function hwdGlyphDraw(L, R, st, ox, oy, gw, gh, rot, w, o) {   // una lettera centrata in (ox,oy), ruotata, con la colatura dal punto piu basso di ogni tratto
+  o = o || {}; const c = Math.cos(rot), s = Math.sin(rot);
+  for (const stroke of st) {
+    const pts = stroke.map(p => { const lx = (p[0] - 0.5) * gw + (R() - 0.5) * gw * 0.04, ly = (p[1] - 0.5) * gh; return [ox + lx * c - ly * s, oy + lx * s + ly * c]; });
+    hwdStroke(L, R, pts, w * (0.85 + R() * 0.3), { sharp: stroke.sharp, age: o.age, end: 0.5, wet: o.wet });
+    if (o.drip && R() < o.drip) { let e = pts[0]; for (const p of pts) if (p[1] > e[1]) e = p; hwdDrip(L, R, e[0], e[1], 3 + R() * gh * 1.7, Math.max(0.4, w * 0.36), { age: o.age }); }
+  }
+}
+function hwdRow(L, R, x, y, gh, n, style, w, o) {   // una riga di lettere: la mano scende un poco, qualche spazio tra le parole
+  let cx = x, cy = y;
+  for (let i = 0; i < n; i++) {
+    const gw = gh * (0.5 + R() * 0.3);
+    hwdGlyphDraw(L, R, hwdGlyph(R, style < 0 ? (R() * 3) | 0 : style), cx + gw / 2, cy + gh / 2 + (R() - 0.5) * gh * 0.1, gw, gh * (0.9 + R() * 0.2), (R() - 0.5) * 0.14, w, o);
+    cx += gw + gh * (0.22 + R() * 0.3) + (R() < 0.15 ? gh * 0.5 : 0); cy += gh * 0.04 * (R() - 0.3);
+  }
+  return cx;
+}
+
+// ---------------- simboli: tracciati col dito, tremanti, ripassati ----------------
+function hwdLine(L, R, a, b, w, o) {   // linea a mano libera: trema, e a volte viene ripassata
+  const P = hwdStroke(L, R, hwdWob(R, a, b, 0.8, 5), w, o);
+  if (R() < 0.3) hwdStroke(L, R, hwdWob(R, [a[0] + (R() - 0.5) * 1.6, a[1] + (R() - 0.5) * 1.6], [b[0] + (R() - 0.5) * 1.6, b[1] + (R() - 0.5) * 1.6], 0.8, 5), w * 0.8, Object.assign({}, o, { a: 0.8 }));
+  return P;
+}
+function hwdRing(L, R, cx, cy, r, w, o) {   // cerchio a mano: non si chiude mai bene e si allarga un po'
+  const a0 = R() * 6.28, P = []; const n = Math.max(12, Math.round(r * 1.4));
+  for (let i = 0; i <= n; i++) { const a = a0 + i / n * (6.2832 + 0.2 + R() * 0.2), k = 1 + 0.03 * i / n + 0.008 * Math.sin(a * 3 + a0); P.push([cx + Math.cos(a) * r * k + (R() - 0.5) * 1.1, cy + Math.sin(a) * r * k + (R() - 0.5) * 1.1]); }
+  return hwdStroke(L, R, P, w, o);
+}
+function hwdPenta(L, R, cx, cy, r, w, o) {   // pentagramma rovesciato: una punta verso il basso, cinque tratti
+  const V = []; for (let k = 0; k < 5; k++) { const a = 1.5708 + k * 1.2566; V.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  for (let k = 0; k < 5; k++) {
+    const A = V[(k * 2) % 5], B = V[((k + 1) * 2) % 5], dx = B[0] - A[0], dy = B[1] - A[1], o1 = 0.02 + R() * 0.05, o2 = 0.02 + R() * 0.05;
+    hwdStroke(L, R, hwdWob(R, [A[0] - dx * o1, A[1] - dy * o1], [B[0] + dx * o2, B[1] + dy * o2], 0.85, 5), w, o);
+  }
+  return V;
+}
+function hwdGlyphRing(L, R, cx, cy, r, n, gh, w, o) {   // corona di lettere lungo un cerchio, con la testa verso l'esterno
+  for (let i = 0; i < n; i++) { const a = i / n * 6.2832 + (R() - 0.5) * 0.05; hwdGlyphDraw(L, R, hwdGlyph(R, (R() * 3) | 0), cx + Math.cos(a) * r, cy + Math.sin(a) * r, gh * 0.58, gh, a + 1.5708, w, o); }
+}
+function hwdLeviathan(L, R, cx, cy, r, w, o) {
+  hwdLine(L, R, [cx, cy - r], [cx + 0.6, cy + r * 0.95], w, o); hwdLine(L, R, [cx - r * 0.42, cy - r * 0.68], [cx + r * 0.44, cy - r * 0.67], w, o); hwdLine(L, R, [cx - r * 0.28, cy - r * 0.34], [cx + r * 0.3, cy - r * 0.35], w, o);
+  const P = []; for (let i = 0; i <= 30; i++) { const t = i / 30 * 6.2832, d = 1 + Math.sin(t) * Math.sin(t); P.push([cx + r * 0.55 * Math.cos(t) / d, cy + r * 0.34 + r * 0.55 * Math.sin(t) * Math.cos(t) / d]); }
+  hwdStroke(L, R, P, w, o);
+}
+function hwdHorned(L, R, cx, cy, r, w, o) {   // triangolo rovesciato con le corna, un occhio e l'asta con la traversa
+  hwdLine(L, R, [cx - r * 0.72, cy - r * 0.2], [cx + r * 0.72, cy - r * 0.2], w, o); hwdLine(L, R, [cx + r * 0.72, cy - r * 0.2], [cx, cy + r * 0.72], w, o); hwdLine(L, R, [cx, cy + r * 0.72], [cx - r * 0.72, cy - r * 0.2], w, o);
+  for (const s of [-1, 1]) { const P = []; for (let i = 0; i <= 12; i++) { const t = i / 12; P.push([cx + s * (r * 0.72 + r * 0.3 * Math.sin(t * 2.6)), cy - r * 0.2 - r * 0.95 * t]); } hwdStroke(L, R, P, w, o); }
+  hwdRing(L, R, cx, cy + r * 0.1, r * 0.2, w * 0.85, o); hwdLine(L, R, [cx, cy + r * 0.72], [cx, cy + r * 1.1], w, o); hwdLine(L, R, [cx - r * 0.2, cy + r * 0.92], [cx + r * 0.2, cy + r * 0.92], w, o);
+}
+function hwdSeal(L, R, cx, cy, r, w, o) {   // sigillo inventato: nodi uniti da linee dritte, ognuno chiuso da un piccolo segno
+  const n = 5 + ((R() * 3) | 0), nodes = [], a0 = R() * 6.28;
+  for (let i = 0; i < n; i++) { const a = a0 + i / n * 6.2832 + (R() - 0.5) * 0.7, rr = r * (0.45 + R() * 0.55); nodes.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, a]); }
+  const order = nodes.map((_, i) => i).sort(() => R() - 0.5);
+  for (let i = 0; i < n - 1; i++) hwdLine(L, R, nodes[order[i]], nodes[order[i + 1]], w, o);
+  for (let k = 0; k < 2; k++) { const A = nodes[(R() * n) | 0], B = nodes[(R() * n) | 0]; if (A !== B) hwdLine(L, R, A, B, w * 0.85, o); }
+  for (const nd of nodes) {
+    const t = (R() * 4) | 0, px = -Math.sin(nd[2]), py = Math.cos(nd[2]), q = r * 0.13;
+    if (t === 0) hwdRing(L, R, nd[0], nd[1], q * 0.7, w * 0.75, o); else if (t === 1) hwdLine(L, R, [nd[0] - px * q, nd[1] - py * q], [nd[0] + px * q, nd[1] + py * q], w * 0.8, o);
+    else if (t === 2) hwdStroke(L, R, [[nd[0] + px * q - Math.cos(nd[2]) * q, nd[1] + py * q - Math.sin(nd[2]) * q], [nd[0], nd[1]], [nd[0] - px * q - Math.cos(nd[2]) * q, nd[1] - py * q - Math.sin(nd[2]) * q]], w * 0.8, Object.assign({ sharp: true }, o));
+    else hwdDot(L, nd[0], nd[1], w * 0.7, o);
+  }
+  hwdRing(L, R, cx, cy, r * 0.1, w * 0.7, o);
+}
+function hwdEye(L, R, cx, cy, r, w, o) {   // occhio a mandorla, pupilla a fessura, raggi sopra e una lacrima di sangue
+  const top = [], bot = [];
+  for (let i = 0; i <= 12; i++) { const t = i / 12, x = cx + (t - 0.5) * 2 * r, k = Math.sin(t * Math.PI); top.push([x, cy - r * 0.42 * k]); bot.push([x, cy + r * 0.42 * k]); }
+  hwdStroke(L, R, top.concat(bot.reverse()), w, o);
+  L.fillStyle = hwdRGBA(0.95, (o && o.age) || 0.5, 0.95); L.beginPath(); L.ellipse(cx, cy, r * 0.085, r * 0.33, 0, 0, 6.2832); L.fill();
+  for (let i = 0; i < 7; i++) { const a = -2.6 + i * 0.35; hwdLine(L, R, [cx + Math.cos(a) * r * 0.66, cy + Math.sin(a) * r * 0.66], [cx + Math.cos(a) * r * 0.98, cy + Math.sin(a) * r * 0.98], w * 0.8, o); }
+  hwdDrip(L, R, cx + r * 0.1, cy + r * 0.4, 26 + R() * 22, Math.max(0.7, w * 0.55), o);
+}
+function hwdSix(L, R, x, y, h, w, o) {   // un 6 scritto di fretta
+  const P = [[0.78, 0.0], [0.4, 0.3], [0.12, 0.8], [0.1, 1.25], [0.4, 1.6], [0.82, 1.45], [0.86, 1.05], [0.55, 0.8], [0.2, 0.95]];
+  hwdStroke(L, R, P.map(p => [x + (p[0] - 0.5) * h * 0.62 + (R() - 0.5) * 0.4, y + (p[1] - 0.8) * h / 1.6 + (R() - 0.5) * 0.4]), w, o);
+}
+function hwdSpiral(L, R, cx, cy, r, turns, w, o) {
+  const P = [], n = Math.round(turns * 28); for (let i = 0; i <= n; i++) { const t = i / n, a = t * turns * 6.2832; P.push([cx + Math.cos(a) * r * t + (R() - 0.5) * 0.4, cy + Math.sin(a) * r * t + (R() - 0.5) * 0.4]); }
+  hwdStroke(L, R, P, w, o);
+}
+function hwdDrips(L, R, cx, cy, r, n, wmax, o) {   // colature che partono dalla parte bassa di un cerchio
+  for (let i = 0; i < n; i++) { const a = 1.5708 + (R() - 0.5) * 2.2; hwdDrip(L, R, cx + Math.cos(a) * r, cy + Math.sin(a) * r, 9 + R() * 46, 0.9 + R() * wmax * 1.5, o); }
+}
+
+// ---------------- le varianti ----------------
+// w, h: ingombro in cm; pc: punti per cm; a: dove si aggancia sul muro (mid, top, bottom); b: rilievo (+1 solchi, -1 sangue in rilievo)
+const HWD_V = {
+  claws: [
+    { w: 140, h: 175, pc: 4.2, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 0.98, 150, 3, 13, 5, 9, { blood: true, skip: true }); } },
+    { w: 100, h: 110, pc: 4.6, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 1.16, 90, 3, 10, 3.9, -5, {}); } },
+    { w: 215, h: 70, pc: 4, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 0.22, 200, 3, 14, 5.2, 14, { skip: true }); } },
+    { w: 160, h: 160, pc: 4.2, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 0.8, 135, 3, 12, 4.4, 6, { blood: true }); hwdRake(L, R, 6, 4, 2.25, 120, 3, 11, 4.6, -6, { skip: true }); } },
+    { w: 130, h: 160, pc: 4.2, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 1.28, 130, 4, 16, 5.8, 8, { blood: true }); } },
+    { w: 100, h: 90, pc: 4.6, a: 'mid', b: 1, draw: (L, R) => { hwdGash(L, R, -42, -30, 0.7, 98, 6.6, 6, { blood: true }); } },
+    { w: 70, h: 100, pc: 5, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, -8, 1.68, 70, 3, 11, 4, 3, { blood: true }); hwdPool(L, R, -3, 34, 7, 4, { age: 0.9 }); hwdDrops(L, R, 0, 28, 1.6, 22, 12, 0.9, { age: 0.9 }); } },
+    { w: 150, h: 150, pc: 4.2, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 0.5, 112, 3, 12, 4, 6, {}); hwdRake(L, R, 10, -6, 1.02, 105, 3, 12, 4.8, -5, { blood: true }); } },
+    { w: 120, h: 140, pc: 4.4, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 1.02, 98, 3, 13, 7, 4, { blood: true }); } },
+    { w: 195, h: 135, pc: 4, a: 'mid', b: 1, draw: (L, R) => { hwdRake(L, R, 0, 0, 0.55, 175, 3, 13, 4.6, -12, { skip: true }); } },
+  ],
+  print: [
+    { w: 38, h: 46, pc: 7, a: 'mid', b: -1, draw: (L, R) => { const x = 0, y = 2, r = (R() - 0.5) * 0.4; hwdHand(L, R, x, y, r, 1, false, { age: 0.5, pc: 7 }); const T = hwdFingerTips(x, y, r, 1, false); hwdDrip(L, R, T[1][0], T[1][1], 5 + R() * 9, 0.35, { age: 0.5 }); } },
+    { w: 46, h: 40, pc: 7, a: 'mid', b: -1, draw: (L, R) => { hwdSmear(L, R, 2, -2, 14, 4, 6, 4, { noClot: true, age: 0.55, bend: 1 }); hwdHand(L, R, 0, 0, 1.25, 1.02, true, { age: 0.55, pc: 7, slip: [1.2, 0.5] }); } },
+    { w: 60, h: 130, pc: 6, a: 'mid', b: -1, draw: (L, R) => { const x = 0, y = -42, rot = 0.08; hwdSmear(L, R, x, y + 3, x + 2 + R() * 3, y + 40 + R() * 36, 8.5, 5, { noClot: true, age: 0.5, bend: 2 }); hwdHand(L, R, x, y, rot, 1, false, { age: 0.5, pc: 6, slip: [0.5, 1.2] }); hwdDrip(L, R, x - 6, y + 44, 6 + R() * 10, 0.5, { age: 0.5 }); } },
+    { w: 78, h: 44, pc: 6, a: 'mid', b: -1, draw: (L, R) => { hwdHand(L, R, -19, 1, -0.15, 1, true, { age: 0.5, pc: 6 }); hwdHand(L, R, 17, -1, 0.2, 0.98, false, { age: 0.5, pc: 6, a: 0.85 }); } },
+    { w: 56, h: 92, pc: 6, a: 'mid', b: -1, draw: (L, R) => { for (let k = 0; k < 4; k++) { const x = -9 + k * 5.6 + (R() - 0.5) * 1.5, y = -30 + R() * 6, len = 24 + R() * 22; const P = []; for (let i = 0; i <= 8; i++) { const t = i / 8; P.push([x + Math.sin(t * 3 + k) * 1.8 + t * (k - 1.5) * 1.6, y + len * t]); } hwdPad(L, R, x, y, 0.1 * (k - 1.5), { age: 0.6 }); hwdStroke(L, R, P, 1.7, { age: 0.6, end: 0.25 }); } } },
+    { w: 38, h: 46, pc: 7, a: 'mid', b: -1, draw: (L, R) => { hwdHand(L, R, 1, 1, 0.1, 1, false, { age: 0.55, pc: 7, a: 0.6, wet: 0.1 }); hwdHand(L, R, -0.8, 2.2, 0.06, 1, false, { age: 0.55, pc: 7, a: 0.35, wet: 0.1 }); } },
+    { w: 50, h: 100, pc: 6, a: 'mid', b: -1, draw: (L, R) => { for (let k = 0; k < 3; k++) hwdHand(L, R, (R() - 0.5) * 5, -32 + k * 30, (R() - 0.5) * 0.5, 1, k === 1, { age: 0.5, pc: 6, a: 0.95 - k * 0.22 }); } },
+    { w: 78, h: 124, pc: 6, a: 'mid', b: -1, draw: (L, R) => { for (const sx of [-17, 17]) { hwdSmear(L, R, sx, -38, sx + (R() - 0.5) * 4, -4 + R() * 40, 7.5, 4, { noClot: true, age: 0.55, bend: 2 }); hwdHand(L, R, sx, -42, sx < 0 ? 0.1 : -0.1, 1, sx > 0, { age: 0.55, pc: 6 }); } } },
+  ],
+  scrawl: [
+    { w: 108, h: 62, pc: 5, a: 'mid', b: -1, draw: (L, R) => { for (let r = 0; r < 3; r++) hwdRow(L, R, -48 + (R() - 0.5) * 4, -27 + r * 19, 12, 7, 0, 1.5, { age: 0.5, drip: 0.18 }); } },
+    { w: 150, h: 58, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { hwdRow(L, R, -66, -24, 40, 3, -1, 4.2, { age: 0.4, drip: 0.7, wet: true }); } },
+    { w: 86, h: 62, pc: 6, a: 'mid', b: -1, draw: (L, R) => { for (let r = 0; r < 7; r++) hwdRow(L, R, -38 + R() * 3, -28 + r * 8, 6, 12, -1, 0.95, { age: 0.6, drip: 0.03 }); } },
+    { w: 96, h: 66, pc: 5, a: 'mid', b: -1, draw: (L, R) => { for (let r = 0; r < 3; r++) for (let g = 0; g < 4; g++) { const x = -42 + g * 22 + (R() - 0.5) * 3, y = -24 + r * 22; for (let k = 0; k < 4; k++) hwdStroke(L, R, hwdWob(R, [x + k * 3.6, y + (R() - 0.5) * 1.2], [x + k * 3.6 + (R() - 0.5) * 1.2, y + 15 + (R() - 0.5) * 2], 0.25, 5), 1.15, { age: 0.65, sharp: true, end: 0.6 }); hwdStroke(L, R, hwdWob(R, [x - 2, y + 12], [x + 15, y + 2], 0.3, 5), 1.15, { age: 0.65, sharp: true, end: 0.6 }); } hwdRing(L, R, 22, 20, 15, 1.2, { age: 0.65 }); } },
+    { w: 70, h: 70, pc: 6, a: 'mid', b: -1, draw: (L, R) => { const P = []; for (let i = 0; i < 70; i++) { const a = R() * 6.28, rr = Math.sqrt(R()) * 22; P.push([Math.cos(a) * rr, Math.sin(a) * rr - 6]); } hwdStroke(L, R, P, 1.1, { age: 0.5, end: 0.7, wet: true }); hwdRow(L, R, -26, 20, 9, 5, 0, 1.3, { age: 0.5, drip: 0.2 }); } },
+    { w: 110, h: 66, pc: 5, a: 'mid', b: -1, draw: (L, R) => { hwdRow(L, R, -46, -26, 14, 6, 1, 1.7, { age: 0.5, drip: 0.1 }); hwdRow(L, R, -46, -4, 14, 6, 1, 1.7, { age: 0.5, drip: 0.1 }); for (let i = 0; i < 2; i++) { const P = []; for (let k = 0; k <= 9; k++) P.push([-48 + k * 10.4, -20 + i * 22 + (k % 2 ? 7 : -7) * (0.7 + R() * 0.6)]); hwdStroke(L, R, P, 3, { sharp: true, age: 0.4, end: 0.8 }); } } },
+    { w: 190, h: 80, pc: 4, a: 'mid', b: -1, draw: (L, R) => { hwdRow(L, R, -82, -36, 52, 4, -1, 5, { age: 0.35, drip: 0.8, wet: true }); } },
+    { w: 130, h: 84, pc: 4.6, a: 'mid', b: -1, draw: (L, R) => { const n = 11, a0 = 3.65; hwdPool(L, R, 0, 22, 9, 6, { age: 0.6 }); for (let i = 0; i < n; i++) { const a = a0 + i / (n - 1) * 2.4; hwdGlyphDraw(L, R, hwdGlyph(R, (R() * 3) | 0), Math.cos(a) * 54, 54 + Math.sin(a) * 54 - 10, 9, 15, a + 1.5708, 1.4, { age: 0.5, drip: 0.15 }); } } },
+    { w: 86, h: 76, pc: 5.6, a: 'mid', b: -1, draw: (L, R) => { const st = [], seed = []; for (let i = 0; i < 6; i++) seed.push(hwdGlyph(R, (R() * 3) | 0)); for (let r = 0; r < 4; r++) { let x = -36 + (R() - 0.5) * 2; for (let i = 0; i < 6; i++) { hwdGlyphDraw(L, R, seed[i], x + 5, -30 + r * 18 + 7, 9, 13, (R() - 0.5) * 0.12, 1.4, { age: 0.55, drip: 0.06 }); x += 12 + (R() - 0.5) * 2; } } } },
+    { w: 150, h: 100, pc: 4.6, a: 'mid', b: -1, draw: (L, R) => { for (let i = 0; i < 5; i++) hwdRow(L, R, -56 + R() * 70, -40 + i * 18 + R() * 4, 9 + R() * 6, 3 + ((R() * 3) | 0), -1, 1.4, { age: 0.5, drip: 0.15 }); } },
+  ],
+  sigil: [
+    { w: 136, h: 136, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.45 }; hwdRing(L, R, 0, 0, 62, 2.4, o); hwdRing(L, R, 0, 0, 46, 2, o); hwdGlyphRing(L, R, 0, 0, 54, 18, 8.5, 1.2, o); hwdPenta(L, R, 0, 0, 45, 2.4, o); hwdDrips(L, R, 0, 0, 62, 3, 1.4, o); } },
+    { w: 120, h: 132, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.45 }; hwdRing(L, R, 0, -2, 54, 2.4, o); hwdPenta(L, R, 0, -2, 54, 2.4, o); for (const s of [-1, 1]) { const P = []; for (let i = 0; i <= 12; i++) { const t = i / 12; P.push([s * (30 + 22 * Math.sin(t * 2.6)), -48 - 14 * t - 12 * Math.sin(t * 2.2)]); } hwdStroke(L, R, P, 2.2, o); } hwdDrips(L, R, 0, -2, 54, 3, 1.4, o); } },
+    { w: 128, h: 150, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; hwdRing(L, R, 0, -4, 52, 2.4, o); hwdLeviathan(L, R, 0, -4, 42, 2.4, o); hwdRow(L, R, -34, 52, 10, 8, -1, 1.3, o); hwdDrips(L, R, 0, -4, 52, 3, 1.3, o); } },
+    { w: 130, h: 150, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; hwdRing(L, R, 0, 0, 62, 2.2, o); hwdHorned(L, R, 0, 10, 44, 2.3, o); hwdDrips(L, R, 0, 0, 62, 3, 1.3, o); } },
+    { w: 130, h: 130, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; hwdRing(L, R, 0, 0, 54, 2.2, o); hwdSeal(L, R, 0, 0, 44, 2.2, o); for (let k = 0; k < 4; k++) { const a = 0.785 + k * 1.5708; hwdGlyphDraw(L, R, hwdGlyph(R, (R() * 3) | 0), Math.cos(a) * 59, Math.sin(a) * 59, 8, 13, a + 1.5708, 1.3, o); } hwdDrips(L, R, 0, 0, 54, 3, 1.2, o); } },
+    { w: 100, h: 200, pc: 4.2, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; hwdLine(L, R, [0, -90], [0.6, 90], 3.2, o); hwdLine(L, R, [-30, 36], [31, 38], 3.2, o); hwdSix(L, R, -22, 70, 16, 1.7, o); hwdSix(L, R, 0, 72, 16, 1.7, o); hwdSix(L, R, 22, 70, 16, 1.7, o); hwdDrips(L, R, 0, 38, 30, 3, 1.4, o); } },
+    { w: 185, h: 90, pc: 4, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.4, wet: true }; for (let k = 0; k < 3; k++) { hwdSix(L, R, -58 + k * 58, 0, 62, 5, o); } for (let k = 0; k < 4; k++) hwdDrip(L, R, -60 + R() * 120, 24, 8 + R() * 34, 1.2 + R() * 1.4, o); } },
+    { w: 140, h: 100, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { hwdEye(L, R, 0, 4, 54, 2.2, { age: 0.45 }); } },
+    { w: 110, h: 110, pc: 4.4, a: 'mid', b: -1, draw: (L, R) => { hwdSpiral(L, R, 0, 0, 48, 4.5, 2, { age: 0.5 }); hwdDrips(L, R, 0, 0, 44, 2, 1.2, { age: 0.5 }); } },
+    { w: 96, h: 96, pc: 5, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; hwdPenta(L, R, 0, 0, 38, 2.2, o); hwdHand(L, R, 0, 2, 0.2, 1, false, { age: 0.5, pc: 5 }); hwdDrips(L, R, 0, 0, 38, 3, 1.3, o); } },
+    { w: 66, h: 170, pc: 4.6, a: 'mid', b: -1, draw: (L, R) => { const o = { age: 0.5 }; for (let k = 0; k < 3; k++) { hwdRing(L, R, 0, -56 + k * 56, 22, 1.8, o); hwdSeal(L, R, 0, -56 + k * 56, 17, 1.7, o); } hwdDrips(L, R, 0, 56, 22, 2, 1.1, o); } },
+  ],
+  stain: [
+    { w: 150, h: 160, pc: 3.8, a: 'mid', b: -1, draw: (L, R) => { const cx = (R() - 0.5) * 10, cy = -34; for (let i = 0; i < 6; i++) hwdDrip(L, R, cx + (R() - 0.5) * 50, cy + 12, 14 + R() * 80, 1 + R() * 2.2, { age: 0.65 }); hwdPool(L, R, cx, cy, 31, 19, { age: 0.65, rot: (R() - 0.5) * 0.5 }); hwdDrops(L, R, cx, cy, (R() - 0.5) * 6, 70, 40, 1.4, { age: 0.65, cone: 6 }); } },
+    { w: 200, h: 100, pc: 3.8, a: 'mid', b: -1, draw: (L, R) => { const ox = -80, oy = 30; hwdDrops(L, R, ox, oy, -0.35, 170, 120, 1.7, { age: 0.6, cone: 0.7 }); hwdDrops(L, R, ox + 20, oy - 8, -0.3, 120, 60, 1, { age: 0.6, cone: 0.5 }); hwdPool(L, R, ox, oy, 6, 4, { age: 0.6 }); for (let i = 0; i < 3; i++) hwdDrip(L, R, -20 + i * 40 + R() * 16, -26 + R() * 14, 10 + R() * 28, 0.9 + R(), { age: 0.6 }); } },
+    { w: 150, h: 175, pc: 3.8, a: 'top', b: -1, draw: (L, R) => { hwdPool(L, R, 0, -80, 52, 7, { age: 0.65 }); const n = 6 + ((R() * 3) | 0); for (let i = 0; i < n; i++) hwdDrip(L, R, -60 + i * (120 / (n - 1)) + (R() - 0.5) * 8, -78, 30 + R() * 130, 1 + R() * 2.4, { age: 0.65 }); } },
+    { w: 235, h: 100, pc: 3.6, a: 'bottom', b: -1, draw: (L, R) => { hwdPool(L, R, 0, 33, 88, 17, { age: 0.65, rot: (R() - 0.5) * 0.08 }); hwdDrops(L, R, 0, 28, -1.5708, 70, 80, 1.5, { age: 0.65, cone: 2.6 }); } },
+    { w: 205, h: 130, pc: 3.8, a: 'mid', b: -1, draw: (L, R) => { hwdSmear(L, R, -88, -34, 88, 38, 15, 6, { age: 0.6, bend: 12 }); hwdDrops(L, R, -88, -34, 0.5, 30, 14, 0.9, { age: 0.6 }); } },
+    { w: 150, h: 120, pc: 4, a: 'mid', b: -1, draw: (L, R) => { for (let k = 0; k < 3; k++) { const y = -36 + k * 34; hwdSmear(L, R, -56 + R() * 8, y, 50 + R() * 12, y + (R() - 0.5) * 24, 12, 4, { age: 0.6, noClot: k > 0, bend: (R() - 0.5) * 24 }); } } },
+    { w: 100, h: 76, pc: 5, a: 'mid', b: -1, draw: (L, R) => { hwdDrops(L, R, 0, 0, R() * 6, 40, 60, 1.6, { age: 0.65, cone: 6.28 }); hwdPool(L, R, (R() - 0.5) * 20, (R() - 0.5) * 12, 6, 4, { age: 0.65 }); hwdDrip(L, R, (R() - 0.5) * 20, 4, 14 + R() * 14, 1, { age: 0.65 }); } },
+  ],
+};
+
+function hwdFinish(cv, R, amt) {   // un ultimo passaggio sui punti: il sangue non e mai uniforme (spessori diversi, grana)
+  const w = cv.width, h = cv.height, g = cv.getContext('2d'), im = g.getImageData(0, 0, w, h), d = im.data, gw = 40, gh = 40, G = new Float32Array((gw + 1) * (gh + 1));
+  for (let i = 0; i < G.length; i++) G[i] = R();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const k = (y * w + x) * 4, a = d[k + 3]; if (!a) continue;
+    const fx = x / w * gw, fy = y / h * gh, ix = fx | 0, iy = fy | 0, tx = fx - ix, ty = fy - iy, i0 = iy * (gw + 1) + ix;
+    const v = (G[i0] * (1 - tx) + G[i0 + 1] * tx) * (1 - ty) + (G[i0 + gw + 1] * (1 - tx) + G[i0 + gw + 2] * tx) * ty, n = ((v - 0.5) * 0.55 + (R() - 0.5) * 0.2) * amt;
+    d[k] = Math.max(0, Math.min(255, d[k] * (1 + n * 0.6))); d[k + 1] = Math.max(0, Math.min(255, d[k + 1] * (1 + n * 0.5))); d[k + 2] = Math.max(0, Math.min(255, d[k + 2] * (1 + n * 0.4))); d[k + 3] = Math.max(0, Math.min(255, a * (1 + n * 0.1)));
+  }
+  g.putImageData(im, 0, 0);
+}
+function hwdMake(cat, idx) {   // disegna un segno: ritorna la tela e la misura in unita di mondo
+  const v = HWD_V[cat][idx], R = hwRng(7300 + idx * 977 + cat.length * 131 + cat.charCodeAt(0) * 17), cw = Math.ceil(v.w * v.pc), ch = Math.ceil(v.h * v.pc), cv = hwCv(cw, ch), L = cv[1];
+  L.translate(cw / 2, ch / 2); L.scale(v.pc, v.pc); L.lineCap = 'round'; L.lineJoin = 'round'; HWD_WS = cat === 'sigil' ? 1.3 : 1;
+  v.draw(L, R, cw / v.pc, ch / v.pc);
+  hwdFinish(cv[0], R, cat === 'claws' ? 0.3 : 1);
+  HWD_WS = 1;
+  return { c: cv[0], wu: cw / v.pc / HWD_U, hu: ch / v.pc / HWD_U, v };
+}
+
+const HWD_CACHE = new Map();
+function hwdGet(cat, idx) { const k = cat + ':' + idx; let m = HWD_CACHE.get(k); if (!m) { m = hwdMake(cat, idx); HWD_CACHE.set(k, m); } return m; }
+function hwdMat(D) {   // il rilievo (bump) viene dal canale rosso dell'immagine stessa: solchi incavati, sangue in rilievo
+  if (!D.mat) {
+    const tx = new THREE.CanvasTexture(D.c); tx.anisotropy = 4;
+    D.mat = new THREE.MeshStandardMaterial({ map: tx, bumpMap: tx, bumpScale: 0.9 * D.v.b, roughness: D.v.b > 0 ? 0.95 : 0.55, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  }
+  return D.mat;
+}
+// Pietra a 512 punti: la base di 128 viene ingrandita, riaffilata (i bordi dei blocchi tornano netti) e riempita di grana e porosita fini
+function hwHiRes(src, seed) {
+  const S = 512, cv = hwCv(S, S), g = cv[1], R = hwRng(seed * 7919 + 13); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, S, S);
+  const im = g.getImageData(0, 0, S, S), d = im.data, n = S * S, ch = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let i = 0; i < n; i++) { ch[0][i] = d[i * 4]; ch[1][i] = d[i * 4 + 1]; ch[2][i] = d[i * 4 + 2]; }
+  const bl = ch.map(a => hwBlurF(a, S, 3)), pore = hwBlurF(Float32Array.from({ length: n }, () => R()), S, 1);
+  for (let i = 0; i < n; i++) {
+    const k = i * 4, nz = (R() - 0.5) * 16 + (pore[i] - 0.5) * 70;
+    for (let c = 0; c < 3; c++) d[k + c] = Math.max(0, Math.min(255, ch[c][i] + 0.9 * (ch[c][i] - bl[c][i]) + nz));
+  }
+  g.putImageData(im, 0, 0); return cv[0];
+}
 
 // ---------------- preparazione, scelta della variante per ogni blocco, costruzione delle pareti ----------------
 function hwPrepare() {
@@ -1245,7 +1175,7 @@ function hwRoomOf(x, y) {   // stanza che il muro (x,y) guarda: -1 per i corrido
 }
 function hwWallMat(t, x, y) {
   let fam = 'clean';
-  if (t === 4) fam = hwHash(x, y, 13) < 0.5 ? 'bleed' : 'drag';   // la vecchia nicchia dei teschi diventa una parete che sanguina
+  if (t === 4) fam = 'ruin';   // la vecchia nicchia dei teschi: pietra rovinata, il sangue ci pensano i segni
   else if (t !== 3) {
     const rid = hwRoomOf(x, y), th = rid >= 0 ? HW.lvl.theme[rid] : -1, tab = th >= 0 && hwHash(x >> 1, y >> 1, 5) < 0.62 ? HW_THEME[th].fam : HW_GEN;
     fam = hwPickW(tab, hwHash(x >> 1, y >> 1, 3));
@@ -1253,7 +1183,7 @@ function hwWallMat(t, x, y) {
   }
   const nv = fam === 'clean' ? 1 : HW_FAMS[fam];
   const vv = (hwHash(x, y, 9) * nv) | 0;
-  return hwMat(fam, vv, HW_BLOODF[fam] ? vv % 3 : (hwHash(x, y, 11) * 3) | 0);
+  return hwMat(fam, vv, fam === 'clean' ? (hwHash(x, y, 11) * 3) | 0 : (vv + fam.length) % 3);   // ogni variante ha la sua pietra: meno texture grandi in memoria
 }
 function hwWalls(root, by) {   // un InstancedMesh per ogni materiale usato; la porta delle scale (tipo 5) resta quella di prima
   const g = new THREE.Group(), grp = new Map();
@@ -1329,16 +1259,6 @@ function hwSpikes3(M, T, R, a, b) {   // piastra con punte arrugginite, le cime 
     hwCyl(M, T, p0, pm, 0.012, 0.0065, [0.26, 0.15, 0.1], 5); hwCyl(M, T, pm, p1, 0.0065, 0.001, [0.28, 0.04, 0.05], 5);
   }
 }
-function hwHand3(M, T, R, a, b) {   // braccio smunto che esce dalla pietra, le dita troppo lunghe
-  const sk = hwTone([0.50, 0.46, 0.40], R, 0.3), W = [a + (R() - 0.5) * 0.05, b + 0.04 + R() * 0.06, 0.085], curl = R() < 0.5 ? 1 : -1;
-  hwCyl(M, T, [a, b, -0.03], W, 0.014, 0.009, sk, 5); hwEll(M, T, W[0], W[1], W[2], 0.012, 0.012, 0.012, sk, 4); hwBox(M, T, W[0], W[1] + 0.003, W[2] + 0.018, 0.022, 0.01, 0.017, sk);
-  for (let i = 0; i < 4; i++) {
-    const len = (i === 1 || i === 2) ? 1.25 : 1; let P = [W[0] + (i - 1.5) * 0.013, W[1] + 0.005, W[2] + 0.034];
-    for (let s = 0; s < 3; s++) { const q = [P[0] + (R() - 0.5) * 0.004, P[1] + curl * (0.003 + 0.011 * s), P[2] + (0.022 - 0.003 * s) * len]; hwCyl(M, T, P, q, 0.0042, 0.0036, sk, 4); P = q; }
-    hwCyl(M, T, P, [P[0], P[1] + curl * 0.012, P[2] + 0.008], 0.0036, 0.0005, [0.18, 0.14, 0.1], 4);
-  }
-  hwCyl(M, T, [W[0] - 0.022, W[1], W[2] + 0.012], [W[0] - 0.04, W[1] + 0.014, W[2] + 0.044], 0.0052, 0.004, sk, 4);
-}
 function hwChain3(M, T, R, a, top, n) {   // catena appesa a una staffa, con un polsino in fondo
   hwBox(M, T, a, top + 0.005, 0.012, 0.022, 0.016, 0.012, HW_IRON); hwEll(M, T, a, top - 0.012, 0.03, 0.012, 0.012, 0.012, HW_IRON, 5);
   let y = top - 0.026;
@@ -1390,26 +1310,11 @@ function hwDecor(root, hw) {
   for (const f of hw.flame) T3.torchMats.push(f);   // le fiamme animate (T3.torchMats si azzera a ogni t3Build)
   const key = W1.ver + '|' + N + '|' + torches.length + '|' + rooms.length;
   if (HW.grp && HW.key === key) { root.add(HW.grp); return; }
-  const grp = new THREE.Group(), DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]], occ = new Uint8Array(N * N * 4), chunks = new Map(), panels = [], flames = [], soots = [];
+  const grp = new THREE.Group(), DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]], occ = new Uint8Array(N * N * 4), chunks = new Map(), flames = [], soots = [];
   const isOpen = (x, y) => x >= 0 && y >= 0 && x < N && y < N && (map[y * N + x] === 0 || W1.rail[y * N + x] === 1);
   const chunk = (x, y) => { const k = (x >> 4) + ',' + (y >> 4); let m = chunks.get(k); if (!m) { m = { p: [], c: [], i: [] }; chunks.set(k, m); } return m; };
   const frame = (x, y, d) => ({ ox: x + 0.5 + DIRS[d][0] * 0.5, oy: 0, oz: y + 0.5 + DIRS[d][1] * 0.5, tx: DIRS[d][1], tz: -DIRS[d][0], nx: DIRS[d][0], nz: DIRS[d][1] });   // base locale sulla faccia del muro: a verso destra, c verso la stanza
   for (const s of W1.shooters) { const i = (s.y | 0) * N + (s.x | 0); for (let d = 0; d < 4; d++) occ[i * 4 + d] = 1; }   // le feritoie delle trappole restano libere
-  // bassorilievi: in alcune stanze, su uno o due lati
-  for (let rid = 0; rid < rooms.length; rid++) {
-    const r = rooms[rid]; if (r.w < 5 || r.h < 5 || hwHash(rid, 3, 4) > 0.55) continue;
-    const th = hw.lvl.theme[rid], sides = [[r.x + (r.w >> 1), r.y - 1, 2, 1, 0], [r.x + (r.w >> 1), r.y + r.h, 3, 1, 0], [r.x - 1, r.y + (r.h >> 1), 0, 0, 1], [r.x + r.w, r.y + (r.h >> 1), 1, 0, 1]], first = (hwHash(rid, 9, 6) * 4) | 0;
-    let got = 0;
-    for (let q = 0; q < 4 && got < 2; q++) {
-      const s = sides[(first + q) % 4];
-      for (const off of [0, 1, -1, 2, -2]) {
-        const wx = s[0] + s[3] * off, wy = s[1] + s[4] * off; if (wx < 1 || wy < 1 || wx >= N - 1 || wy >= N - 1) continue;
-        const t = map[wy * N + wx];
-        if ((t !== 1 && t !== 2) || W1.rail[wy * N + wx] || !isOpen(wx + DIRS[s[2]][0], wy + DIRS[s[2]][1]) || occ[(wy * N + wx) * 4 + s[2]]) continue;
-        occ[(wy * N + wx) * 4 + s[2]] = 1; panels.push({ x: wx, y: wy, d: s[2], design: HW_THEME[th].relief }); got++; break;
-      }
-    }
-  }
   const tIdx = new Map(); for (const q of torches) tIdx.set((q.y | 0) * N + (q.x | 0), q);
   for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
     const i = y * N + x, t = map[i]; if (t === 0 || t === 5 || W1.rail[i]) continue;
@@ -1434,7 +1339,6 @@ function hwDecor(root, hw) {
       const R = hwRng((x * 73856093 ^ y * 19349663 ^ d * 83492791) >>> 0), kind = hwPickW(tab, hwHash(x, y, 30 + d)), T = frame(x, y, d), m = chunk(x, y), a = (R() - 0.5) * 0.5;
       switch (kind) {
         case 'bundle': hwBundle3(m, T, R, a * 0.5, H0 + Math.min(hgt - 0.1, 1.05)); break;
-        case 'hand': hwHand3(m, T, R, a, H0 + 0.25 + R() * Math.min(0.5, hgt - 0.6)); break;
         case 'chain': hwChain3(m, T, R, a, H0 + Math.min(hgt - 0.08, 1.05), 5 + ((R() * 5) | 0)); break;
         case 'hook': hwHook3(m, T, R, a, H0 + 0.5 + R() * 0.3); break;
         case 'ribs': hwRibs3(m, T, R, a * 0.4, H0 + 0.5); break;
@@ -1444,6 +1348,26 @@ function hwDecor(root, hw) {
       }
     }
   }
+  // segni dei giocatori impazziti e dei demoni: artigliate, mani, scritte, simboli e sangue. Piu fitti in certe zone e quasi assenti in altre.
+  const marks = [];
+  try {
+  for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+    const i = y * N + x, t = map[i]; if (t === 0 || t === 3 || t === 5 || W1.rail[i]) continue;
+    const rid = hwRoomOf(x, y), th = rid >= 0 ? hw.lvl.theme[rid] : -1, tab = t === 4 ? HW_MARK_NICHE : th >= 0 ? HW_THEME[th].mark : HW_MARK_GEN;
+    const rate = (t === 4 ? 0.55 : th >= 0 ? 0.2 : 0.1) * (0.35 + 1.3 * hwHash(x >> 2, y >> 2, 41));
+    for (let d = 0; d < 4; d++) {
+      const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
+      if (!isOpen(nx, ny) || occ[i * 4 + d] || hwHash(x, y, 40 + d) > rate) continue;
+      const ni = ny * N + nx, H0 = W1.H[ni], hgt = W1.C[ni] - H0; if (hgt < 0.9) continue;
+      const R = hwRng((x * 19349663 ^ y * 83492791 ^ d * 73856093 ^ 0x5bd1e995) >>> 0), cat = hwPickW(tab, hwHash(x, y, 50 + d)), idx = (hwHash(x, y, 60 + d) * HWD_V[cat].length) | 0, D = hwdGet(cat, idx);
+      if (D.wu > 0.96 || D.hu > hgt - 0.05) continue;
+      const a = (R() - 0.5) * 2 * Math.max(0, 0.5 - D.wu / 2 - 0.02) * (cat === 'sigil' ? 0.5 : 0.85), lo = H0 + D.hu / 2 + 0.02, hi = H0 + hgt - D.hu / 2 - 0.02;
+      let b = Math.max(lo, Math.min(hi, H0 + 0.5 + (R() - 0.5) * 0.3));
+      if (D.v.a === 'top') b = H0 + hgt - D.hu / 2 - 0.004; else if (D.v.a === 'bottom') b = H0 + D.hu / 2 + 0.004;
+      marks.push({ D, cat, idx, x, y, d, a, b, rot: cat === 'claws' ? 0 : (R() - 0.5) * (cat === 'print' ? 0.3 : 0.1) });
+    }
+  }
+  } catch (err) { console.error('Segni di sangue non disponibili:', err); marks.length = 0; }
   const dm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.05, side: THREE.DoubleSide });
   for (const m of chunks.values()) {
     if (!m.i.length) continue;
@@ -1451,16 +1375,19 @@ function hwDecor(root, hw) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(m.c, 3)); g.setIndex(m.i); g.computeVertexNormals();
     grp.add(new THREE.Mesh(g, dm));
   }
-  const m4 = new THREE.Matrix4(), vx = new THREE.Vector3(), vy = new THREE.Vector3(), vz = new THREE.Vector3(), plane = new THREE.PlaneGeometry(1, 1), byD = {};
-  for (const p of panels) (byD[p.design] = byD[p.design] || []).push(p);
-  for (const dsg in byD) {   // bassorilievi: un piano per ognuno, con colore e rilievo (bump) dipinti
-    const arr = byD[dsg], im = new THREE.InstancedMesh(plane, hwPanelMat(+dsg), arr.length);
+  const m4 = new THREE.Matrix4(), vx = new THREE.Vector3(), vy = new THREE.Vector3(), vz = new THREE.Vector3(), plane = new THREE.PlaneGeometry(1, 1);
+  try {
+  const byM = new Map(); for (const mk of marks) { const k = mk.cat + ':' + mk.idx; let q = byM.get(k); if (!q) byM.set(k, q = []); q.push(mk); }
+  for (const arr of byM.values()) {   // segni di sangue e artigli: un InstancedMesh per ogni disegno
+    const D = arr[0].D, im = new THREE.InstancedMesh(plane, hwdMat(D), arr.length); im.frustumCulled = false; im.renderOrder = -5;
     arr.forEach((p, k) => {
-      const T = frame(p.x, p.y, p.d), ni = (p.y + DIRS[p.d][1]) * N + (p.x + DIRS[p.d][0]), H0 = W1.H[ni], hgt = W1.C[ni] - H0, s = Math.min(0.92, 0.62 * hgt);
-      vx.set(T.tx * s, 0, T.tz * s); vy.set(0, s, 0); vz.set(T.nx, 0, T.nz); m4.makeBasis(vx, vy, vz); m4.setPosition(T.ox + T.nx * 0.008, H0 + Math.min(hgt * 0.5, 0.7), T.oz + T.nz * 0.008); im.setMatrixAt(k, m4);
+      const T = frame(p.x, p.y, p.d), c = Math.cos(p.rot), sn = Math.sin(p.rot);
+      vx.set(T.tx * c * D.wu, sn * D.wu, T.tz * c * D.wu); vy.set(-T.tx * sn * D.hu, c * D.hu, -T.tz * sn * D.hu); vz.set(T.nx, 0, T.nz);
+      m4.makeBasis(vx, vy, vz); m4.setPosition(T.ox + T.tx * p.a + T.nx * 0.006, p.b, T.oz + T.tz * p.a + T.nz * 0.006); im.setMatrixAt(k, m4);
     });
     grp.add(im);
   }
+  } catch (err) { console.error('Segni di sangue non disponibili:', err); }
   if (soots.length) {   // annerimento sopra ogni torcia
     const im = new THREE.InstancedMesh(plane, new THREE.MeshBasicMaterial({ map: hw.soot, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), soots.length);
     soots.forEach((s, k) => { vx.set(s[3] * 0.7, 0, s[4] * 0.7); vy.set(0, 0.9, 0); vz.set(s[5], 0, s[6]); m4.makeBasis(vx, vy, vz); m4.setPosition(s[0], s[1], s[2]); im.setMatrixAt(k, m4); });
@@ -1514,7 +1441,7 @@ function t3Build() {
     for (let i = 0; i < by[t].length; i += 2) { m4.setPosition(by[t][i] + 0.5, 1, by[t][i + 1] + 0.5); im.setMatrixAt(i / 2, m4); }
     root.add(im);
   }
-  if (hwDone) { try { hwDecor(root, hw); } catch (err) { console.error('Decorazioni murali non disponibili:', err); } }   // torce a braccio, bassorilievi, teschi, mani, catene...
+  if (hwDone) { try { hwDecor(root, hw); } catch (err) { console.error('Decorazioni murali non disponibili:', err); } }   // torce a braccio, segni di sangue, catene, ganci...
   // scale: otto gradini veri che salgono verso il portale
   if (stairs) {
     const g = new THREE.Group(), y0 = stairs.y - 0.5;

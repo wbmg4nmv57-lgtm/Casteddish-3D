@@ -1397,6 +1397,161 @@ function hwDecor(root, hw) {
   HW.grp = grp; HW.key = key; root.add(grp);
 }
 
+// =====================================================================================================================
+// SEGNI D'IMPATTO SUI MURI (piano 1, 3D)
+// Il motore (mechanics.js, wallMark) registra gia ogni colpo che finisce su un muro con il suo tipo: 'hole' (proiettili di pistola, fucile
+// e mitra), 'blast' (razzi, granate, barili che esplodono), 'scorch' (molotov, lanciafiamme) e 'plasma'. Nel 2D li disegna il raycaster;
+// qui diventano immagini trasparenti ad alta risoluzione appoggiate sulla faccia del muro colpita, disegnate in centimetri veri:
+// foro con crepe e schegge, cratere annerito con raggiera di fuliggine, lingua di fuliggine che sale dal fuoco, pietra fusa e
+// incandescente per il plasma. Restano finche non si cambia piano, come nel 2D.
+// =====================================================================================================================
+const HWM = {   // w, h in cm; pc punti per cm; n varianti; b rilievo (+1 incavo, 0 nessuno); cap segni conservati per variante
+  hole:    { w: 26,  h: 26,  pc: 8,   n: 4, b: 1, cap: 140 },
+  blast:   { w: 250, h: 270, pc: 2.6, n: 3, b: 1, cap: 14 },
+  scorch:  { w: 150, h: 200, pc: 3.6, n: 3, b: 0, cap: 30 },
+  plasma:  { w: 96,  h: 112, pc: 5.6, n: 3, b: 1, cap: 36, emi: 1 },
+};
+function hwmGlow(L, x, y, r, rgb, a, ex, ey) {   // alone morbido (radiale), eventualmente schiacciato
+  L.save(); L.translate(x, y); L.scale(ex || 1, ey || 1);
+  const g = L.createRadialGradient(0, 0, 0, 0, 0, r); g.addColorStop(0, 'rgba(' + rgb + ',' + a.toFixed(3) + ')'); g.addColorStop(0.55, 'rgba(' + rgb + ',' + (a * 0.45).toFixed(3) + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+  L.fillStyle = g; L.beginPath(); L.arc(0, 0, r, 0, 6.2832); L.fill(); L.restore();
+}
+function hwmChip(L, R, x, y, r, col) {   // scheggia irregolare
+  const n = 4 + ((R() * 3) | 0), a0 = R() * 6.28; L.beginPath();
+  for (let i = 0; i < n; i++) { const a = a0 + i / n * 6.2832, k = r * (0.55 + R() * 0.7); if (i) L.lineTo(x + Math.cos(a) * k, y + Math.sin(a) * k); else L.moveTo(x + Math.cos(a) * k, y + Math.sin(a) * k); }
+  L.closePath(); L.fillStyle = col; L.fill();
+}
+function hwmCrack(L, R, x, y, ang, len, w, depth) {   // crepa a zig-zag, con un filo chiaro accanto e a volte una diramazione
+  const pts = [[x, y]]; let cx = x, cy = y, a = ang; const n = Math.max(3, Math.round(len / 1.1));
+  for (let i = 0; i < n; i++) { a += (R() - 0.5) * 0.8; const st = len / n; cx += Math.cos(a) * st; cy += Math.sin(a) * st; pts.push([cx, cy]);
+    if (depth > 0 && i > 1 && R() < 0.12) hwmCrack(L, R, cx, cy, a + (R() < 0.5 ? 0.8 : -0.8), len * (0.25 + R() * 0.3), w * 0.7, depth - 1); }
+  L.lineCap = 'round'; L.lineJoin = 'round';
+  L.strokeStyle = 'rgba(190,178,156,.3)'; L.lineWidth = w * 1.1; L.beginPath(); pts.forEach((p, i) => i ? L.lineTo(p[0] + 0.12, p[1] + 0.12) : L.moveTo(p[0] + 0.12, p[1] + 0.12)); L.stroke();
+  L.strokeStyle = 'rgba(8,6,5,.85)'; L.lineWidth = w; L.beginPath(); pts.forEach((p, i) => i ? L.lineTo(p[0], p[1]) : L.moveTo(p[0], p[1])); L.stroke();
+}
+
+// Foro di proiettile: cratere nero, bordo di pietra rotta e piu chiara (pietra fresca), crepe radiali, schegge e polvere, una macchia di piombo
+function hwmHole(L, R) {
+  const r0 = 0.55 + R() * 0.35, a0 = R() * 6.28;
+  const gs = L.createRadialGradient(0, 0, r0, 0, 0, 7.2); gs.addColorStop(0, 'rgba(210,200,180,.78)'); gs.addColorStop(0.5, 'rgba(178,168,150,.42)'); gs.addColorStop(1, 'rgba(150,140,124,0)'); L.fillStyle = gs; L.beginPath(); L.arc(0, 0, 7.2, 0, 6.2832); L.fill();
+  for (let i = 0; i < 7; i++) { const a = R() * 6.28, d = 2 + R() * 3.4; hwmGlow(L, Math.cos(a) * d, Math.sin(a) * d, 1.6 + R() * 2.2, '196,186,166', 0.22); }   // la zona scheggiata non e un cerchio perfetto
+  hwmGlow(L, 0, 0, 6.4, '30,26,22', 0.35);
+  const nc = 5 + ((R() * 5) | 0); for (let i = 0; i < nc; i++) hwmCrack(L, R, Math.cos(a0 + i * 6.2832 / nc) * r0, Math.sin(a0 + i * 6.2832 / nc) * r0, a0 + i * 6.2832 / nc + (R() - 0.5) * 0.5, 2.2 + R() * 7, 0.09 + R() * 0.05, 1);
+  for (let i = 0; i < 12; i++) { const a = R() * 6.28, d = 1.4 + R() * 4.2; hwmChip(L, R, Math.cos(a) * d, Math.sin(a) * d, 0.2 + R() * 0.55, R() < 0.62 ? 'rgba(214,204,184,.7)' : 'rgba(20,16,12,.6)'); }
+  L.lineCap = 'round'; for (let i = 0; i < 9; i++) { const a = R() * 6.28, d = 2.4 + R() * 2.2; L.strokeStyle = 'rgba(200,190,170,.35)'; L.lineWidth = 0.1 + R() * 0.12; L.beginPath(); L.moveTo(Math.cos(a) * d, Math.sin(a) * d); L.lineTo(Math.cos(a) * (d + 1 + R() * 2.2), Math.sin(a) * (d + 1 + R() * 2.2)); L.stroke(); }
+  const g = L.createRadialGradient(0, 0, 0, 0, 0, r0 * 2.2); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.45, 'rgba(4,3,2,.95)'); g.addColorStop(1, 'rgba(24,20,16,0)'); L.fillStyle = g; L.beginPath(); L.arc(0, 0, r0 * 2.2, 0, 6.2832); L.fill();
+  L.strokeStyle = 'rgba(214,204,186,.5)'; L.lineWidth = 0.14; L.beginPath(); L.arc(0.05, 0.05, r0 * 1.12, a0, a0 + 3.2); L.stroke();   // labbro illuminato
+  L.fillStyle = 'rgba(70,72,78,.5)'; L.beginPath(); L.ellipse(Math.cos(a0 + 2) * r0 * 1.9, Math.sin(a0 + 2) * r0 * 1.9, 0.5 + R() * 0.6, 0.18, a0 + 2, 0, 6.2832); L.fill();   // piombo strisciato
+}
+
+// Scoppio: nucleo nero, fuliggine soffice che si allarga e sale, getti scuri, cratere di pietra spaccata, mille crateri da schegge
+function hwmBlast(L, R) {
+  for (let i = 0; i < 90; i++) { const a = R() * 6.28, d = Math.pow(R(), 0.8) * 90, x = Math.cos(a) * d * 0.95, y = Math.sin(a) * d * 0.85 - 14 - R() * 16; hwmGlow(L, x, y, 16 + R() * 32, '9,7,5', 0.09 + R() * 0.1, 1, 1.1 + R() * 0.5); }
+  hwmGlow(L, 0, -4, 84, '5,4,3', 0.92, 1, 1.0); hwmGlow(L, 0, 0, 46, '2,1,1', 0.95);
+  for (let i = 0; i < 6; i++) { const x = (R() - 0.5) * 70, h = 50 + R() * 80, g = L.createLinearGradient(0, 0, 0, -h); g.addColorStop(0, 'rgba(10,8,6,.55)'); g.addColorStop(1, 'rgba(10,8,6,0)'); L.fillStyle = g; L.beginPath(); L.moveTo(x - 6 - R() * 9, -4); L.quadraticCurveTo(x + (R() - 0.5) * 22, -h * 0.6, x + (R() - 0.5) * 18, -h); L.quadraticCurveTo(x + (R() - 0.5) * 12, -h * 0.5, x + 6 + R() * 9, -4); L.closePath(); L.fill(); }
+  const nj = 12 + ((R() * 6) | 0); for (let i = 0; i < nj; i++) {
+    const a = i / nj * 6.2832 + (R() - 0.5) * 0.4, len = 40 + R() * 45, w = 2 + R() * 3.5, c = Math.cos(a), s = Math.sin(a), bend = (R() - 0.5) * 14;
+    const g = L.createLinearGradient(0, 0, c * len, s * len); g.addColorStop(0, 'rgba(4,3,2,.62)'); g.addColorStop(0.6, 'rgba(8,6,4,.28)'); g.addColorStop(1, 'rgba(8,6,4,0)'); L.fillStyle = g;
+    L.beginPath(); L.moveTo(-s * w, c * w); L.quadraticCurveTo(c * len * 0.5 - s * (w * 0.7 + bend), s * len * 0.5 + c * (w * 0.7 + bend), c * len, s * len); L.quadraticCurveTo(c * len * 0.5 + s * (w * 0.7 - bend), s * len * 0.5 - c * (w * 0.7 - bend), s * w, -c * w); L.closePath(); L.fill();
+  }
+  const nc = 9 + ((R() * 5) | 0); for (let i = 0; i < nc; i++) { const a = R() * 6.28; hwmCrack(L, R, Math.cos(a) * 12, Math.sin(a) * 12, a, 18 + R() * 46, 0.22 + R() * 0.16, 2); }
+  L.beginPath(); for (let i = 0; i < 20; i++) { const a = i / 20 * 6.2832, k = 13 + R() * 9; if (i) L.lineTo(Math.cos(a) * k, Math.sin(a) * k); else L.moveTo(Math.cos(a) * k, Math.sin(a) * k); } L.closePath();   // cratere: scuro, con il bordo di pietra rotta
+  const gc = L.createRadialGradient(0, 0, 2, 0, 0, 23); gc.addColorStop(0, 'rgba(1,1,1,1)'); gc.addColorStop(0.7, 'rgba(30,26,22,.92)'); gc.addColorStop(1, 'rgba(70,64,54,.5)'); L.fillStyle = gc; L.fill();
+  for (let i = 0; i < 34; i++) { const a = R() * 6.28, d = 12 + R() * 14; hwmChip(L, R, Math.cos(a) * d, Math.sin(a) * d, 0.5 + R() * 1.6, R() < 0.5 ? 'rgba(150,140,122,.6)' : 'rgba(6,5,4,.8)'); }
+  for (let i = 0; i < 150; i++) {
+    const a = R() * 6.28, d = 12 + Math.pow(R(), 1.5) * 110, x = Math.cos(a) * d, y = Math.sin(a) * d, r = 0.35 + R() * 1.1 * (1 - d / 150);
+    L.fillStyle = 'rgba(4,3,2,.85)'; L.beginPath(); L.arc(x, y, r, 0, 6.2832); L.fill();
+    hwmChip(L, R, x - Math.cos(a) * r * 1.4, y - Math.sin(a) * r * 1.4, r * 0.8, 'rgba(170,160,140,.45)');
+  }
+}
+
+// Fuoco: lingua di fuliggine che sale dal punto colpito, larga in basso, con lingue di fiamma morbide; bruno attorno, croste di cenere, qualche brace
+function hwmScorch(L, R) {
+  hwmGlow(L, 0, 26, 66, '96,62,34', 0.2, 1, 1.2);
+  for (let i = 0; i < 46; i++) { const t = R(), y = 52 - t * 130, w = (1 - t) * 36 + 6; hwmGlow(L, (R() - 0.5) * w, y, 12 + (1 - t) * 20, '8,6,4', 0.1 + (1 - t) * 0.14, 1 + R() * 0.2, 1.6); }
+  hwmGlow(L, 0, 34, 40, '4,3,2', 0.85, 1.1, 0.85);
+  const nf = 6 + ((R() * 3) | 0); for (let i = 0; i < nf; i++) {   // lingue di fiamma: sottili e ondulate, sfumate in basso e in cima
+    const f = i / (nf - 1), x0 = (f - 0.5) * 54 + (R() - 0.5) * 6, h = 55 + R() * 70 * (1 - Math.abs(f - 0.5) * 0.9), w = 4 + R() * 6, sw = (R() - 0.5) * 18, g = L.createLinearGradient(0, 38, 0, 38 - h);
+    g.addColorStop(0, 'rgba(6,4,3,0)'); g.addColorStop(0.18, 'rgba(6,4,3,.6)'); g.addColorStop(0.65, 'rgba(12,9,6,.32)'); g.addColorStop(1, 'rgba(12,9,6,0)'); L.fillStyle = g;
+    L.beginPath(); L.moveTo(x0 - w, 38); L.bezierCurveTo(x0 - w * 0.5 + sw, 38 - h * 0.35, x0 + sw * 1.3, 38 - h * 0.7, x0 + sw * 0.4, 38 - h); L.bezierCurveTo(x0 + w * 0.5 + sw * 1.1, 38 - h * 0.7, x0 + w * 0.5 + sw, 38 - h * 0.35, x0 + w, 38); L.closePath(); L.fill();
+  }
+  L.fillStyle = 'rgba(26,18,12,.3)'; for (let i = 0; i < 12; i++) L.fillRect((R() - 0.5) * 74, -56 + R() * 70, 0.6 + R() * 1.4, 6 + R() * 18);   // colature di fuliggine
+  for (let i = 0; i < 46; i++) { const a = R() * 6.28, d = Math.sqrt(R()) * 44; hwmChip(L, R, Math.cos(a) * d * 0.8, 22 + Math.sin(a) * d * 0.8 - R() * 34, 0.4 + R() * 1.2, R() < 0.55 ? 'rgba(140,134,124,.35)' : 'rgba(10,8,6,.5)'); }   // croste di cenere
+  for (let i = 0; i < 5; i++) { const x = (R() - 0.5) * 30, y = 30 + (R() - 0.5) * 14; hwmGlow(L, x, y, 1.4 + R() * 1.1, '255,110,30', 0.32); L.fillStyle = 'rgba(255,170,80,.75)'; L.beginPath(); L.arc(x, y, 0.22 + R() * 0.2, 0, 6.2832); L.fill(); }   // qualche brace
+}
+
+// Plasma: pietra vetrificata e fusa, cratere scuro e lucido, anello incandescente verde, bolle, schizzi, e una colatura di pietra fusa
+function hwmPlasma(L, R) {
+  hwmGlow(L, 0, 6, 46, '4,22,10', 0.82, 1, 1.1);
+  hwmGlow(L, 0, 4, 30, '70,255,120', 0.5, 1, 1.05);
+  const ns = 36 + ((R() * 14) | 0); for (let i = 0; i < ns; i++) { const a = R() * 6.28, d = 12 + R() * 24, l = 2 + R() * 6; L.strokeStyle = 'rgba(120,255,160,' + (0.35 + R() * 0.5).toFixed(2) + ')'; L.lineWidth = 0.25 + R() * 0.5; L.lineCap = 'round'; L.beginPath(); L.moveTo(Math.cos(a) * d, Math.sin(a) * d + 4); L.lineTo(Math.cos(a) * (d + l), Math.sin(a) * (d + l) + 4); L.stroke(); }
+  L.beginPath(); for (let i = 0; i < 28; i++) { const a = i / 28 * 6.2832, k = 14.5 + R() * 3.5; if (i) L.lineTo(Math.cos(a) * k, 4 + Math.sin(a) * k); else L.moveTo(Math.cos(a) * k, 4 + Math.sin(a) * k); } L.closePath();
+  const gr = L.createRadialGradient(0, 4, 3, 0, 4, 20); gr.addColorStop(0, 'rgba(2,10,6,1)'); gr.addColorStop(0.5, 'rgba(8,40,20,.95)'); gr.addColorStop(0.8, 'rgba(110,255,150,.95)'); gr.addColorStop(1, 'rgba(60,200,100,.6)'); L.fillStyle = gr; L.fill();
+  for (let i = 0; i < 16; i++) { const a = R() * 6.28, d = 4 + R() * 13, r = 0.7 + R() * 1.7; L.strokeStyle = 'rgba(150,255,185,.85)'; L.lineWidth = 0.28; L.beginPath(); L.arc(Math.cos(a) * d, 4 + Math.sin(a) * d, r, 0, 6.2832); L.stroke(); L.fillStyle = 'rgba(2,12,6,.7)'; L.fill(); }
+  L.strokeStyle = 'rgba(210,255,225,.55)'; L.lineWidth = 0.4; L.beginPath(); L.arc(-2, 2, 8, 3.6, 4.9); L.stroke();   // riflesso sul vetro
+  for (let k = 0; k < 2 + ((R() * 3) | 0); k++) {   // colature di pietra fusa
+    const x = (R() - 0.5) * 22, len = 10 + R() * 26, w = 1.2 + R() * 1.6, g = L.createLinearGradient(0, 16, 0, 16 + len); g.addColorStop(0, 'rgba(120,255,160,.9)'); g.addColorStop(0.7, 'rgba(40,150,70,.7)'); g.addColorStop(1, 'rgba(10,50,24,.8)');
+    L.strokeStyle = g; L.lineCap = 'round'; L.lineWidth = w; L.beginPath(); L.moveTo(x, 16); L.lineTo(x + (R() - 0.5) * 3, 16 + len); L.stroke(); L.fillStyle = 'rgba(30,120,60,.9)'; L.beginPath(); L.arc(x, 16 + len + w * 0.5, w * 0.8, 0, 6.2832); L.fill();
+  }
+  for (let i = 0; i < 18; i++) { const a = R() * 6.28, d = 20 + R() * 28; hwmChip(L, R, Math.cos(a) * d, 4 + Math.sin(a) * d, 0.4 + R() * 1.1, R() < 0.5 ? 'rgba(140,200,150,.45)' : 'rgba(4,14,8,.7)'); }
+}
+const HWM_DRAW = { hole: hwmHole, blast: hwmBlast, scorch: hwmScorch, plasma: hwmPlasma };
+function hwmMake(type, k) {   // una variante di segno: ritorna la tela e la misura in unita di mondo
+  const sp = HWM[type], R = hwRng(4100 + k * 331 + type.charCodeAt(0) * 29 + type.length * 7), cw = Math.ceil(sp.w * sp.pc), ch = Math.ceil(sp.h * sp.pc), cv = hwCv(cw, ch), L = cv[1];
+  L.translate(cw / 2, ch / 2); L.scale(sp.pc, sp.pc); L.lineCap = 'round'; L.lineJoin = 'round';
+  HWM_DRAW[type](L, R);
+  return { c: cv[0], wu: cw / sp.pc / HWD_U, hu: ch / sp.pc / HWD_U };
+}
+
+// ---- dal motore alla parete: ogni colpo registrato da wallMark (mechanics.js) diventa un segno 3D sulla faccia colpita ----
+const HWM_FACE = [1, 0, 3, 2];   // faccia di wallMark -> direzione verso la stanza (indice di [[1,0],[-1,0],[0,1],[0,-1]])
+const HWM_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const HWM_OFF = { scorch: 30, plasma: 4 };   // di quanti cm il punto colpito sta sotto il centro del disegno
+function t3MarkBuild(B, type, k) {   // crea una variante: la tela, il materiale e l'InstancedMesh che la mostra
+  const sp = HWM[type], D = hwmMake(type, k), tx = new THREE.CanvasTexture(D.c); tx.anisotropy = 4;
+  const mat = new THREE.MeshStandardMaterial({ map: tx, transparent: true, depthWrite: false, roughness: type === 'plasma' ? 0.35 : 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  if (sp.b) { mat.bumpMap = tx; mat.bumpScale = 0.7 * sp.b; }   // il rilievo viene dal canale rosso dell'immagine: crateri e fori incavati
+  if (sp.emi) { mat.emissive = new THREE.Color(0xffffff); mat.emissiveMap = tx; mat.emissiveIntensity = 0.85; }   // il plasma fuso brilla anche al buio
+  const im = new THREE.InstancedMesh(B.pg, mat, sp.cap); im.count = 0; im.frustumCulled = false; im.renderOrder = -4; B.g.add(im);
+  return (B.v[type][k] = { im, D, n: 0, cap: sp.cap });
+}
+function t3MarksGet() {
+  let B = T3.wm;
+  if (!B) {
+    B = T3.wm = { g: new THREE.Group(), pg: new THREE.PlaneGeometry(1, 1), ver: W1.ver, v: {}, cnt: 0, todo: [], m4: new THREE.Matrix4(), vx: new THREE.Vector3(), vy: new THREE.Vector3(), vz: new THREE.Vector3() };
+    for (const type in HWM) { B.v[type] = []; for (let k = 0; k < HWM[type].n; k++) B.todo.push([type, k]); }
+    T3.scene.add(B.g);
+  }
+  if (B.ver !== W1.ver) { B.ver = W1.ver; for (const t in B.v) for (const V of B.v[t]) if (V) { V.n = 0; V.im.count = 0; } }   // nuovo piano o nuova partita: muri puliti
+  return B;
+}
+function t3MarksStep() {   // una variante per fotogramma, appena il 3D parte: niente scatti al primo colpo
+  const B = t3MarksGet(); if (!B.todo.length) return;
+  const q = B.todo.shift(); if (!B.v[q[0]][q[1]]) t3MarkBuild(B, q[0], q[1]);
+}
+// cx, cy: la cella del muro; face: la faccia colpita (0/1 = colpita muovendosi verso +x/-x, 2/3 = verso +y/-y); along: posizione lungo la faccia (0..1); z: quota del colpo sopra il pavimento
+function t3WallMark(cx, cy, face, along, z, type, size) {
+  try {
+    if (!T3.on || T3.failed || !T3.scene || curFloor !== 0) return;
+    if (!HWM[type]) type = 'hole';
+    const B = t3MarksGet(), d = HWM_FACE[face], dx = HWM_DIRS[d][0], dz = HWM_DIRS[d][1], nx = cx + dx, ny = cy + dz;
+    if (nx < 0 || ny < 0 || nx >= N || ny >= N) return;
+    let ready = B.v[type].filter(Boolean); if (!ready.length) ready = [t3MarkBuild(B, type, 0)];
+    const V = ready[(Math.random() * ready.length) | 0], D = V.D, R = Math.random, ni = ny * N + nx, H0 = W1.H[ni], top = W1.C[ni];
+    const k = type === 'hole' ? 0.75 + R() * 0.55 : type === 'blast' ? ((size || 0.9) / 0.9) * (0.85 + R() * 0.25) : type === 'scorch' ? ((size || 0.55) / 0.55) * (0.75 + R() * 0.35) : ((size || 0.32) / 0.32) * (0.8 + R() * 0.3);
+    const w = D.wu * k, h = D.hu * k, rot = type === 'hole' ? R() * 6.2832 : (R() - 0.5) * (type === 'blast' ? 0.5 : 0.14);
+    const a = w >= 1 ? 0.5 : Math.min(1 - w / 2, Math.max(w / 2, along));   // il segno resta dentro la faccia, non esce dallo spigolo
+    let y = H0 + Math.min(0.95, Math.max(0.05, z)) + (HWM_OFF[type] || 0) * k / HWD_U;
+    y = Math.min(top - h * 0.3, Math.max(H0 + h * 0.3, y));
+    const eps = 0.004 + (B.cnt++ % 24) * 0.00025;   // quelli piu recenti stanno un filo piu avanti: niente sfarfallio tra segni sovrapposti
+    let X, Z; if (face < 2) { X = face === 0 ? cx : cx + 1; Z = cy + a; } else { X = cx + a; Z = face === 2 ? cy : cy + 1; }
+    const tx = dz, tz = -dx, c = Math.cos(rot), sn = Math.sin(rot);   // tx, tz: la direzione lungo il muro; la normale punta verso la stanza
+    B.vx.set(tx * c * w, sn * w, tz * c * w); B.vy.set(-tx * sn * h, c * h, -tz * sn * h); B.vz.set(dx, 0, dz);
+    B.m4.makeBasis(B.vx, B.vy, B.vz); B.m4.setPosition(X + dx * eps, y, Z + dz * eps);
+    const i = V.n++ % V.cap; V.im.setMatrixAt(i, B.m4); V.im.count = Math.min(V.n, V.cap); V.im.instanceMatrix.needsUpdate = true;
+  } catch (err) { if (!T3.wmErr) { T3.wmErr = 1; console.error('Segni d\'impatto 3D:', err); } }
+}
+
 // ---------- il livello: muri, pavimento, soffitto, scale ----------
 function t3Build() {
   const sc = T3.scene, P = PAL[0];
@@ -3148,6 +3303,7 @@ function t3Sync() {
   }
   t3Stale(T3.deb);
   t3BreakStep(T3.dt);
+  try { t3MarksStep(); } catch (err) { if (!T3.wmErr) { T3.wmErr = 1; console.error('Segni d\'impatto 3D:', err); } }   // prepara i segni d'impatto sui muri, uno per fotogramma
   try { if (!T3.bl) t3BloodGet(); t3BloodStep(T3.dt); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Sangue 3D:', err); } }   // sangue: spruzzi e pozze
   world1Sync3D();
 }

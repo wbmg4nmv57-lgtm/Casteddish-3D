@@ -95,6 +95,7 @@ function wallMark(px, py, dx, dy, z, type, maxD, size) {
       let arr = decals.get(key); if (!arr) decals.set(key, arr = []);
       if (arr.length >= 14) arr.shift();
       arr.push({ u: along, v: Math.min(0.95, Math.max(0.05, 1 - z)), s: size, t: type });
+      if (typeof t3WallMark === 'function') t3WallMark(cx, cy, face, along, z, type, size);   // livello 3D: lo stesso segno compare sulla parete vera
       return true;
     }
     x = nx; y = ny;

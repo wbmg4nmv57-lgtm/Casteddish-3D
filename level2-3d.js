@@ -588,7 +588,7 @@ function t3Build2() {
   }
   const slab = (mat, cells, yy) => { const im = new THREE.InstancedMesh(sb, mat, cells.length); cells.forEach((c, k) => { m4.setPosition((c % N) + 0.5, yy, ((c / N) | 0) + 0.5); im.setMatrixAt(k, m4); }); root.add(im); };
   for (const [k, cells] of fl) slab(l2FloorMat(k), cells, -1.5);
-  for (const [k, cells] of ce) slab(l2CeilMat(k), cells, 1.5);
+  for (const [k, cells] of ce) slab(l2CeilMat(k), cells, 2.5);   // il blocco del soffitto va da y=1 a y=4: la faccia sotto e il soffitto vero
   // muri: solo quelli che toccano uno spazio libero
   const open = (x, y) => x >= 0 && y >= 0 && x < N && y < N && map[y * N + x] === 0;
   T3.wbox = T3.wbox || (() => { const g = t3Box(1, 6, 1), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 6); return g; })();   // muro alto 6, texture ripetuta ogni unita

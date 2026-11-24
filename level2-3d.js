@@ -14,7 +14,7 @@
    sopra si disegnano i dettagli fini (crepe, colature, granulo). Nascono solo quando servono e restano in cache.
    ====================================================================== */
 const L2 = { mats: {}, ready: false, bile: null };
-const L2CFG = { ambient: 0.13, hand: 0.9, torch: 1.55, fog: 0.19 };   // luminosita del piano 2: alza o abbassa questi numeri
+const L2CFG = { ambient: 0.13, hand: 0.9, torch: 1.55, fog: 0.19, bile: 8 };   // bile: vita persa al secondo stando su una pozza di bile   // luminosita del piano 2: alza o abbassa questi numeri
 const L2S = 512, L2P = 256, L2H = 128;
 const l2Cv = () => hwCv(L2S, L2S);
 const l2Fld = (R, cells) => hwFbm(R, L2H, cells);              // campo morbido a 128 punti (si legge con l2At sulla griglia a 256)
@@ -347,6 +347,22 @@ function l2Flick(seed) {   // sfarfallio dei tubi al neon: ogni tanto si spengon
   const o = l2Out(seed); if (o !== 1) return o;
   const t = tNow * 7 + seed * 13.1;
   return hwHash(Math.floor(t), seed | 0, 5) < 0.05 ? 0.55 + 0.45 * Math.sin(t * 40) : 1;   // ronzio: la luce vibra
+}
+// La bile dei ghoul morti brucia: chi ci cammina sopra perde vita (L2CFG.bile al secondo). Si usano le pozze che si vedono (T3.bile.pools), cosi'
+// il pericolo coincide col disegno e segue la pozza mentre si allarga. I ghoul morti bruciati lasciano fuliggine, non bile: quelli non fanno danno.
+// Chiamata da update() (mechanics-ai.js), quindi a gioco in pausa non succede nulla.
+function l2BileHurt(dt) {
+  const B = T3.bile; if (L2.bileMsgT > 0) L2.bileMsgT -= dt;
+  if (!B || !T3.on || curFloor !== 1 || player.hp <= 0) return;
+  for (const p of B.pools) {
+    if (!p.ac || p.k < 0.2) continue;
+    const s = p.s * (0.06 + 0.94 * (1 - Math.pow(1 - p.k, 3))), r = 0.3 * s * Math.min(p.sx, p.sy) * 0.92, dx = player.x - p.m.position.x, dy = player.y - p.m.position.z;
+    if (dx * dx + dy * dy < r * r) {
+      hurt(L2CFG.bile * dt);
+      if (!(L2.bileMsgT > 0)) { say('LA BILE BRUCIA!'); L2.bileMsgT = 4; }
+      return;
+    }
+  }
 }
 // Quanta luce manca nei dintorni: quando un tubo vicino si spegne cala davvero la luce di tutta la zona (ambiente e luce in mano),
 // non solo quella della lampada. Conta il tubo piu spento, pesato sulla distanza (da 0 = tutti accesi a 1 = tubo sopra la testa spento).

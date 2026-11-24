@@ -3092,7 +3092,7 @@ function t3BloodPool(e, u) {   // il demone e morto: pozza di sangue (di bile, s
   const m = new THREE.Mesh(B.pg, burn ? B.sm[(R() * B.sm.length) | 0] : B.pm[(R() * B.pm.length) | 0]);
   m.rotation.x = -Math.PI / 2; m.rotation.z = R() * 6.283; m.position.set(cx, fl + 0.012, cz); m.visible = false; m.scale.set(0.001, 0.001, 1);
   if (B.pools.length >= T3BL.pools) B.g.remove(B.pools.shift().m);
-  B.g.add(m); B.pools.push({ m, t: burn ? -0.1 : -0.3, k: 0, d: burn ? 1.4 : 2.6, s: r / (burn ? 0.38 : 0.3), sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio visibile e 0,3 del lato per il sangue, 0,38 per la fuliggine); d: secondi per allargarsi
+  B.g.add(m); B.pools.push({ m, ac: !!B.bile && !burn, t: burn ? -0.1 : -0.3, k: 0, d: burn ? 1.4 : 2.6, s: r / (burn ? 0.38 : 0.3), sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio visibile e 0,3 del lato per il sangue, 0,38 per la fuliggine); d: secondi per allargarsi
 }
 
 function t3BurnPart(B, smoke, x, y, z, vx, vy, vz, s0, s1, life, op) {   // una particella: fumo grigio (smoke) o brace arancione additiva
@@ -3273,7 +3273,7 @@ function t3Sync() {
   if (doorAnim && T3.doorTex) T3.doorTex.needsUpdate = true;
   // mostri
   for (const e of enemies) {
-    if (!T3.mobs.has(e) && (e.x - px) ** 2 + (e.y - py) ** 2 > 2500) continue;   // piano grande: il modello nasce solo quando ci si avvicina (50 celle)
+    if ((e.x - px) ** 2 + (e.y - py) ** 2 > (T3.mobs.has(e) ? T3R.keep : T3R.make)) continue;   // piano grande: il modello nasce solo quando ci si avvicina (32 celle) e sparisce quando ci si allontana (40)
     const m = t3Get(T3.mobs, e, () => t3NewMob(e)), u = m.userData, T = TYPES[e.type] || TYPES.demon;
     if (!e.alive && !e.bp) { e.bp = true; try { t3BloodPool(e, u); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Sangue 3D:', err); } } }   // demone ucciso: pozza di sangue sotto di lui
     const d2 = (e.x - px) ** 2 + (e.y - py) ** 2, dx = e.x - u.px, dy = e.y - u.py, mv = Math.hypot(dx, dy);
@@ -3292,7 +3292,7 @@ function t3Sync() {
   t3Fx(); t3FxLights();
   // raccoglibili: modelli 3D (medikit, munizioni, armi, armature) che ruotano e fluttuano, con un alone luminoso
   for (const q of pickups) {
-    if (q.taken || (!T3.pick.has(q) && (q.x - px) ** 2 + (q.y - py) ** 2 > 2500)) continue;
+    if (q.taken || (q.x - px) ** 2 + (q.y - py) ** 2 > (T3.pick.has(q) ? T3R.keep : T3R.make)) continue;
     const key = q.kind === 'arm' ? 'arm' + q.t : q.kind === 'ammo' ? 'ammo' + q.w : q.kind;
     const m = t3Get(T3.pick, q, () => t3Pickup(key));
     m.position.set(q.x, 0.22 + world1H(q.x, q.y) + Math.sin(tNow * 2.5 + q.x) * 0.03, q.y); m.rotation.y = tNow * 1.5;
@@ -3301,7 +3301,7 @@ function t3Sync() {
   t3Stale(T3.pick);
   // oggetti di scena
   for (const q of props) {
-    if (!T3.prop.has(q) && (q.x - px) ** 2 + (q.y - py) ** 2 > 2500) continue;
+    if ((q.x - px) ** 2 + (q.y - py) ** 2 > (T3.prop.has(q) ? T3R.keep : T3R.make)) continue;
     const m = t3Get(T3.prop, q, () => { const o = (curFloor === 1 && typeof t3Props2 === 'function') ? t3Props2(q) : t3Props(q); o.position.set(q.x, world1H(q.x, q.y), q.y); return o; });
     if (m.userData.lid) m.userData.lid.rotation.x = q.open ? -1.2 : 0;
     const u = m.userData;   // colpito: il modello trema per un attimo
@@ -3311,7 +3311,7 @@ function t3Sync() {
   }
   // lampadari appesi al soffitto
   for (const c of chands) {
-    if (!T3.prop.has(c) && (c.x - px) ** 2 + (c.y - py) ** 2 > 2500) continue;
+    if ((c.x - px) ** 2 + (c.y - py) ** 2 > (T3.prop.has(c) ? T3R.keep : T3R.make)) continue;
     const m = t3Get(T3.prop, c, () => { if (curFloor === 1 && typeof t3Chand2 === 'function') return t3Chand2(c); const g = new THREE.Group(); for (const p of t3PropGeo('chand', t3MChand)) g.add(new THREE.Mesh(p.g, p.m)); g.position.set(c.x, world1C(c.x, c.y) - 1, c.y); return g; });
   }
   t3Stale(T3.prop);
@@ -3700,6 +3700,9 @@ function t3VMRender() {   // disegna la scena dell'arma sopra il mondo (profondi
 // serve (il limite e il processore, non la scheda grafica) torna com'era e non ci riprova per un minuto e mezzo.
 // Per bloccare la risoluzione basta aggiungere ?nores all'indirizzo della pagina.
 // =====================================================================================================================
+// Piani grandi (96x96): mostri, oggetti, casse e lampade diventano oggetti 3D solo entro 32 celle dal giocatore e restano finche non si superano 40
+// (la nebbia nasconde tutto molto prima). Prima nascevano entro 50 celle e non sparivano piu: su una mappa grande si accumulavano a migliaia.
+const T3R = { make: 32 * 32, keep: 40 * 40 };
 const T3P = { n: 0, t0: 0, calls: 0, tris: 0, res: 1, low: 0, hi: 0, wait: 0, base: 0, prev: 1, chk: false, lock: 0, txt: '', off: typeof location !== 'undefined' && /[?&]nores/.test(location.search) };
 function t3SetRes(s) {
   T3P.res = Math.round(Math.min(1, Math.max(0.55, s)) * 100) / 100;

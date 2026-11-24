@@ -944,6 +944,7 @@ function update(dt) {
   const inLiq = liq[(player.y | 0) * N + (player.x | 0)];
   const moveStep = player.moveSpeed * dt * (inLiq && curFloor === 3 ? 0.55 : 1) * (player.slow > 0 ? 0.5 : 1);
   if (inLiq && curFloor === 4) hurt(10 * dt);
+  if (curFloor === 1 && typeof l2BileHurt === 'function') l2BileHurt(dt);   // piano 2: la bile dei ghoul morti brucia
   const rotStep = player.rotSpeed * dt;
 
   // Movement: keyboard (digital) + joystick (analog), capped at 1

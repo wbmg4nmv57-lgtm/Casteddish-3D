@@ -437,7 +437,7 @@ function t3Mat(c, r) { return new THREE.MeshStandardMaterial({ color: c, roughne
 const t3Box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
 function t3Init() {
-  const gl = new THREE.WebGLRenderer({ antialias: true });
+  const gl = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   gl.setSize(RENDER_WIDTH * 2, RENDER_HEIGHT * 2, false);
   gl.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;';
   document.getElementById('stage').insertBefore(gl.domElement, canvas);   // sotto il canvas 2D (arma e scritte)
@@ -3248,9 +3248,25 @@ function t3Sync() {
   const ey = 0.5 + W1.camH + (W1.fall > 0 ? (W1.fall / 0.8) ** 2 * 1.4 : 0);   // la camera segue il pavimento (e la caduta)
   cam.position.set(px + r(), ey + r(), py + r()); cam.lookAt(px + player.dirX, ey, py + player.dirY);
   // luci: le 6 torce piu vicine illuminano davvero i muri
-  const gc = P.glow.split(',').map(Number), col = new THREE.Color(gc[0] / 255, gc[1] / 255, gc[2] / 255);
-  const near = torches.map(q => ({ q, d: (q.x - px) ** 2 + (q.y - py) ** 2 })).sort((a, b) => a.d - b.d);
-  T3.lights.forEach((l, i) => { const o = near[i]; l.visible = !!o && o.d < 100; if (o) { if (o.q.lx !== undefined) l.position.set(o.q.lx, o.q.ly, o.q.lz); else l.position.set(o.q.x, 0.75 + world1Hn(o.q.x, o.q.y), o.q.y); l.color.copy(o.q.lc || col); l.intensity = (o.q.k || 1) * C.torch * flick * (o.q.fz !== undefined && typeof l2Flick === 'function' ? l2Flick(o.q.fz) : 1); } });
+  // Le luci sono sempre le stesse 7: quella che non serve ha intensita 0 invece di essere spenta con visible=false. Cambiare il numero di luci
+  // costringe Three.js a ricompilare gli shader di tutti i materiali (scatto a ogni passo vicino a una torcia). Niente liste ne ordinamenti
+  // a ogni fotogramma: le piu vicine (entro 10 celle) si scelgono in un solo giro, tenendo le 7 migliori in due vettori riusati.
+  const col = T3.glowCol || (T3.glowCol = new THREE.Color());
+  if (T3.glowKey !== P.glow) { T3.glowKey = P.glow; const gc = P.glow.split(',').map(Number); col.setRGB(gc[0] / 255, gc[1] / 255, gc[2] / 255); }
+  const NL = T3.lights.length, bq = T3.nearQ || (T3.nearQ = new Array(NL)), bd = T3.nearD || (T3.nearD = new Float64Array(NL)); let nn = 0;
+  for (let ti = 0; ti < torches.length; ti++) {
+    const q = torches[ti], d = (q.x - px) ** 2 + (q.y - py) ** 2;
+    if (d >= 100 || (nn === NL && d >= bd[NL - 1])) continue;
+    let j = nn < NL ? nn++ : NL - 1;
+    while (j > 0 && bd[j - 1] > d) { bd[j] = bd[j - 1]; bq[j] = bq[j - 1]; j--; }
+    bd[j] = d; bq[j] = q;
+  }
+  for (let i = 0; i < NL; i++) {
+    const l = T3.lights[i], q = i < nn ? bq[i] : null;
+    if (!q) { l.intensity = 0; continue; }
+    if (q.lx !== undefined) l.position.set(q.lx, q.ly, q.lz); else l.position.set(q.x, 0.75 + world1Hn(q.x, q.y), q.y);
+    l.color.copy(q.lc || col); l.intensity = (q.k || 1) * C.torch * flick * (q.fz !== undefined && typeof l2Flick === 'function' ? l2Flick(q.fz) : 1);
+  }
   T3.amb.intensity = C.ambient * powerK; T3.hand.position.copy(cam.position); T3.hand.intensity = C.hand * powerK;
   const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];
   { const hb = 0.35 + 0.6 * Math.pow(Math.max(0, Math.sin(tNow * 3.1)), 3); for (const m of HW.pulse) m.emissiveIntensity = hb; }   // le crepe incandescenti battono come un cuore   // fiamme delle torce animate; le crepe dei demoni pulsano
@@ -3676,6 +3692,38 @@ function t3VMRender() {   // disegna la scena dell'arma sopra il mondo (profondi
   const gl = T3.gl; gl.autoClear = false; gl.clearDepth(); gl.render(V.scene, c); gl.autoClear = true;
 }
 
+// =====================================================================================================================
+// VERIFICA DELLE PRESTAZIONI E RISOLUZIONE ADATTIVA (piani 1 e 2)
+// Ogni secondo si misura la velocita reale. La scritta FPS in alto mostra anche: chiamate di disegno (draw), migliaia di triangoli (tri)
+// e la risoluzione del 3D in percentuale. Se la velocita scende sotto i 40 fps, il 3D scende di risoluzione a gradini (fino al 55%),
+// il carico dei pixel e quasi sempre il collo di bottiglia, e risale da solo quando c'e margine. Se abbassare la risoluzione non
+// serve (il limite e il processore, non la scheda grafica) torna com'era e non ci riprova per un minuto e mezzo.
+// Per bloccare la risoluzione basta aggiungere ?nores all'indirizzo della pagina.
+// =====================================================================================================================
+const T3P = { n: 0, t0: 0, calls: 0, tris: 0, res: 1, low: 0, hi: 0, wait: 0, base: 0, prev: 1, chk: false, lock: 0, txt: '', off: typeof location !== 'undefined' && /[?&]nores/.test(location.search) };
+function t3SetRes(s) {
+  T3P.res = Math.round(Math.min(1, Math.max(0.55, s)) * 100) / 100;
+  T3.gl.setSize(Math.round(RENDER_WIDTH * 2 * T3P.res), Math.round(RENDER_HEIGHT * 2 * T3P.res), false);
+}
+function t3PerfFrame(a, b, c) {
+  const P = T3P; P.n++;
+  if (!P.t0) { P.t0 = c; P.n = 0; return; }
+  const inf = T3.gl.info.render; P.calls = inf.calls; P.tris = inf.triangles;   // il conto del solo mondo (l'arma in mano e un altro passaggio)
+  const dt = c - P.t0; if (dt < 1000) return;
+  const fps = P.n * 1000 / dt; P.n = 0; P.t0 = c;
+  P.txt = ' \u00b7 ' + P.calls + ' draw \u00b7 ' + Math.round(P.tris / 1000) + 'k tri \u00b7 ' + Math.round(P.res * 100) + '%';
+  if (P.off || dt > 2500 || document.hidden) { P.low = P.hi = 0; return; }   // scheda in secondo piano o gioco fermo: misura inutile
+  if (P.wait > 0) { P.wait--; return; }
+  if (P.chk) {   // dopo un abbassamento: se non e migliorato di almeno il 10% il limite non sono i pixel
+    P.chk = false;
+    if (fps < P.base * 1.1) { t3SetRes(P.prev); P.fails = (P.fails || 0) + 1; P.lock = c + 90000 * Math.pow(3, P.fails - 1); P.wait = 2; P.low = P.hi = 0; return; }
+  }
+  if (fps < 40 && P.res > 0.55 && c > P.lock) { P.low++; P.hi = 0; } else if (fps >= 57 && P.res < 1) { P.hi++; P.low = 0; } else P.low = P.hi = 0;
+  if (P.low >= 2) { P.prev = P.res; P.base = fps; P.chk = true; t3SetRes(P.res - 0.15); P.low = 0; P.wait = 2; }
+  else if (P.hi >= 8) { t3SetRes(P.res + 0.15); P.hi = 0; P.wait = 2; }
+}
+function t3PerfText() { return T3.on && T3.cv && T3.cv.style.display !== 'none' ? T3P.txt : ''; }
+
 function render3D() {
   const ok3 = curFloor === 0 || (curFloor === 1 && typeof t3Build2 === 'function' && !T3.failed2);   // piano 1 e piano 2 (level2-3d.js) sono in 3D
   if (T3.failed || typeof THREE === 'undefined' || !ok3 || !gameStarted) {
@@ -3690,7 +3738,7 @@ function render3D() {
     const sig = curFloor + '|' + torches.length + '|' + (torches[0] ? torches[0].x + ',' + torches[0].y : '') + '|' + map[doorCell] + '|' + (doorAnim ? doorAnim.s : '') + '|' + W1.ver;
     if (sig !== T3.sig) { T3.sig = sig; if (curFloor === 1) t3Build2(); else t3Build(); }
     flick = (0.9 + 0.1 * Math.sin(tNow * 17) * Math.sin(tNow * 5.3) + (Math.random() - 0.5) * 0.06) * powerK;
-    t3Sync(); T3.gl.render(T3.scene, T3.cam);
+    const pa = performance.now(); t3Sync(); const pb = performance.now(); T3.gl.render(T3.scene, T3.cam); t3PerfFrame(pa, pb, performance.now());
     T3.vmOn = false;   // braccio e arma in 3D sopra il mondo; se qualcosa va storto resta l'arma 2D
     if (!T3.vmFailed) { try { t3VMRender(); T3.vmOn = true; } catch (err) { console.error('Arma 3D disattivata, uso quella 2D:', err); T3.vmFailed = true; T3.gl.autoClear = true; } }
     ctx.clearRect(0, 0, RENDER_WIDTH, RENDER_HEIGHT);   // il canvas 2D resta sopra: mirino e scritte (e l'arma 2D solo se quella 3D non c'e)

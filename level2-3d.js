@@ -14,7 +14,7 @@
    sopra si disegnano i dettagli fini (crepe, colature, granulo). Nascono solo quando servono e restano in cache.
    ====================================================================== */
 const L2 = { mats: {}, ready: false, bile: null };
-const L2CFG = { ambient: 0.21, hand: 1.2, torch: 1.55, fog: 0.17 };   // luminosita del piano 2: alza o abbassa questi numeri
+const L2CFG = { ambient: 0.13, hand: 0.9, torch: 1.55, fog: 0.19 };   // luminosita del piano 2: alza o abbassa questi numeri
 const L2S = 512, L2P = 256, L2H = 128;
 const l2Cv = () => hwCv(L2S, L2S);
 const l2Fld = (R, cells) => hwFbm(R, L2H, cells);              // campo morbido a 128 punti (si legge con l2At sulla griglia a 256)
@@ -339,9 +339,25 @@ function l2WallFor(lv, t, x, y) {
   const nv = fam === 'plaster' ? 4 : fam === 'tile' ? 3 : 2;
   return l2WallMat(fam, (hwHash(x, y, 9) * nv) | 0);
 }
-function l2Flick(seed) {   // sfarfallio delle lampade a tubo: ogni tanto si spengono per un attimo
-  const t = tNow * 7 + seed * 13.1, k = Math.floor(t), f = t - k, h = hwHash(k, seed | 0, 5);
-  return h < 0.05 ? (f < 0.5 ? 0.12 : 0.55) : h < 0.09 ? 0.72 + 0.28 * Math.sin(t * 40) : 1;
+function l2Out(seed) {   // lo spegnimento vero e proprio (1 = acceso): spento, lampo, spento, mezza luce; di solito 1. Piu o meno sfarfallio: cambia 0.012 (1,2% dei passi da un settimo di secondo)
+  const t = tNow * 7 + seed * 13.1, k = Math.floor(t), f = t - k;
+  return hwHash(k, seed | 0, 5) < 0.012 ? (f < 0.4 ? 0.02 : f < 0.55 ? 0.85 : f < 0.8 ? 0.03 : 0.4) : 1;
+}
+function l2Flick(seed) {   // sfarfallio dei tubi al neon: ogni tanto si spengono davvero (quasi zero luce), si riaccendono a scatti e si rispengono; ogni tanto ronzano
+  const o = l2Out(seed); if (o !== 1) return o;
+  const t = tNow * 7 + seed * 13.1;
+  return hwHash(Math.floor(t), seed | 0, 5) < 0.05 ? 0.55 + 0.45 * Math.sin(t * 40) : 1;   // ronzio: la luce vibra
+}
+// Quanta luce manca nei dintorni: quando un tubo vicino si spegne cala davvero la luce di tutta la zona (ambiente e luce in mano),
+// non solo quella della lampada. Conta il tubo piu spento, pesato sulla distanza (da 0 = tutti accesi a 1 = tubo sopra la testa spento).
+function l2Dim() {
+  if (L2.tubesSrc !== chands) { L2.tubesSrc = chands; L2.tubes = chands.filter(c => c.v === 0 && c.fz !== undefined); }
+  const px = player.x, py = player.y; let worst = 0;
+  for (const c of L2.tubes) {
+    const dx = c.x - px, dy = c.y - py, d2 = dx * dx + dy * dy; if (d2 > 81) continue;
+    const w = Math.pow(1 - Math.sqrt(d2) / 9, 1.5), v = (1 - l2Out(c.fz)) * w;   // solo gli spegnimenti, non il ronzio: la luce di tutta la zona non deve vibrare if (v > worst) worst = v;
+  }
+  return worst;
 }
 function l2Halo(col, sc, op) {   // alone luminoso di una lampada
   if (typeof SH === 'undefined' || !SH.haloW) return null;
@@ -1256,8 +1272,10 @@ function t3Sync2() {
     const m = T3.prop.get(c); if (!m) continue;
     const u = m.userData; if (!u.bulb || !u.bc) continue;
     const f = c.fz !== undefined ? l2Flick(c.fz) : 1;
-    u.bulb.material.color.copy(u.bc).multiplyScalar(0.25 + 0.75 * f);
+    u.bulb.material.color.copy(u.bc).multiplyScalar(0.08 + 0.92 * f);
     if (u.halo) u.halo.material.opacity = u.hop * f;
   }
+  const lf = 1 - 0.88 * l2Dim();   // neon spento nei dintorni: l'ambiente quasi si annulla e la luce in mano cala di due terzi
+  T3.amb.intensity *= lf; T3.hand.intensity *= 0.25 + 0.75 * lf;
   l2Bubbles();
 }

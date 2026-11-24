@@ -560,7 +560,7 @@ function gameLoop(now) {
   lastTime = now;
   frameCount++; fpsTimer += dt;
   if (fpsTimer >= 1.0) {
-    fpsEl.textContent = `FPS: ${frameCount}`;
+    fpsEl.textContent = `FPS: ${frameCount}` + (typeof t3PerfText === 'function' ? t3PerfText() : '');
     frameCount = 0; fpsTimer = 0;
   }
   if (gameStarted) { stepMinimap(dt); if (!paused) { update(dt); if (!endShown && (player.hp <= 0 || won)) showEnd(); } }

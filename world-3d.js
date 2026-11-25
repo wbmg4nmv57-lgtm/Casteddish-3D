@@ -1307,6 +1307,316 @@ function hwTorch(M, T, R, b0) {   // sostegno di ferro a braccio con torcia e br
   hwCyl(M, T, [0, b0 + 0.2, 0.14], [0, b0 + 0.29, 0.15], 0.022, 0.038, [0.1, 0.07, 0.05], 6);
   hwEll(M, T, 0, b0 + 0.295, 0.15, 0.03, 0.02, 0.03, [0.95, 0.45, 0.1], 5);
 }
+// =====================================================================================================================
+// CADAVERI SOTTO LE SCRITTE E I SIMBOLI (piano 1)
+// Sotto ogni scritta incomprensibile e ogni simbolo demoniaco sul muro c'e quello che resta di chi l'ha tracciato: uno scheletro umano
+// (il caso piu comune), un corpo in decomposizione oppure un cadavere mutilato, ancora fresco. Ogni cadavere e composto al momento dal
+// seme della cella (sempre lo stesso in ogni partita): una posa fra sei (seduto contro il muro con le ginocchia al petto, seduto a gambe
+// stese con una mano che sale sul muro, disteso lungo il muro, accasciato di lato, inginocchiato con la fronte a terra, strisciato fino
+// al muro), proporzioni, colori, vestiti a brandelli, arti mancanti, capelli, ossa sparse e sangue diversi. I pezzi sono le stesse
+// mesh a colori di vertice degli altri elementi 3D dei muri, fuse nei blocchi della zona (nessuna mesh in piu da disegnare). Il sangue e
+// la carne bagnata stanno in un secondo blocco lucido (roughness bassa), cosi la luce delle torce ci scivola sopra.
+// Misure in metri, sistema del corpo: x di lato, y in alto, z in fuori dal muro; CRP_S le porta in unita di gioco (un uomo e alto circa 0,9).
+// =====================================================================================================================
+const CRP_S = 0.52;
+const crpAdd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], crpSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], crpMul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const crpDot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], crpLen = a => Math.hypot(a[0], a[1], a[2]);
+const crpNorm = a => { const l = crpLen(a) || 1e-6; return [a[0] / l, a[1] / l, a[2] / l]; };
+const crpCross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const crpLerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const crpTint = (c, R, k) => { const f = 1 + (R() - 0.5) * 2 * k; return [c[0] * f, c[1] * f, c[2] * f]; };
+const crpShade = (c, f) => [c[0] * f, c[1] * f, c[2] * f];
+function crpFrame(up, face) {   // assi di una parte del corpo: v = su, w = davanti, u = di lato
+  const v = crpNorm(up); let w = face || [0, 0, 1]; w = crpNorm(crpSub(w, crpMul(v, crpDot(w, v)))); return [crpCross(v, w), v, w];
+}
+// Z = contesto: M blocco opaco, W blocco lucido, T sistema del muro, H0 pavimento, a0 posizione lungo il muro, fl = specchio, R generatore
+function crpQ(Z, p) { return [Z.a0 + Z.fl * p[0] * CRP_S, Z.H0 + p[1] * CRP_S, p[2] * CRP_S]; }
+function crpEll(Z, M, p, r, col, seg, ax) {   // ellissoide (anche inclinato: ax = [lato, su, davanti])
+  seg = seg || 6; const ring = Math.max(2, seg >> 1), base = M.p.length / 3, u = ax ? ax[0] : [1, 0, 0], v = ax ? ax[1] : [0, 1, 0], w = ax ? ax[2] : [0, 0, 1];
+  for (let i = 0; i <= ring; i++) {
+    const ph = Math.PI * i / ring, cy = Math.cos(ph) * r[1], sr = Math.sin(ph);
+    for (let j = 0; j <= seg; j++) {
+      const th = 6.2831853 * j / seg, cx = sr * Math.cos(th) * r[0], cz = sr * Math.sin(th) * r[2];
+      const q = crpQ(Z, [p[0] + u[0] * cx + v[0] * cy + w[0] * cz, p[1] + u[1] * cx + v[1] * cy + w[1] * cz, p[2] + u[2] * cx + v[2] * cy + w[2] * cz]);
+      hwPush(M, Z.T, q[0], q[1], q[2], col);
+    }
+  }
+  for (let i = 0; i < ring; i++) for (let j = 0; j < seg; j++) { const p0 = base + i * (seg + 1) + j, p1 = p0 + 1, p2 = p0 + seg + 1, p3 = p2 + 1; M.i.push(p0, p2, p1, p1, p2, p3); }
+}
+function crpTube(Z, M, pts, r0, r1, col, seg, cap) {   // tubo che segue una spezzata, raggio da r0 a r1 (o vettore di raggi), con tappi facoltativi
+  seg = seg || 5; const n = pts.length, base = M.p.length / 3, rad = i => Array.isArray(r0) ? r0[i] : r0 + (r1 - r0) * (n > 1 ? i / (n - 1) : 0);
+  for (let i = 0; i < n; i++) {
+    const t = crpNorm(crpSub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)])), ref = Math.abs(t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], u = crpNorm(crpCross(t, ref)), v = crpCross(t, u), r = rad(i);
+    for (let j = 0; j <= seg; j++) {
+      const th = 6.2831853 * j / seg, c = Math.cos(th) * r, s = Math.sin(th) * r, q = crpQ(Z, [pts[i][0] + u[0] * c + v[0] * s, pts[i][1] + u[1] * c + v[1] * s, pts[i][2] + u[2] * c + v[2] * s]);
+      hwPush(M, Z.T, q[0], q[1], q[2], col);
+    }
+  }
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < seg; j++) { const p0 = base + i * (seg + 1) + j, p1 = p0 + 1, p2 = p0 + seg + 1, p3 = p2 + 1; M.i.push(p0, p2, p1, p1, p2, p3); }
+  if (cap) for (const e of [0, n - 1]) { const q = crpQ(Z, pts[e]), ci = hwPush(M, Z.T, q[0], q[1], q[2], col), b0 = base + e * (seg + 1); for (let j = 0; j < seg; j++) M.i.push(ci, b0 + j, b0 + j + 1); }
+}
+function crpFlat(Z, M, p, rx, rz, col, seg, ry) {   // pozza o macchia appoggiata a terra (ellisse schiacciata)
+  crpEll(Z, M, [p[0], 0.004 + (ry || 0.003), p[1]], [rx, ry || 0.003, rz], col, seg || 10);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Parti del corpo
+// ---------------------------------------------------------------------------------------------------------------------
+function crpSkull(Z, c, up, face, o) {   // teschio (o testa): cranio, mascella, orbite, naso, denti, capelli
+  const R = Z.R, [u, v, w] = crpFrame(up, face), ax = [u, v, w], at = (x, y, z) => crpAdd(c, crpAdd(crpAdd(crpMul(u, x), crpMul(v, y)), crpMul(w, z)));
+  const bone = o.bone, skin = o.skin || bone, dark = [0.02, 0.015, 0.012], sk = o.fleshy ? skin : bone, sc = o.scale || 1;
+  crpEll(Z, Z.M, c, [0.078 * sc, 0.094 * sc, 0.1 * sc], sk, 7, ax);
+  crpEll(Z, Z.M, at(0, -0.062 * sc, 0.052 * sc), [0.054 * sc, 0.05 * sc, 0.058 * sc], sk, 5, ax);   // zigomi e mascella superiore
+  if (!o.fleshy) {   // teschio: orbite e naso vuoti, denti
+    for (const s of [-1, 1]) crpEll(Z, Z.M, at(s * 0.032 * sc, -0.014 * sc, 0.082 * sc), [0.021 * sc, 0.025 * sc, 0.022 * sc], dark, 4, ax);
+    crpEll(Z, Z.M, at(0, -0.05 * sc, 0.104 * sc), [0.01 * sc, 0.02 * sc, 0.012 * sc], dark, 4, ax);
+    for (let i = 0; i < 4; i++) { const x = (i - 1.5) * 0.022 * sc; crpTube(Z, Z.M, [at(x, -0.088 * sc, 0.105 * sc - Math.abs(x) * 0.5), at(x, -0.104 * sc, 0.108 * sc - Math.abs(x) * 0.5)], 0.0058, 0.0052, crpShade(bone, 1.12), 3); }
+  } else {   // testa: occhi, naso, bocca, capelli
+    const eye = o.eyeCol || [0.8, 0.74, 0.62];
+    for (const s of [-1, 1]) { crpEll(Z, Z.M, at(s * 0.033 * sc, -0.012 * sc, 0.084 * sc), [0.019 * sc, 0.014 * sc, 0.014 * sc], o.sunken ? dark : crpShade(skin, 0.55), 5, ax); if (!o.sunken && !o.shut) crpEll(Z, Z.M, at(s * 0.033 * sc, -0.011 * sc, 0.092 * sc), [0.011 * sc, 0.011 * sc, 0.007 * sc], eye, 4, ax); }
+    crpEll(Z, Z.M, at(0, -0.045 * sc, 0.104 * sc), [0.012 * sc, 0.022 * sc, 0.014 * sc], crpShade(skin, 1.05), 4, ax);
+    crpEll(Z, Z.M, at(0, -0.088 * sc, 0.092 * sc), [0.028 * sc, 0.007 * sc, 0.012 * sc], o.mouth || dark, 4, ax);
+    if (o.hair) { crpEll(Z, Z.M, at(0, 0.03 * sc, -0.012 * sc), [0.082 * sc, 0.068 * sc, 0.1 * sc], o.hair, 7, ax); for (let k = 0; k < (o.long ? 5 : 0); k++) { const s = k % 2 ? 1 : -1; crpTube(Z, Z.M, [at(s * (0.06 + R() * 0.02) * sc, 0.0, -0.02 * sc), at(s * (0.07 + R() * 0.03) * sc, -0.09 * sc - R() * 0.06, -0.03 * sc), at(s * (0.08 + R() * 0.03) * sc, -0.17 * sc - R() * 0.08, 0.0)], 0.011, 0.004, o.hair, 4); } }
+  }
+  if (o.patch) {   // resti di pelle secca sul teschio e un ciuffo di capelli
+    const pc = o.patch; for (let k = 0; k < 4; k++) { const th = R() * 6.28, ph = 0.25 + R() * 1.7, d = [Math.cos(th) * Math.sin(ph), Math.cos(ph) * 0.9, Math.sin(th) * Math.sin(ph)]; crpEll(Z, Z.M, at(d[0] * 0.077 * sc, d[1] * 0.094 * sc, d[2] * 0.1 * sc), [0.03 * sc, 0.026 * sc, 0.016 * sc], crpTint(pc, R, .18), 4, [u, v, crpNorm(d)]); }
+    if (o.tuft) crpEll(Z, Z.M, at(0, 0.055 * sc, -0.03 * sc), [0.06 * sc, 0.04 * sc, 0.07 * sc], o.tuft, 5, ax);
+  }
+  // mandibola: si apre di o.jaw (0 chiusa .. 1 spalancata); puo mancare
+  if (!o.noJaw) {
+    const op = o.jaw || 0, jc = at(0, -0.118 * sc - op * 0.04 * sc, 0.04 * sc - op * 0.02 * sc);
+    crpEll(Z, Z.M, jc, [0.05 * sc, 0.026 * sc, 0.06 * sc], o.fleshy ? crpShade(skin, 0.95) : crpShade(bone, 0.95), 6, ax);
+    if (!o.fleshy) for (let i = 0; i < 4; i++) { const x = (i - 1.5) * 0.022 * sc; crpTube(Z, Z.M, [at(x, -0.104 * sc - op * 0.04 * sc, 0.092 * sc - Math.abs(x) * 0.7), at(x, -0.092 * sc - op * 0.04 * sc, 0.094 * sc - Math.abs(x) * 0.7)], 0.0052, 0.0046, crpShade(bone, 1.1), 3); }
+    else if (op > 0.2) crpEll(Z, Z.M, at(0, -0.1 * sc - op * 0.02, 0.06 * sc), [0.034 * sc, 0.012 * sc, 0.03 * sc], [0.12, 0.02, 0.03], 4, ax);
+  } else if (o.fleshy) crpEll(Z, Z.W, at(0, -0.11 * sc, 0.05 * sc), [0.036 * sc, 0.024 * sc, 0.03 * sc], o.wound || [0.4, 0.04, 0.05], 5, ax);   // mandibola strappata via
+}
+function crpRibcage(Z, c, u, f, col, n, o) {   // gabbia toracica: costole ad arco da un lato all'altro, sterno e colonna
+  o = o || {}; const r = crpCross(u, f), rx = 0.125 * (o.w || 1), rz = 0.085 * (o.d || 1), dy = 0.042, side = o.side || [-1, 1];
+  for (let i = 0; i < n; i++) {
+    const k = i - (n - 1) / 2, s = 1 - 0.3 * (k / ((n - 1) / 2 || 1)) ** 2 + (i > n - 3 ? -0.12 : 0), rr = rx * s, y = k * -dy;
+    for (const sg of side) {
+      const pts = []; for (let t = 0; t < 4; t++) { const th = Math.PI * (0.06 + 0.82 * t / 3), x = sg * rr * Math.sin(th), z = -rz * s * Math.cos(th); pts.push(crpAdd(c, crpAdd(crpAdd(crpMul(u, y - 0.035 * t / 4 * 1), crpMul(r, x)), crpMul(f, z)))); }
+      crpTube(Z, o.M || Z.M, pts, 0.0095, 0.0065, col, 3);
+    }
+  }
+  if (!o.noSternum) crpTube(Z, o.M || Z.M, [crpAdd(c, crpAdd(crpMul(u, ((n - 1) / 2) * dy + 0.02), crpMul(f, rz * 0.92))), crpAdd(c, crpAdd(crpMul(u, -((n - 1) / 2) * dy - 0.02), crpMul(f, rz * 0.92)))], 0.013, 0.01, crpShade(col, 1.05), 3);
+}
+function crpSpine(Z, pts, col) {   // colonna vertebrale: vertebre a coppie di anelli di raggio alterno
+  const n = 9, path = [], rad = []; for (let i = 0; i < n; i++) { const t = i / (n - 1), seg = pts.length - 1, k = Math.min(seg - 1, Math.floor(t * seg)), lt = t * seg - k; path.push(crpLerp(pts[k], pts[k + 1], lt)); rad.push(i % 2 ? 0.011 : 0.017); }
+  crpTube(Z, Z.M, path, rad, 0, col, 4);
+}
+function crpPelvisBone(Z, c, u, f, col) {   // bacino: due ali iliache e sacro
+  const r = crpCross(u, f), ax = [r, u, f];
+  for (const s of [-1, 1]) crpEll(Z, Z.M, crpAdd(c, crpAdd(crpMul(r, s * 0.085), crpMul(u, 0.012))), [0.07, 0.05, 0.035], col, 5, [crpNorm(crpAdd(r, crpMul(f, s * 0.35))), u, f]);
+  crpEll(Z, Z.M, crpAdd(c, crpMul(f, -0.035)), [0.04, 0.05, 0.02], crpShade(col, 0.9), 5, ax);
+}
+function crpHand(Z, p, dir, col, o, bone) {   // mano: palmo e dita (ossa o carne)
+  const d = crpNorm(dir), ref = Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], l = crpNorm(crpCross(d, ref)), sp = o && o.fist ? 0.3 : 1;
+  crpEll(Z, Z.M, crpAdd(p, crpMul(d, 0.045)), [0.036, 0.022, 0.05], col, 4, [l, crpCross(l, d), d]);
+  const nf = bone ? 3 : 4; for (let i = 0; i < nf; i++) { const k = (i - (nf - 1) / 2) * 0.026 * sp, lc = 0.065 - Math.abs(i - (nf - 1) / 2) * 0.008; crpTube(Z, Z.M, [crpAdd(p, crpAdd(crpMul(d, 0.085), crpMul(l, k))), crpAdd(p, crpAdd(crpMul(d, 0.085 + lc), crpAdd(crpMul(l, k * (1.4 + 0.4 * (o && o.spread || 0))), [0, o && o.curl ? -0.025 : 0.0, 0])))], 0.0085, 0.0055, col, 3); }
+}
+function crpFoot(Z, p, dir, col, bone, shoe) {   // piede: tallone e dita; con la scarpa e piu largo
+  const d = crpNorm(dir), ref = [0, 1, 0], l = crpNorm(crpCross(d, ref)), v = crpCross(l, d);
+  if (shoe) { crpEll(Z, Z.M, crpAdd(p, crpMul(d, 0.08)), [0.045, 0.04, 0.13], shoe, 5, [l, v, d]); return; }
+  crpEll(Z, Z.M, crpAdd(p, crpMul(d, 0.06)), [0.036, 0.024, 0.085], col, 4, [l, v, d]);
+  if (bone) for (let i = 0; i < 3; i++) crpTube(Z, Z.M, [crpAdd(p, crpAdd(crpMul(d, 0.12), crpMul(l, (i - 1) * 0.02))), crpAdd(p, crpAdd(crpMul(d, 0.19 - Math.abs(i - 1) * 0.02), crpMul(l, (i - 1) * 0.025)))], 0.008, 0.005, col, 3);
+}
+// arto a due segmenti A-B-C: ossa (sottili, con nodo al gomito/ginocchio) oppure carne (affusolata, con indumento fino a un certo punto)
+function crpLimb(Z, A, B, C, o) {
+  const R = Z.R;
+  if (o.bone) {
+    crpTube(Z, Z.M, [A, B], o.r0, o.r1, o.col, 4); crpTube(Z, Z.M, [B, C], o.r1 * 0.9, o.r1 * 0.7, crpShade(o.col, 0.95), 4);
+    crpEll(Z, Z.M, B, [o.r1 * 1.9, o.r1 * 1.7, o.r1 * 1.9], crpShade(o.col, 1.04), 4);
+    return;
+  }
+  const skin = o.skin, cl = o.cloth;
+  crpTube(Z, Z.M, [A, B], o.r0, o.r1, cl && o.clUp ? cl : skin, 5, true); crpTube(Z, Z.M, [B, C], o.r1 * 0.98, o.r2, cl && o.clLo ? cl : skin, 5, true);
+  crpEll(Z, Z.M, B, [o.r1 * 1.05, o.r1 * 1.05, o.r1 * 1.05], cl && o.clUp ? cl : skin, 5);
+  if (o.bareBone) crpTube(Z, Z.M, [crpLerp(B, C, 0.4), crpLerp(B, C, 0.85)], o.r2 * 0.55, o.r2 * 0.4, o.boneCol || [0.6, 0.54, 0.42], 3);   // tibia/radio che affiora
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pose (metri; x di lato, y in alto, z in fuori dal muro; pavimento a y=0). hf = verso in cui guarda il viso, face = verso del petto
+// ---------------------------------------------------------------------------------------------------------------------
+const CRP_POSE = {
+  sitA: () => ({ pelvis: [0, .10, .24], neck: [0, .74, .14], head: [.01, .88, .18], hf: [0, -.45, 1], face: [0, 0, 1], shL: [-.19, .66, .15], shR: [.19, .66, .15], elL: [-.25, .44, .22], elR: [.25, .42, .24], haL: [-.20, .21, .44], haR: [.30, .13, .50],
+    hipL: [-.10, .10, .24], hipR: [.10, .10, .24], knL: [-.14, .37, .63], knR: [.16, .31, .67], anL: [-.17, .05, .92], anR: [.20, .05, .95], fd: [0, 0, 1] }),
+  sitB: () => ({ pelvis: [0, .09, .20], neck: [0, .70, .10], head: [.01, .80, .20], hf: [0, -.85, .55], face: [0, 0, 1], shL: [-.19, .62, .11], shR: [.19, .62, .11], elL: [-.23, .40, .17], elR: [.27, .46, .10], haL: [-.18, .13, .38], haR: [.30, .74, .09],
+    hipL: [-.10, .09, .20], hipR: [.10, .09, .20], knL: [-.13, .10, .64], knR: [.15, .13, .62], anL: [-.15, .05, 1.04], anR: [.20, .06, 1.0], fd: [.12, .5, 1] }),
+  lie: () => ({ pelvis: [-.06, .09, .32], neck: [-.62, .09, .30], head: [-.78, .10, .31], hf: [0, 1, .1], face: [0, 1, 0], shL: [-.52, .09, .14], shR: [-.52, .09, .48], elL: [-.34, .06, .10], elR: [-.30, .07, .64], haL: [-.10, .05, .09], haR: [-.05, .05, .66],
+    hipL: [-.04, .09, .22], hipR: [-.04, .09, .42], knL: [.36, .14, .20], knR: [.39, .09, .44], anL: [.76, .05, .22], anR: [.72, .07, .52], fd: [.3, 1, 0] }),
+  slump: () => ({ pelvis: [.02, .10, .26], neck: [.24, .64, .16], head: [.34, .76, .18], hf: [.5, -.2, .85], face: [.25, 0, 1], shL: [.06, .71, .16], shR: [.42, .57, .16], elL: [0, .48, .30], elR: [.44, .36, .22], haL: [.06, .24, .50], haR: [.48, .13, .38],
+    hipL: [-.08, .10, .26], hipR: [.12, .10, .26], knL: [-.14, .30, .66], knR: [.2, .10, .70], anL: [-.12, .05, .95], anR: [.30, .05, 1.12], fd: [0, 0, 1] }),
+  kneel: () => ({ pelvis: [0, .26, .76], neck: [0, .40, .20], head: [0, .16, .13], hf: [0, -1, -.1], face: [0, -1, -.3], shL: [-.19, .38, .22], shR: [.19, .38, .22], elL: [-.21, .18, .15], elR: [.21, .18, .15], haL: [-.20, .06, .20], haR: [.20, .06, .21],
+    hipL: [-.09, .26, .76], hipR: [.09, .26, .76], knL: [-.12, .07, .44], knR: [.12, .07, .44], anL: [-.12, .06, .88], anR: [.12, .06, .88], fd: [0, .3, 1] }),
+  crawl: () => ({ pelvis: [0, .10, .86], neck: [0, .09, .30], head: [.02, .10, .16], hf: [.9, -.3, .1], face: [0, -1, 0], shL: [-.20, .09, .32], shR: [.20, .09, .32], elL: [-.25, .07, .20], elR: [.27, .07, .17], haL: [-.20, .05, .26], haR: [.24, .05, .24],
+    hipL: [-.09, .09, .88], hipR: [.09, .09, .88], knL: [-.15, .09, 1.28], knR: [.18, .10, 1.22], anL: [-.12, .26, 1.44], anR: [.2, .08, 1.5], fd: [0, 1, .2] })
+};
+const CRP_POSE_W = [['sitA', 22], ['sitB', 18], ['lie', 16], ['slump', 16], ['kneel', 12], ['crawl', 16]];
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pezzi comuni: sangue, ossa sparse, indumenti, moncherini
+// ---------------------------------------------------------------------------------------------------------------------
+function crpDisc(Z, M, c, rx, rz, col, y, seg) {   // macchia piatta dal contorno irregolare (ventaglio dal centro)
+  seg = seg || 9; const R = Z.R, q0 = crpQ(Z, [c[0], y, c[1]]), ci = hwPush(M, Z.T, q0[0], q0[1], q0[2], col);
+  for (let j = 0; j < seg; j++) { const a = 6.2831853 * j / seg, k = 0.78 + R() * 0.42, q = crpQ(Z, [c[0] + Math.cos(a) * rx * k, y, c[1] + Math.sin(a) * rz * k]); hwPush(M, Z.T, q[0], q[1], q[2], col); }
+  for (let j = 0; j < seg; j++) M.i.push(ci, ci + 1 + j, ci + 1 + (j + 1) % seg);
+}
+function crpPool(Z, c, rx, rz, col) {   // pozza lucida: tre macchie sovrapposte, mai un cerchio perfetto
+  const R = Z.R;
+  for (let i = 0; i < 3; i++) crpDisc(Z, Z.W, [c[0] + (R() - .5) * rx * .6, c[1] + (R() - .5) * rz * .6], rx * (0.6 + R() * .4), rz * (0.6 + R() * .4), crpTint(col, R, .18), 0.004 + i * 0.0009, 9);
+}
+function crpStump(Z, p, dir, r, bone, wet) {   // moncherino: carne viva e osso che sporge
+  const d = crpNorm(dir);
+  crpEll(Z, Z.W, p, [r * 1.12, r * 1.12, r * 1.12], wet, 6);
+  crpTube(Z, Z.M, [crpAdd(p, crpMul(d, 0.0)), crpAdd(p, crpMul(d, 0.045))], r * 0.42, r * 0.34, bone, 4, true);
+}
+function crpScatter(Z, base, n, col, ex) {   // ossa sparse: pezzi di osso lunghi, vertebre, frammenti di costola, denti
+  const R = Z.R;
+  for (let i = 0; i < n; i++) {
+    const x = base[0] + (R() - .5) * 0.9, z = Math.max(0.14, base[1] + (R() - .5) * 0.7), a = R() * 6.28, l = 0.07 + R() * 0.2, k = R();
+    if (k < .55) { const A = [x, 0.016, z], B = [x + Math.cos(a) * l, 0.016, z + Math.sin(a) * l]; crpTube(Z, Z.M, [A, B], 0.011, 0.01, crpTint(col, R, .12), 4, true); }
+    else if (k < .8) crpEll(Z, Z.M, [x, 0.014, z], [0.02, 0.014, 0.02], crpShade(col, .9), 4);
+    else crpTube(Z, Z.M, [[x, 0.012, z], [x + Math.cos(a) * l * .6, 0.03, z + Math.sin(a) * l * .6], [x + Math.cos(a + .8) * l, 0.012, z + Math.sin(a + .8) * l]], 0.008, 0.005, col, 3);
+  }
+  if (ex) for (let i = 0; i < ex; i++) crpEll(Z, Z.M, [base[0] + (R() - .5) * .8, 0.01, Math.max(.12, base[1] + (R() - .5) * .6)], [0.007, 0.007, 0.011], [.7, .65, .5], 3);   // denti caduti
+}
+function crpCloth(Z, c, r, col, ax, seg) { crpEll(Z, Z.M, c, r, col, seg || 5, ax); }
+function crpShackle(Z, p, dir, col) {   // anello di ferro al polso o alla caviglia
+  const d = crpNorm(dir), ref = Math.abs(d[1]) < .9 ? [0, 1, 0] : [1, 0, 0], u = crpNorm(crpCross(d, ref)), v = crpCross(d, u), pts = [];
+  for (let i = 0; i <= 8; i++) { const a = 6.2832 * i / 8; pts.push(crpAdd(p, crpAdd(crpMul(u, Math.cos(a) * 0.036), crpMul(v, Math.sin(a) * 0.036)))); }
+  crpTube(Z, Z.M, pts, 0.0085, 0.0085, col, 4);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Il cadavere: tipo 'bone' (scheletro), 'rot' (decomposizione), 'fresh' (mutilato, recente)
+// ---------------------------------------------------------------------------------------------------------------------
+function crpBody(Z, kind, poseName) {
+  const R = Z.R, P = CRP_POSE[poseName](), K = 0.94 + R() * 0.14, wd = 0.92 + R() * 0.18;   // proporzioni diverse da uomo a uomo
+  const J = {}; for (const k in P) J[k] = (Array.isArray(P[k]) && k !== 'hf' && k !== 'face' && k !== 'fd') ? [P[k][0] * wd * K, P[k][1] * K, P[k][2] * K] : P[k];
+  const u = crpNorm(crpSub(J.neck, J.pelvis)), f = crpNorm(crpSub(P.face, crpMul(u, crpDot(P.face, u)))), r = crpCross(u, f);
+  const cc = crpLerp(J.neck, J.pelvis, 0.30), bc = crpLerp(J.neck, J.pelvis, 0.68), up = crpNorm(crpSub(J.head, J.neck));
+  const ax = [r, u, f], isBone = kind === 'bone', isRot = kind === 'rot', fresh = kind === 'fresh';
+  const lying = poseName === 'lie' || poseName === 'crawl', handDir = (a, b) => crpNorm(crpSub(b, a));
+  // --- colori
+  const boneC = crpTint(R() < .5 ? [.67, .61, .47] : R() < .6 ? [.58, .48, .32] : [.45, .38, .27], R, .1);
+  const skinC = isRot ? (R() < .45 ? [.36, .41, .28] : R() < .6 ? [.31, .23, .16] : [.40, .35, .37]) : [.64, .49, .43], skin = crpTint(skinC, R, .1);
+  const wet = [.30, .02, .03], wetD = [.16, .01, .02], muscle = [.46, .08, .09], gut = [.58, .24, .28], gutD = [.38, .13, .22];
+  const clothP = [[.18, .20, .25], [.30, .22, .15], [.24, .11, .11], [.20, .25, .18], [.34, .31, .26], [.12, .13, .15]], cloth = crpTint(clothP[(R() * clothP.length) | 0], R, .15);
+  const hairC = [[.05, .035, .03], [.2, .12, .06], [.36, .27, .14], [.45, .44, .42], [.1, .06, .04]][(R() * 5) | 0];
+  const hasBoots = R() < (isBone ? .35 : .6), boot = [.1, .07, .05];
+  // --- mutilazioni (cadavere fresco) e perdite (scheletro, decomposizione)
+  const cut = { armL: false, armR: false, legL: false, legR: false, head: false, gut: false, claw: false, face: false, chest: false };
+  if (fresh) { const k = 1 + ((R() * 2.4) | 0), opts = ['armL', 'armR', 'legL', 'legR', 'head', 'gut', 'gut', 'claw', 'face', 'chest']; for (let i = 0; i < k; i++) cut[opts[(R() * opts.length) | 0]] = true; if (cut.head && cut.face) cut.face = false; }
+  else if (R() < .4) cut[['armL', 'armR', 'legL', 'legR'][(R() * 4) | 0]] = true;
+  if (isBone && R() < .2) cut.head = true;
+  // --- testa
+  const skullO = { bone: boneC, scale: 0.96 + R() * 0.1, jaw: Math.min(1, R() * 1.1), noJaw: isBone && R() < .12 };
+  if (isRot && R() < .55) Object.assign(skullO, { patch: crpShade(skin, .85), tuft: R() < .6 ? hairC : null, jaw: .6 + R() * .4 });
+  else if (!isBone) Object.assign(skullO, { fleshy: true, skin: crpShade(skin, isRot ? .95 : 1.02), hair: R() < (isRot ? .55 : .9) ? hairC : null, long: R() < .35, sunken: isRot, shut: fresh && R() < .25, mouth: isRot ? [.05, .03, .02] : [.2, .03, .04], jaw: fresh ? .25 + R() * .6 : .5 + R() * .5, wound: wet });
+  let headP = J.head, headFace = P.hf, headUp = up;
+  if (cut.head) { headP = [J.head[0] + (R() < .5 ? -1 : 1) * (.3 + R() * .2), 0.1, Math.max(.2, J.head[2] + .25 + R() * .3)]; headFace = [R() - .5, .15 + R() * .6, R() - .5]; headUp = [R() - .5, .2, R() - .5]; }
+  crpSkull(Z, headP, headUp, headFace, skullO);
+  if (cut.head) {   // collo mozzato: moncherino con la vertebra, sangue
+    if (!isBone) { crpStump(Z, J.neck, up, 0.05, boneC, wet); crpPool(Z, [J.neck[0], J.neck[2]], 0.3, 0.26, wet); crpPool(Z, [headP[0], headP[2]], 0.12, 0.1, wetD); }
+  }
+  // --- tronco e bacino
+  if (isBone) {
+    const spineMid = crpAdd(crpLerp(J.neck, J.pelvis, .5), crpMul(f, -0.02)); crpSpine(Z, [J.neck, spineMid, J.pelvis], boneC);
+    const side = cut.chest ? [R() < .5 ? -1 : 1] : [-1, 1];
+    crpRibcage(Z, cc, u, f, boneC, 5, { side });
+    crpPelvisBone(Z, J.pelvis, u, f, boneC);
+    crpTube(Z, Z.M, [crpLerp(J.neck, J.shL, 0), J.shL], 0.011, 0.01, boneC, 4); crpTube(Z, Z.M, [J.neck, J.shR], 0.011, 0.01, boneC, 4);   // clavicole
+    if (R() < .5) { crpTube(Z, Z.M, [crpAdd(J.neck, [0, -0.02, 0]), crpAdd(bc, crpMul(f, 0.02))], 0.006, 0.005, boneC, 3); }
+    if (R() < .5) { for (let i = 0; i < 2; i++) crpCloth(Z, crpAdd(crpAdd(cc, crpMul(f, 0.06)), crpAdd(crpMul(r, (i ? 1 : -1) * (.05 + R() * .05)), crpMul(u, (R() - .5) * .16))), [.05, .03, .02], crpShade(cloth, 1.1), ax, 4); }   // brandelli di camicia rimasti fra le costole
+  } else {
+    const adv = isRot && R() < .6;   // decomposizione avanzata: sotto restano ossa e brandelli di pelle secca
+    if (adv) {
+      crpSpine(Z, [J.neck, crpAdd(crpLerp(J.neck, J.pelvis, .5), crpMul(f, -0.02)), J.pelvis], boneC); crpRibcage(Z, cc, u, f, boneC, 5, {}); crpPelvisBone(Z, J.pelvis, u, f, boneC);
+      crpEll(Z, Z.W, crpAdd(bc, crpMul(f, .02)), [.09, .07, .05], [.1, .05, .04], 5, ax);   // cavita scura dove c'era il ventre
+      for (let i = 0; i < 3; i++) crpEll(Z, Z.M, crpAdd(crpAdd(cc, crpMul(f, .085)), crpAdd(crpMul(r, (R() - .5) * .22), crpMul(u, (R() - .5) * .28))), [.045, .038, .014], crpTint([.30, .32, .22], R, .2), 4, ax);   // lembi di pelle
+      crpEll(Z, Z.M, crpAdd(J.pelvis, crpMul(f, .03)), [.12, .07, .06], R() < .6 ? crpShade(cloth, .8) : crpShade(skin, .85), 5, ax);   // resti dei pantaloni o della pelle sul bacino
+      crpTube(Z, Z.M, [J.neck, crpAdd(J.neck, crpMul(up, .06))], .014, .013, boneC, 4);
+    } else {
+    crpEll(Z, Z.M, cc, [.155, .2, .1], isRot ? skin : (R() < .75 ? cloth : skin), 6, ax);          // petto
+    crpEll(Z, Z.M, bc, [.135, .13, .095 * (isRot ? 1.4 : 1)], isRot ? crpShade(skin, .92) : (cut.gut ? crpShade(skin, 1) : cloth), 6, ax);   // pancia (gonfia nei corpi in decomposizione)
+    crpEll(Z, Z.M, J.pelvis, [.15, .1, .1], fresh || R() < .7 ? crpShade(cloth, .9) : skin, 6, ax);   // bacino
+    crpTube(Z, Z.M, [J.neck, crpAdd(J.neck, crpMul(up, .05))], .05, .045, skin, 5, true);
+    for (const s of [-1, 1]) crpEll(Z, Z.M, crpAdd(cc, crpAdd(crpMul(r, s * .17), crpMul(u, .15))), [.06, .05, .06], isRot ? skin : cloth, 4);   // spalle
+    if (isRot) {   // costole che affiorano da un lato, chiazze scure, un buco
+      crpRibcage(Z, crpAdd(cc, crpMul(f, 0.0)), u, f, boneC, 4, { side: [R() < .5 ? -1 : 1], w: 1.12, d: 1.2, noSternum: true });
+      crpEll(Z, Z.W, crpAdd(bc, crpAdd(crpMul(f, .1), crpMul(r, (R() - .5) * .1))), [.06, .05, .02], [.1, .07, .03], 7, ax);
+      for (let i = 0; i < 4; i++) crpEll(Z, Z.M, crpAdd(cc, crpAdd(crpMul(f, .1), crpAdd(crpMul(r, (R() - .5) * .22), crpMul(u, (R() - .5) * .28)))), [.035, .025, .012], crpTint([.22, .28, .16], R, .3), 4, ax);
+    }
+    }
+    if (cut.gut) {   // ventre aperto: cavita rossa e viscere che si riversano a terra
+      const mouth = crpAdd(bc, crpMul(f, .088)); crpEll(Z, Z.W, mouth, [.085, .075, .02], wetD, 8, ax); crpEll(Z, Z.W, crpAdd(mouth, crpMul(f, .012)), [.07, .06, .02], muscle, 8, ax);
+      const gx = mouth[0], base = lying ? [J.pelvis[0] + (R() - .5) * .3, J.pelvis[2] + .26] : [J.pelvis[0] + (R() - .5) * .3, J.pelvis[2] + .26];
+      for (let i = 0; i < 4; i++) { const pts = [], bx = gx + (R() - .5) * .08, bz = base[1] + (R() - .5) * .1, a = R() * 6.28, ln = .24 + R() * .2; for (let k = 0; k < 7; k++) { const t = k / 6; pts.push([bx + Math.cos(a) * ln * t + Math.sin(t * 11 + i) * .045, .028 + .014 * Math.sin(t * 9 + i * 2) * (1 - t * .3), bz + Math.sin(a) * ln * t + Math.cos(t * 9 + i) * .045]); } crpTube(Z, Z.W, pts, .026, .02, i % 2 ? gut : gutD, 4); }
+      crpPool(Z, [gx, base[1]], .34, .3, wet);
+    }
+    if (cut.chest && fresh) { const m = crpAdd(cc, crpMul(f, .09)); crpEll(Z, Z.W, m, [.09, .12, .022], wetD, 8, ax); crpRibcage(Z, cc, u, f, crpShade([.8, .74, .66], 1), 5, { side: [-1, 1], w: .95, d: 1.02, droop: 1, noSternum: true }); crpEll(Z, Z.W, crpAdd(m, crpMul(f, .014)), [.06, .08, .018], muscle, 8, ax); }
+    if (cut.claw) for (let i = 0; i < 3; i++) { const o = (i - 1) * .034, a = crpAdd(crpAdd(cc, crpMul(f, .105)), crpAdd(crpMul(r, o - .06), crpMul(u, .1))), b = crpAdd(crpAdd(cc, crpMul(f, .1)), crpAdd(crpMul(r, o + .06), crpMul(u, -.13))); crpTube(Z, Z.W, [a, crpLerp(a, b, .5), b], .008, .005, wet, 3); }
+    if (R() < (fresh ? .55 : .5)) {   // maglia strappata: lembi di stoffa su spalle e pancia (la pelle si vede attraverso)
+      for (let i = 0; i < 2; i++) crpCloth(Z, crpAdd(bc, crpAdd(crpMul(r, (i ? 1 : -1) * .09), crpMul(u, -.07 + R() * .04))), [.05, .018, .06], crpShade(cloth, .9), ax, 4);
+    }
+  }
+  // --- braccia
+  const mkLimb = (name, A, B, C, side) => {
+    const L = name.endsWith('L') ? 'L' : 'R', miss = cut['arm' + L];
+    if (miss) {   // niente braccio: moncherino alla spalla e (se fresco) l'arto reciso poco piu in la
+      if (isBone) { crpEll(Z, Z.M, A, [.02, .02, .02], boneC, 4); return; }
+      crpStump(Z, A, crpSub(B, A), .036, boneC, wet); if (fresh) crpPool(Z, [A[0] + (R() - .5) * .1, A[2] + .08], .14, .12, wet);
+      const ox = (R() - .5) * .8, oz = Math.max(.25, A[2] + .35 + R() * .3), a = R() * 3.1, A2 = [ox, .04, oz], B2 = [ox + Math.cos(a) * .27, .035, oz + Math.sin(a) * .27], C2 = [B2[0] + Math.cos(a + .5) * .25, .03, Math.max(.12, B2[2] + Math.sin(a + .5) * .25)];
+      if (fresh) { crpLimb(Z, A2, B2, C2, { skin, r0: .034, r1: .03, r2: .024, cloth: cloth, clUp: true }); crpStump(Z, A2, crpSub(A2, B2), .034, boneC, wet); crpHand(Z, C2, crpSub(C2, B2), skin, { curl: true }, false); crpPool(Z, [ox, oz], .13, .1, wet); }
+      return;
+    }
+    const clothSleeve = !isBone && R() < (fresh ? .65 : .5);
+    if (isBone) { crpLimb(Z, A, B, C, { bone: true, r0: .016, r1: .014, col: boneC }); crpHand(Z, C, handDir(B, C), boneC, { spread: R(), curl: R() < .5 }, true); }
+    else {
+      const o = { skin: isRot ? crpShade(skin, .92) : skin, r0: isRot ? .028 : .04, r1: isRot ? .022 : .033, r2: isRot ? .018 : .026, cloth, clUp: clothSleeve, clLo: false, bareBone: isRot && R() < .45, boneCol: boneC };
+      crpLimb(Z, A, B, C, o); crpHand(Z, C, handDir(B, C), skin, { curl: true, fist: R() < .4 }, isRot && R() < .5);
+      if (fresh && R() < .5) crpEll(Z, Z.W, crpLerp(B, C, .5), [.034, .022, .03], wet, 5);   // sangue sull'avambraccio
+    }
+    if (isBone && R() < .15) crpShackle(Z, C, handDir(B, C), [.2, .19, .2]);
+  };
+  mkLimb('armL', J.shL, J.elL, J.haL); mkLimb('armR', J.shR, J.elR, J.haR);
+  // --- gambe
+  const mkLeg = (L, H, Kn, An) => {
+    const miss = cut['leg' + L];
+    if (miss) {
+      if (isBone) { crpLimb(Z, H, Kn, crpLerp(Kn, An, .55), { bone: true, r0: .02, r1: .017, col: boneC }); crpTube(Z, Z.M, [crpLerp(Kn, An, .45), crpLerp(Kn, An, .7)], .014, .012, boneC, 3); return; }
+      const cutAt = R() < .5 ? Kn : crpLerp(H, Kn, .55);
+      crpTube(Z, Z.M, [H, cutAt], isRot ? .05 : .07, isRot ? .042 : .055, fresh || R() < .6 ? cloth : skin, 5, true); crpStump(Z, cutAt, crpSub(cutAt, H), isRot ? .042 : .055, boneC, wet);
+      if (fresh) { crpPool(Z, [cutAt[0], cutAt[2]], .26, .22, wet); const ox = (R() - .5) * .7, oz = Math.max(.3, An[2] + R() * .4); crpTube(Z, Z.M, [[ox, .06, oz], [ox + .3, .05, oz + .15 * (R() - .5)]], .055, .04, cloth, 5, true); crpStump(Z, [ox, .06, oz], [-1, 0, 0], .055, boneC, wet); crpFoot(Z, [ox + .55, .05, oz], [1, 0, 0], skin, false, hasBoots ? boot : null); }
+      return;
+    }
+    if (isBone) { crpLimb(Z, H, Kn, An, { bone: true, r0: .021, r1: .017, col: boneC }); crpFoot(Z, An, P.fd, boneC, true, hasBoots ? boot : null); }
+    else {
+      const o = { skin: isRot ? crpShade(skin, .9) : skin, r0: isRot ? .05 : .072, r1: isRot ? .04 : .056, r2: isRot ? .028 : .04, cloth, clUp: true, clLo: R() < .5, bareBone: isRot && R() < .5, boneCol: boneC };
+      crpLimb(Z, H, Kn, An, o); crpFoot(Z, An, P.fd, skin, false, hasBoots ? boot : null);
+      if (fresh && R() < .45) crpEll(Z, Z.W, crpLerp(Kn, An, .4), [.045, .03, .04], wet, 5);
+    }
+  };
+  mkLeg('L', J.hipL, J.knL, J.anL); mkLeg('R', J.hipR, J.knR, J.anR);
+  // --- terreno: sangue, fluidi, ossa sparse, vermi
+  if (fresh) {
+    const bp = [J.pelvis[0] + (R() - .5) * .2, J.pelvis[2] + .06];
+    crpPool(Z, bp, .3 + R() * .2, .26 + R() * .16, wet);
+    if (poseName === 'crawl' || poseName === 'kneel') { const sm = []; for (let k = 0; k < 6; k++) sm.push([bp[0] + Math.sin(k) * .03, .005, 1.0 - k * .15]); crpTube(Z, Z.W, sm, .045, .06, wetD, 4); }   // striscia di sangue fino al muro
+    crpPool(Z, [cc[0] + (R() - .5) * .2, cc[2] + .05], .22, .18, wetD);
+  } else if (isRot) {
+    crpPool(Z, [J.pelvis[0], J.pelvis[2] + .1], .3 + R() * .2, .25 + R() * .15, [.07, .09, .03]);
+    for (let i = 0; i < 6; i++) { const a = R() * 6.28, d = .08 + R() * .26; crpEll(Z, Z.M, [bc[0] + Math.cos(a) * d, .008, bc[2] + Math.sin(a) * d * .8 + .12], [.012, .006, .006], [.82, .78, .6], 3); }   // vermi
+    crpScatter(Z, [J.pelvis[0], J.pelvis[2] + .3], 2 + ((R() * 3) | 0), boneC, 0);
+  } else {
+    if (R() < .5) crpPool(Z, [J.pelvis[0], J.pelvis[2] + .08], .26, .2, [.09, .06, .04]);   // vecchia macchia secca
+    crpScatter(Z, [J.pelvis[0], J.pelvis[2] + .35], 3 + ((R() * 4) | 0), boneC, (R() * 4) | 0);
+    if (cut.head) crpEll(Z, Z.M, [headP[0] + .1, .02, headP[2] + .06], [.05 * .9, .026, .06], crpShade(boneC, .95), 5);   // la mandibola rotolata via
+  }
+}
+function crpKind(R) { const v = R(); return v < .5 ? 'bone' : v < .76 ? 'rot' : 'fresh'; }
+function crpPose(R) { let t = 0; for (const e of CRP_POSE_W) t += e[1]; let v = R() * t; for (const e of CRP_POSE_W) { v -= e[1]; if (v <= 0) return e[0]; } return 'sitA'; }
 // Metto tutto insieme per l'intero piano; il risultato resta in cache finche non si cambia piano (le ricostruzioni della porta lo riusano).
 function hwDecor(root, hw) {
   for (const f of hw.flame) T3.torchMats.push(f);   // le fiamme animate (T3.torchMats si azzera a ogni t3Build)
@@ -1315,6 +1625,8 @@ function hwDecor(root, hw) {
   const grp = new THREE.Group(), DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]], occ = new Uint8Array(N * N * 4), chunks = new Map(), flames = [], soots = [];
   const isOpen = (x, y) => x >= 0 && y >= 0 && x < N && y < N && (map[y * N + x] === 0 || W1.rail[y * N + x] === 1);
   const chunk = (x, y) => { const k = (x >> 4) + ',' + (y >> 4); let m = chunks.get(k); if (!m) { m = { p: [], c: [], i: [] }; chunks.set(k, m); } return m; };
+  // i cadaveri hanno blocchi tutti loro (opachi e lucidi), cosi da poterli nascondere quando sono lontani: oltre ~20 celle la nebbia li copre comunque
+  const cchunks = new Map(), wchunks = new Map(), mkChunk = (mp) => (x, y) => { const k = (x >> 4) + ',' + (y >> 4); let m = mp.get(k); if (!m) { m = { p: [], c: [], i: [], cx: (x >> 4) * 16 + 8, cz: (y >> 4) * 16 + 8 }; mp.set(k, m); } return m; }, cchunk = mkChunk(cchunks), wchunk = mkChunk(wchunks);
   const frame = (x, y, d) => ({ ox: x + 0.5 + DIRS[d][0] * 0.5, oy: 0, oz: y + 0.5 + DIRS[d][1] * 0.5, tx: DIRS[d][1], tz: -DIRS[d][0], nx: DIRS[d][0], nz: DIRS[d][1] });   // base locale sulla faccia del muro: a verso destra, c verso la stanza
   for (const s of W1.shooters) { const i = (s.y | 0) * N + (s.x | 0); for (let d = 0; d < 4; d++) occ[i * 4 + d] = 1; }   // le feritoie delle trappole restano libere
   const tIdx = new Map(); for (const q of torches) tIdx.set((q.y | 0) * N + (q.x | 0), q);
@@ -1370,12 +1682,34 @@ function hwDecor(root, hw) {
     }
   }
   } catch (err) { console.error('Segni di sangue non disponibili:', err); marks.length = 0; }
+  // cadaveri: sotto ogni scritta e ogni simbolo demoniaco c'e quello che resta di chi l'ha tracciato (scheletro, corpo in decomposizione o cadavere mutilato)
+  try {
+    const trap = new Set(); for (const sp of W1.spikes) trap.add(sp.c); for (const dr of W1.doors) trap.add((dr.y | 0) * N + (dr.x | 0));
+    const used = new Set(); let nb = 0;
+    for (const mk of marks) {
+      if (mk.cat !== 'scrawl' && mk.cat !== 'sigil') continue;
+      const nx = mk.x + DIRS[mk.d][0], ny = mk.y + DIRS[mk.d][1], ni = ny * N + nx;
+      if (nb >= 150 || used.has(ni) || trap.has(ni) || W1.rail[ni] || !isOpen(nx, ny)) continue;
+      const R = hwRng((Math.imul(mk.x, 2654435761) ^ Math.imul(mk.y, 40503) ^ Math.imul(mk.d + 1, 9973) ^ 0xC0FFEE) >>> 0), pose = crpPose(R), kind = crpKind(R);
+      const a0 = Math.max(-0.16, Math.min(0.16, mk.a * 0.4 + (R() - 0.5) * 0.2)) * (pose === 'lie' ? 0.25 : 1);
+      used.add(ni); nb++;
+      crpBody({ M: cchunk(mk.x, mk.y), W: wchunk(mk.x, mk.y), T: frame(mk.x, mk.y, mk.d), H0: W1.H[ni], a0, fl: R() < 0.5 ? 1 : -1, R }, kind, pose);
+    }
+  } catch (err) { console.error('Cadaveri non disponibili:', err); }
   const dm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.05, side: THREE.DoubleSide });
   for (const m of chunks.values()) {
     if (!m.i.length) continue;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(m.c, 3)); g.setIndex(m.i); g.computeVertexNormals();
     grp.add(new THREE.Mesh(g, dm));
+  }
+  const wm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });   // sangue e carne viva: lucidi, e ben appoggiati al pavimento
+  const cm = [];
+  for (const [mp, mat] of [[cchunks, dm], [wchunks, wm]]) for (const m of mp.values()) {
+    if (!m.i.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(m.c, 3)); g.setIndex(m.i); g.computeVertexNormals();
+    const me = new THREE.Mesh(g, mat); grp.add(me); cm.push({ m: me, x: m.cx, z: m.cz });
   }
   const m4 = new THREE.Matrix4(), vx = new THREE.Vector3(), vy = new THREE.Vector3(), vz = new THREE.Vector3(), plane = new THREE.PlaneGeometry(1, 1);
   try {
@@ -1396,7 +1730,7 @@ function hwDecor(root, hw) {
     grp.add(im);
   }
   for (const f of flames) { const sp = new THREE.Sprite(hw.flame[f[3]].mat); sp.scale.set(0.3, 0.375, 1); sp.position.set(f[0], f[1], f[2]); grp.add(sp); }
-  HW.grp = grp; HW.key = key; root.add(grp);
+  HW.grp = grp; HW.key = key; HW.cm = cm; root.add(grp);
 }
 
 // =====================================================================================================================
@@ -3253,6 +3587,7 @@ function t3Sync() {
   // a ogni fotogramma: le piu vicine (entro 10 celle) si scelgono in un solo giro, tenendo le 7 migliori in due vettori riusati.
   const col = T3.glowCol || (T3.glowCol = new THREE.Color());
   if (T3.glowKey !== P.glow) { T3.glowKey = P.glow; const gc = P.glow.split(',').map(Number); col.setRGB(gc[0] / 255, gc[1] / 255, gc[2] / 255); }
+  if (HW.cm) for (const c of HW.cm) c.m.visible = (c.x - px) ** 2 + (c.z - py) ** 2 < 784;   // cadaveri: blocchi oltre 28 celle (dal centro) non si disegnano
   const NL = T3.lights.length, bq = T3.nearQ || (T3.nearQ = new Array(NL)), bd = T3.nearD || (T3.nearD = new Float64Array(NL)); let nn = 0;
   for (let ti = 0; ti < torches.length; ti++) {
     const q = torches[ti], d = (q.x - px) ** 2 + (q.y - py) ** 2;

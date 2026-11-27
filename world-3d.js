@@ -3895,7 +3895,7 @@ function t3Burn(m, e, u, d2) {   // demone morto per ustione: il corpo annerisce
   const B = t3BloodGet(), R = Math.random, dt = T3.dt || 0.016, ti = e.deathTimer, k = Math.min(1, ti / 1.4), ks = k * k * (3 - 2 * k);
   if (!u.chr) {   // materiali propri del cadavere: quelli del modello sono condivisi con tutti gli altri demoni della stessa variante
     u.chr = [];
-    const M = u.glb ? (T3.mw || {})['demon#' + (e.v | 0)] : (T3.mc || {})[e.type === 'demon' || e.type === 'ghoul' ? e.type + '#' + (e.v | 0) : e.type], tg = { skin: 0x17120f, blob: 0x17120f, bone: 0x2b2723, flesh: 0x0d0807, tongue: 0x120a08, drool: 0x000000 }, cm = new Map();
+    const M = u.mats || (u.glb ? (T3.mw || {})['demon#' + (e.v | 0)] : (T3.mc || {})[e.type === 'demon' || e.type === 'ghoul' ? e.type + '#' + (e.v | 0) : e.type]), tg = { skin: 0x17120f, blob: 0x17120f, bone: 0x2b2723, flesh: 0x0d0807, tongue: 0x120a08, drool: 0x000000 }, cm = new Map();
     if (M) {
       for (const n in tg) if (M[n] && M[n].emissive) { const c = M[n].clone(); if (M[n].skinning) c.skinning = true; cm.set(M[n], c); u.chr.push({ n, m: c, ct: new THREE.Color(tg[n]), c0: c.color.clone(), e0: c.emissive.clone(), ei0: c.emissiveIntensity, r0: c.roughness, b0: c.bumpScale || 0, o0: c.opacity }); }
       m.traverse(o => { if (o.isMesh && cm.has(o.material)) o.material = cm.get(o.material); });
@@ -4064,7 +4064,7 @@ function t3Sync() {
     m.position.set(e.x, world1H(e.x, e.y) + (T.lift ? T.lift + Math.sin(tNow * 3 + e.x) * 0.04 : 0), e.y);
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
     if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss || e.fc)) u.hd = Math.atan2(px - e.x, py - e.y);
-    (u.glb ? t3AnimW : t3Anim)(m, e, mv, d2);
+    (u.anim || (u.glb ? t3AnimW : t3Anim))(m, e, mv, d2);   // u.anim: animazione propria del modello (il ghoul 3D del piano 2 usa t3AnimG)
     if (!e.alive && e.burned && d2 < 400) { try { t3Burn(m, e, u, d2); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Carbonizzazione 3D:', err); } } }   // morto bruciato: corpo carbonizzato, brace e fumo
     // barra vita: compare solo dopo il primo colpo
     const show = e.alive && e.hp < e.mhp && d2 < 144, b = t3Get(T3.bars, e, () => { const g = new THREE.Group(), mk = (c, z) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.04), new THREE.MeshBasicMaterial({ color: c, fog: false })); o.position.z = z; g.add(o); return o; }; mk(0x000000, 0); g.userData.fg = mk(0xdd2222, 0.001); return g; });

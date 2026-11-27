@@ -2781,6 +2781,217 @@ function t3Anim(m, e, mv, d2) {
 }
 
 // =====================================================================================================================
+// DEMONE DEL PIANO 1 DAL MODELLO 3D (Demone_livello_1.glb)
+// Una sola mesh con scheletro (38 ossa, texture colore + rilievo) al posto del demone fatto a pezzi. I dati del modello sono in mobs.js
+// (DEMON_MODEL_B64). Le pose si calcolano a codice: ogni osso ruota negli assi del mondo "a riposo" (X laterale, Y su, Z avanti),
+// quindi le molle e gli angoli di t3Anim valgono anche qui. Se il modello non si carica, il gioco usa il vecchio demone procedurale.
+// =====================================================================================================================
+function t3GlbLoad() {
+  if (T3.glb) return T3.glb;
+  const G = T3.glb = { ok: false };
+  try {
+    if (typeof DEMON_MODEL_B64 !== 'string' || typeof THREE.SkinnedMesh !== 'function') throw new Error('dati del modello o motore non disponibili');
+    const bin = atob(DEMON_MODEL_B64), n = bin.length, u8 = new Uint8Array(n);
+    for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+    if (String.fromCharCode(u8[0], u8[1], u8[2], u8[3]) !== 'DMN1') throw new Error('formato dei dati non riconosciuto');
+    const jl = new DataView(u8.buffer).getUint32(4, true), meta = JSON.parse(new TextDecoder().decode(u8.subarray(8, 8 + jl))), base = 8 + jl, B = meta.blobs, nv = meta.nv;
+    const U16 = (k, c) => new Uint16Array(u8.buffer, base + B[k][0], c), I8 = (k, c) => new Int8Array(u8.buffer, base + B[k][0], c), U8 = (k, c) => new Uint8Array(u8.buffer, base + B[k][0], c);
+    const pq = U16('pos', nv * 3), nq = I8('nor', nv * 3), uq = U16('uv', nv * 2), jq = U8('jnt', nv * 4), wq = U8('wgt', nv * 4);
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), si = new Uint16Array(nv * 4), sw = new Float32Array(nv * 4);
+    for (let i = 0; i < nv * 3; i++) { pos[i] = meta.pmin[i % 3] + pq[i] * meta.pr[i % 3]; nor[i] = nq[i] / 127; }
+    for (let i = 0; i < nv * 2; i++) uv[i] = uq[i] / 65535;
+    for (let i = 0; i < nv * 4; i++) { si[i] = jq[i]; sw[i] = wq[i] / 255; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4)); geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+    geo.setIndex(new THREE.BufferAttribute(U16('idx', meta.ni).slice(), 1));
+    const mkTex = (k) => {   // JPEG decodificato dal browser; la texture si carica da sola appena l'immagine e pronta
+      const img = new Image(), t = new THREE.Texture(img); t.flipY = false; t.anisotropy = 4; img.onload = () => { t.needsUpdate = true; };
+      img.src = URL.createObjectURL(new Blob([U8(k, B[k][1])], { type: 'image/jpeg' })); return t;
+    };
+    const qa = (a) => new THREE.Quaternion(a[0], a[1], a[2], a[3]), I = {};
+    meta.bones.forEach((b, i) => { I[b.n] = i; });
+    Object.assign(G, { meta, geo, I, alb: mkTex('alb'), nrm: mkTex('nrm'), bi: meta.bones.map(b => new THREE.Matrix4().fromArray(b.ibm)), A: meta.bones.map(b => qa(b.A)), W: meta.bones.map(b => qa(b.W)), hips: meta.bones[0].t });
+    const wp = (nm) => meta.bones[I[nm]].wp, sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    G.legs = { Left: { t1: sub(wp('LeftLeg'), wp('LeftUpLeg')), t2: sub(wp('LeftFoot'), wp('LeftLeg')) }, Right: { t1: sub(wp('RightLeg'), wp('RightUpLeg')), t2: sub(wp('RightFoot'), wp('RightLeg')) } };
+    G.ay0 = G.legs.Left.t1[1] + G.legs.Left.t2[1];   // quota della caviglia sotto l'anca a riposo: serve a tenere i piedi per terra quando le gambe si piegano
+    G.lat = {};   // asse locale dell'osso della coscia che corrisponde alla larghezza del corpo (per ingrossare o assottigliare le gambe)
+    for (const nm of ['LeftUpLeg', 'RightUpLeg']) { let best = 0, bv = 0; for (let a = 0; a < 3; a++) { const v = new THREE.Vector3(+(a === 0), +(a === 1), +(a === 2)).applyQuaternion(G.W[I[nm]]); if (Math.abs(v.x) > bv) { bv = Math.abs(v.x); best = a; } } G.lat[nm] = best; }
+    const qhc = G.W[I.Head].clone().conjugate(); G.qh = qhc; G.hfw = new THREE.Vector3(0, 0, 1).applyQuaternion(qhc); G.hup = new THREE.Vector3(0, 1, 0).applyQuaternion(qhc);
+    const basis = (xv, yv) => { const Y = new THREE.Vector3().fromArray(yv).normalize(), X = new THREE.Vector3().fromArray(xv); X.addScaledVector(Y, -X.dot(Y)).normalize(); const Z = new THREE.Vector3().crossVectors(X, Y); return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z)); };
+    G.wq = { melee: basis([0.94, 0, 0.35], [-0.35, 0, 0.94]), gun: basis([0, 1, 0], [1, 0, 0]) };   // orientazione dell'arma nel pugno (assi del mondo a riposo)
+    G.ok = true;
+  } catch (err) { G.ok = false; G.err = err; console.error('Modello 3D del demone non caricato:', err); }
+  return G;
+}
+
+function t3WMats(v) {   // materiali del demone 3D: uno per variante (stessa texture del modello, tinta e colore delle crepe/occhi diversi)
+  const mw = T3.mw = T3.mw || {}, key = 'demon#' + v; if (mw[key]) return mw[key];
+  const G = T3.glb; t3SkinTex();
+  const LK = T3LOOK[v] || T3LOOK[0];
+  if (!T3.eyeGlow) {   // alone degli occhi (identico a quello del demone procedurale)
+    const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'), r = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.2, 'rgba(255,255,255,0.8)'); r.addColorStop(0.5, 'rgba(255,255,255,0.22)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = r; x.fillRect(0, 0, 64, 64); T3.eyeGlow = new THREE.CanvasTexture(c);
+  }
+  const mk = (skinned) => {
+    const m = new THREE.MeshStandardMaterial({ map: G.alb, normalMap: G.nrm, roughness: 0.78, metalness: 0.02, emissive: new THREE.Color(LK.glow), emissiveMap: T3.glowTex, emissiveIntensity: 0.3 });
+    m.color.setScalar(1.35); m.normalScale.set(1.1, 1.1); if (skinned) m.skinning = true; return m;   // (skinning: serve alle versioni di three dove il flag e sul materiale)
+  };
+  const q = { skin: mk(true), blob: mk(false), eye: new THREE.MeshBasicMaterial({ map: T3.eyeTex, fog: false, color: new THREE.Color(LK.eye) }),
+    glow: new THREE.SpriteMaterial({ map: T3.eyeGlow, color: LK.halo, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }), plasma: new THREE.MeshBasicMaterial({ color: LK.halo }) };
+  const kp = 0.3 + 0.5 * LK.keep;   // quanto resta dei colori originali del modello sotto la tinta della variante
+  t3Tint(q.skin, LK.skin, kp, key + 'ws'); t3Tint(q.blob, LK.skin, kp, key + 'wb');
+  return (mw[key] = q);
+}
+
+const T3W = { q: new THREE.Quaternion(), e: new THREE.Euler() };
+function t3WR(u, i, rx, ry, rz) {   // ruota l'osso i di (rx, ry, rz) negli assi del mondo a riposo (X laterale, Y su, Z avanti), relativi alla posa del genitore
+  const G = T3.glb; T3W.e.set(rx, ry, rz, 'XYZ'); T3W.q.setFromEuler(T3W.e);
+  u.sk[i].quaternion.copy(G.A[i]).multiply(T3W.q).multiply(G.W[i]);
+}
+function t3WDefPose() { return { pitch: 0.3, chestP: 0.1, twist: 0, roll: 0, hunch: 0, hp: 0.12, hy: 0, hr: 0, jaw: 0.1, arm0: -0.15, arm1: -0.15, elb0: -0.35, elb1: -0.35, abd0: 0, abd1: 0, hip0: 0, hip1: 0, knee0: 0.05, knee1: 0.05, ank0: 0, ank1: 0, toe0: 0, toe1: 0, hy0: 0, br: 0, cloth: 0.1, noDy: false }; }
+function t3WPose(u, p) {   // applica la posa p a tutto lo scheletro (indice 0 = lato destro del mostro, 1 = sinistro, come le braccia/gambe del demone procedurale)
+  const G = T3.glb, I = G.I, sk = u.sk;
+  t3WR(u, I.Spine, p.pitch * 0.55, -p.twist * 0.2, p.roll * 0.5);
+  t3WR(u, I.Spine1, p.pitch * 0.25 + p.chestP * 0.5, p.twist * 0.5, p.roll * 0.3);
+  t3WR(u, I.Spine2, p.pitch * 0.2 + p.chestP * 0.5 + p.hunch, p.twist * 0.5, p.roll * 0.3);
+  sk[I.Spine2].scale.set(1 + p.br * 0.02, 1 + p.br * 0.03, 1 + p.br * 0.02);   // respiro
+  t3WR(u, I.Neck, p.hp * 0.5, p.hy * 0.6, p.hr * 0.5); t3WR(u, I.Head, p.hp * 0.5, p.hy * 0.4, p.hr * 0.5);
+  t3WR(u, I.Jaw, Math.max(-0.1, p.jaw), 0, 0);
+  for (let i = 0; i < 2; i++) {
+    const s = i ? 1 : -1, sd = i ? 'Left' : 'Right', h = p['hip' + i], k = p['knee' + i];
+    t3WR(u, I[sd + 'Arm'], p['arm' + i], 0, -s * (1.309 - p['abd' + i]));   // braccio: prima si abbassa dalla posa a T (75 gradi), poi oscilla avanti/indietro
+    t3WR(u, I[sd + 'ForeArm'], 0, s * p['elb' + i], 0);   // gomito: cerniera che si piega in avanti
+    t3WR(u, I[sd + 'UpLeg'], h, 0, 0); t3WR(u, I[sd + 'Leg'], k, 0, 0); t3WR(u, I[sd + 'Foot'], -(h + k) + p['ank' + i], 0, 0); t3WR(u, I[sd + 'ToeBase'], p['toe' + i], 0, 0);   // il piede resta piatto
+  }
+  for (let c = 1; c <= 4; c++) { const w = p.cloth * (1 + (c - 1) * 0.3); t3WR(u, I['FrontCloth' + c], w, 0, 0); t3WR(u, I['BackCloth' + c], w * 0.8, 0, 0); }   // perizoma che dondola
+  const rc = (lg, h, k) => lg.t1[1] * Math.cos(h) - lg.t1[2] * Math.sin(h) + lg.t2[1] * Math.cos(h + k) - lg.t2[2] * Math.sin(h + k);
+  const dy = p.noDy ? 0 : G.ay0 - Math.min(rc(G.legs.Left, p.hip1, p.knee1), rc(G.legs.Right, p.hip0, p.knee0));   // il bacino scende quanto serve perche il piede d'appoggio resti per terra
+  sk[0].position.set(G.hips[0], G.hips[1] + dy + p.hy0, G.hips[2]);
+}
+
+function t3MobW(e) {
+  const G = t3GlbLoad(); if (!G.ok) throw (G.err || new Error('modello del demone non disponibile'));
+  const gc = T3.gc = T3.gc || {}, GG = (k, f) => gc[k] || (gc[k] = f());
+  const T = TYPES[e.type] || TYPES.demon, vr = VARS.demon[e.v | 0] || VARS.demon[0], mo = vr[2] || {}, v = e.v | 0;
+  const sc = T.sc * (e.hs || 1), wsc = mo.ws || 1, I = G.I, M = t3WMats(v);
+  const kwA = (mo.lw || 7) / 7, kwR = (mo.lwR || mo.lw || 7) / 7, kwL = ((mo.lw || 7) + 1) / 8, akL = mo.armL || 1, akR = mo.armR || 1, headS = mo.headS || 1;
+  const g = new THREE.Group(), rg = new THREE.Group(), all = [], eyes = [];
+  g.add(rg); rg.scale.x = wsc;   // larghezza del corpo
+  const sk = G.meta.bones.map(b => { const o = new THREE.Bone(); o.name = b.n; o.position.fromArray(b.t); o.quaternion.fromArray(b.q); return o; });
+  G.meta.bones.forEach((b, i) => { if (b.p >= 0) sk[b.p].add(sk[i]); else rg.add(sk[i]); });
+  const mesh = new THREE.SkinnedMesh(G.geo, M.skin); rg.add(mesh);
+  const skel = new THREE.Skeleton(sk, G.bi); mesh.bind(skel, new THREE.Matrix4()); all.push(mesh);
+  // proporzioni della variante: spessore/lunghezza delle braccia (il sinistro puo essere gigante), gambe, testa
+  sk[I.RightArm].scale.setScalar(Math.min(1.2, Math.pow(akL, 0.7) * Math.pow(kwA, 0.3))); sk[I.LeftArm].scale.setScalar(Math.min(1.2, Math.pow(akR, 0.7) * Math.pow(kwR, 0.3)));   // (massimo 1,2: oltre la mano arriva sotto il pavimento)
+  const lat = 1 + (kwL - 1) * 0.6; for (const nm of ['LeftUpLeg', 'RightUpLeg']) { const s3 = [1, 1, 1]; s3[G.lat[nm]] = lat; sk[I[nm]].scale.set(s3[0], s3[1], s3[2]); }
+  sk[I.Head].scale.setScalar(headS);
+  // occhi: sfera con pupilla a fessura + alone additivo (si vedono nel buio da lontano); restano accesi anche quando il corpo e nascosto dalla distanza
+  const eyeGeo = GG('eye', () => new THREE.SphereGeometry(0.5, 16, 12)), hb = sk[I.Head], yAx = new THREE.Vector3(0, 1, 0);
+  const addEye = (pos, d, by, s) => {
+    const eye = new THREE.Mesh(eyeGeo, M.eye); eye.position.copy(pos); eye.scale.set(by, by, by * 0.85); eye.userData.by = by; eye.quaternion.copy(G.qh).multiply(new THREE.Quaternion().setFromAxisAngle(yAx, -s * 0.2)); hb.add(eye);
+    const gl = new THREE.Sprite(M.glow); gl.position.copy(pos).addScaledVector(G.hfw, d); hb.add(gl); eyes.push([eye, gl]);
+  };
+  addEye(new THREE.Vector3().fromArray(G.meta.eyes[0]), 0.014, 0.03, 1); addEye(new THREE.Vector3().fromArray(G.meta.eyes[1]), 0.014, 0.03, -1);
+  if (v === 2) addEye(new THREE.Vector3().fromArray(G.meta.eyes[0]).add(new THREE.Vector3().fromArray(G.meta.eyes[1])).multiplyScalar(0.5).addScaledVector(G.hup, 0.055), 0.014, 0.034, 0);   // terzo occhio dell'astuto
+  // arma nel pugno sinistro (lato +x, come nel demone procedurale): segue braccio e avambraccio; le armi da fuoco puntano lungo il braccio
+  const gun = !!(vr && (vr[0] === 'shotgun' || vr[0] === 'rifle'));
+  if (vr && vr[0]) {
+    const wo = vr[1] || {}, wg = new THREE.Group(); sk[I.LeftHand].add(wg);
+    wg.position.fromArray(G.meta.grip.Left); wg.quaternion.copy(G.W[I.LeftHand]).conjugate().multiply(gun ? G.wq.gun : G.wq.melee);
+    wg.scale.setScalar(1.15 * (wo.sc || 1) * (0.8 + 0.2 * akR) / sk[I.LeftArm].scale.x);
+    for (const p of t3PropGeo('wp_' + e.type + '_' + v, B => t3Weapon(B, vr[0], wo), 0.5)) { const wm = new THREE.Mesh(p.g, p.m); wg.add(wm); all.push(wm); }
+  }
+  // pancia gonfia, gobba e sacche di plasma: masse di pelle con la stessa texture, attaccate alla colonna
+  const blobGeo = GG('wblob', () => { const bg = t3Blob(1, 1, 1), ps = bg.attributes.position, uvs = new Float32Array(ps.count * 2); for (let i = 0; i < ps.count; i++) { const l = Math.hypot(ps.getX(i), ps.getY(i), ps.getZ(i)) || 1; uvs[i * 2] = 0.4 + 0.05 * ps.getX(i) / l; uvs[i * 2 + 1] = 0.35 + 0.04 * ps.getY(i) / l; } bg.setAttribute('uv', new THREE.BufferAttribute(uvs, 2)); return bg; });
+  const place = (bone, o, x, y, z) => { const b = G.meta.bones[I[bone]], w = G.W[I[bone]].clone().conjugate(); o.position.set(x - b.wp[0], y - b.wp[1], z - b.wp[2]).applyQuaternion(w); o.quaternion.copy(w); sk[I[bone]].add(o); all.push(o); return o; };   // posizione data nel mondo a riposo
+  if (mo.belly) { const bk = mo.belly / 10, bm = new THREE.Mesh(blobGeo, M.blob); place('Spine', bm, 0, 0.54, 0.15); bm.scale.set(0.17 * (0.8 + 0.2 * bk), 0.15 * (0.8 + 0.2 * bk), 0.13 * (0.8 + 0.2 * bk)); }
+  if (mo.hump) { const hk = mo.hump / 12, hm = new THREE.Mesh(blobGeo, M.blob); place('Spine2', hm, 0.01, 0.86, -0.15); hm.scale.setScalar(0.11 * hk); }
+  if (v === 7) for (const [x, y, z, r] of [[0.04, 0.91, -0.235, 0.045], [-0.045, 0.85, -0.24, 0.035], [0.075, 0.82, -0.225, 0.03]]) { const sc2 = new THREE.Mesh(GG('sac', () => new THREE.SphereGeometry(1, 10, 8)), M.plasma); place('Spine2', sc2, x, y, z); sc2.scale.setScalar(r); }
+  g.rotation.order = 'YXZ'; g.scale.setScalar(sc);
+  const pp = t3WDefPose(); g.userData = { glb: true, mo, gun, sk, skel, pp, eyes, det: [], all, s: {}, px: e.x, py: e.y, ph: 0, hd: 0, yaw: null, yawRate: 0, spd: 0, spdPrev: 0, stepIdx: 0, atkT: 0, hp: e.hp, hurt: 0, sc, hsc: headS, seed: (e.x * 7 + e.y * 13) % 6.28, lod: null, close: null, dead: false };
+  t3WPose(g.userData, pp);   // posa iniziale (anche da lontano il mostro non resta con le braccia aperte a T)
+  return g;
+}
+
+function t3AnimW(m, e, mv, d2) {   // stesse molle e stessi tempi di t3Anim, ma applicati allo scheletro del modello
+  const u = m.userData, dt = Math.min(0.05, T3.dt || 0.016), t = tNow + u.seed, cl = (v, a, b) => Math.max(a, Math.min(b, v)), pp = u.pp;
+  if (!e.alive && !u.deadEyes) { u.deadEyes = true; u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
+  const near = d2 < 169;
+  const eyeFx = (squint) => {   // occhi: sfarfallano, si stringono quando attacca, sbattono le palpebre; l'alone resta un puntino piccolo a qualunque distanza
+    const fl = 0.85 + 0.15 * Math.sin(t * 17) * Math.sin(t * 5.3), sq = (squint ? 0.5 : 1) * ((t % 4.3) < 0.12 ? 0.1 : 1), gw = (0.04 + Math.sqrt(d2) * 0.0115) / (u.hsc * u.sc);
+    u.eyes.forEach(([a, b]) => { a.scale.y = (a.userData.by || 0.04) * sq; b.scale.set(gw * fl, gw * fl * (0.55 + 0.45 * sq), 1); });
+  };
+  if (u.lod !== near) { u.lod = near; u.all.forEach(o => { o.visible = near; }); }   // da lontano restano solo gli occhi
+  if (!near) { u.yaw = u.hd; m.rotation.y = u.yaw; u.spd = 0; if (e.alive) eyeFx(false); return; }
+  const sp = (n, tg, k, c) => { const s = u.s[n] || (u.s[n] = { x: 0, v: 0 }); s.v += (k * (tg - s.x) - c * s.v) * dt; s.x += s.v * dt; return s.x; };
+  const kick = (n, v) => { (u.s[n] || (u.s[n] = { x: 0, v: 0 })).v += v; };
+  if (u.yaw === null) u.yaw = u.hd;
+  // ---- MORTE: cade all'indietro con rimbalzo, ginocchia che cedono, braccia e mascella molli
+  if (!e.alive) {
+    if (!u.dead) { u.dead = true; kick('fall', -3); u.eyes.forEach(([a, b]) => { a.visible = false; b.visible = false; }); }
+    m.rotation.y = u.yaw; m.rotation.x = -sp('fall', 1.45, 38, 5); m.position.y += 0.2 * Math.min(1, e.deathTimer / 0.5);   // il corpo del modello e piu spesso: sollevato di 20 cm resta appoggiato a terra invece di affondare
+    const bn = !!e.burned;   // morto bruciato: i muscoli si contraggono, braccia alzate e gomiti piegati, gambe raccolte
+    pp.noDy = true; pp.hy0 = 0; pp.pitch = sp('dB', bn ? 0.35 : 0.1, 30, 5); pp.chestP = 0.1; pp.twist = 0; pp.roll = 0; pp.hunch = 0; pp.br = 0; pp.cloth = 0.1;
+    for (let i = 0; i < 2; i++) {
+      pp['hip' + i] = sp('dl' + i, bn ? 1.25 + i * 0.2 : 0.9 + i * 0.35, 40, 5); pp['knee' + i] = sp('dk' + i, bn ? 1.75 : 1.1, 40, 5); pp['ank' + i] = 0; pp['toe' + i] = 0;
+      pp['arm' + i] = sp('arm' + i, bn ? -1.5 + i * 0.1 : (i ? -0.2 : 0.5), 18, 3); pp['elb' + i] = sp('elb' + i, bn ? -1.9 : -0.5, 18, 3); pp['abd' + i] = 0;
+    }
+    pp.jaw = sp('jaw', bn ? 1.15 : 0.9, 40, 5); pp.hp = sp('head', -0.5, 30, 4); pp.hy = 0; pp.hr = 0;
+    t3WPose(u, pp); return;
+  }
+  pp.noDy = false;
+  const atk = e.state === 'attack', sum = e.state === 'summon', cow = e.state === 'cower';
+  // ---- girata progressiva: il mostro non scatta, ruota; la testa anticipa e il corpo si inclina in curva
+  let dy = u.hd - u.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const st = cl(dy, -(atk ? 9 : 6) * dt, (atk ? 9 : 6) * dt); u.yaw += st; u.yawRate += (st / dt - u.yawRate) * Math.min(1, dt * 10); m.rotation.y = u.yaw; m.rotation.x = 0;
+  // ---- velocita liscia e accelerazione: guidano inclinazione, passo e rimbalzi
+  u.spd += (mv / dt - u.spd) * Math.min(1, dt * 8); const acc = (u.spd - u.spdPrev) / dt; u.spdPrev = u.spd;
+  const sf = cl(u.spd / 1.8, 0, 1); u.ph += mv * 6.2; const ph = u.ph, sw = Math.sin(ph);   // passo piu fitto del demone procedurale: le gambe del modello sono piu corte
+  const stepIdx = Math.floor(ph / Math.PI);
+  if (stepIdx !== u.stepIdx) { u.stepIdx = stepIdx; kick('bounce', -1.3 * sf); kick('jaw', 2.4 * sf); kick('head', (Math.random() - 0.5) * 3 * sf); }   // ogni passo: scossone
+  // ---- attacco: carica, affondo, morso, recupero (1,1 s)
+  u.atkT = atk ? u.atkT + dt : 0;
+  const p = (u.atkT % 1.1) / 1.1, wind = atk && p < 0.38, strike = atk && p >= 0.38 && p < 0.52, lunge = strike ? Math.sin((p - 0.38) / 0.14 * Math.PI) : 0;
+  if (e.hp < u.hp) { kick('pitch', -5); kick('head', -9); kick('jaw', 7); kick('twist', 3 * (Math.random() < 0.5 ? 1 : -1)); u.hurt = 0.5; }   // colpito: rinculo e urlo
+  u.hp = e.hp; u.hurt = Math.max(0, u.hurt - dt);
+  // ---- busto
+  const pitch = sp('pitch', 0.3 + (u.mo.bend || 0) * 1.3 + sf * 0.18 + cl(acc * 0.05, -0.25, 0.3) + (wind ? -0.45 : 0) + (strike ? 0.55 : 0) + (sum ? -0.4 : 0) + (cow ? 0.5 : 0), 70, 9);
+  const bounce = sp('bounce', 0, 80, 6), roll = sp('roll', -u.yawRate * 0.05 + sw * 0.07 * sf + (u.mo.limp ? (-0.08 + sw * 0.08) * sf : 0), 60, 8);
+  const twist = sp('twist', Math.cos(ph) * 0.22 * sf + (wind ? 0.5 : 0) + (strike ? -0.7 : 0), 55, 7);          // il torace ruota contro il bacino
+  const chestP = sp('chestP', 0.1 + (wind ? -0.25 : 0) + (strike ? 0.35 : 0) + Math.sin(t * 2.3) * 0.03 * (1 - sf), 60, 8), br = Math.sin(t * 2.6 + sf * 3) * 0.5 + 0.5;
+  pp.pitch = pitch; pp.roll = roll; pp.twist = twist; pp.chestP = chestP; pp.br = br; pp.hunch = (u.mo.hunch || 0) * 0.02;   // schiena curva: la testa scende in avanti
+  pp.hy0 = 0; const dip = Math.max(0, -bounce) * 0.3;   // rimbalzo del passo: le ginocchia cedono e il bacino scende da solo (i piedi restano per terra)
+  if (cow) m.rotation.z = Math.sin(t * 40) * 0.03; else m.rotation.z = 0;
+  if (lunge) { m.position.x += Math.sin(u.yaw) * lunge * 0.14; m.position.z += Math.cos(u.yaw) * lunge * 0.14; }
+  // ---- testa: resta stabile rispetto al mondo, anticipa le curve, annusa da ferma, scatta quando morde
+  pp.hp = sp('head', -(pitch + chestP) * 0.7 + 0.12 + (wind ? -0.3 : 0) + (strike ? 0.5 : 0) + (u.hurt > 0 ? -0.5 : 0) + bounce * 0.12, 90, 9);
+  pp.hy = sp('headY', cl(u.yawRate * 0.07, -0.5, 0.5) + Math.sin(t * 0.8) * 0.12 * (1 - sf), 80, 8); pp.hr = sp('headR', Math.sin(t * 1.1) * 0.1 - roll * 0.8, 70, 8);
+  // ---- bocca: la mascella e una molla pigra che sbatte a ogni passo; urla se colpito, si spalanca e scatta nel morso
+  const jt = u.hurt > 0 ? 0.8 : sum ? 0.85 : wind ? 0.35 + p * 1.2 : strike ? (p < 0.47 ? 0.95 : -0.05) : 0.1 + Math.sin(t * 3.1) * 0.04 + sf * 0.12;
+  pp.jaw = sp('jaw', jt, 160, 9);
+  // ---- braccia: oscillano al contrario delle gambe con ritardo; si alzano per colpire, tremano quando evoca
+  for (let i = 0; i < 2; i++) {
+    const aim = u.gun && atk, tg = aim ? (i ? -1.5 : -1.2) : sum ? -2.6 + Math.sin(t * 22) * 0.12 : cow ? -2.7 : atk ? (wind ? (i ? -2.7 : -1.9) : strike ? (i ? 0.1 : -0.6) : -0.7) : (i ? sw : -sw) * 0.85 * sf - 0.15 - 0.1 * Math.sin(t * 1.4 + i);
+    pp['arm' + i] = sp('arm' + i, tg, atk ? 220 : 55, atk ? 14 : 6); pp['abd' + i] = 0.04 + sf * 0.05 + 0.04 * Math.sin(t * 1.7 + i);
+    pp['elb' + i] = sp('elb' + i, aim ? -0.15 : -0.35 - ((i ? sw : -sw) > 0 ? 0.6 * sf : 0.1 * sf) - (wind ? 1 : 0) + (strike ? 0.9 : 0), 90, 8);
+  }
+  // ---- gambe: anca, ginocchio che si piega quando il piede si solleva, punta che segue
+  for (let i = 0; i < 2; i++) {
+    const o = i ? Math.PI : 0, a = Math.sin(ph + o), lift = Math.max(0, Math.cos(ph + o)), lk = u.mo.limp && i ? 0.4 : 1;   // zoppia: la gamba sinistra si trascina
+    pp['hip' + i] = sp('hip' + i, a * 0.8 * sf * lk + (cow ? 0.5 : 0) + (wind ? -0.1 : 0) + (strike ? (i ? 0.5 : -0.2) : 0), 140, 14);
+    pp['knee' + i] = 0.05 + lift * 0.95 * sf * lk + (cow ? 0.7 : 0) + (wind ? 0.35 : 0) + dip + (u.mo.limp && i ? 0.3 * Math.max(0, sw) * sf : 0); pp['ank' + i] = -lift * 0.2 * sf; pp['toe' + i] = 0;   // piede sollevato: la punta si alza (non punta a terra)   // zoppia: la gamba sinistra cede a ogni passo
+  }
+  // ---- perizoma: ritardo e ondeggio col passo
+  pp.cloth = 0.1 + 0.18 * sf + Math.sin(ph * 2 - 0.7) * 0.1 * sf + bounce * 0.15;
+  t3WPose(u, pp);
+  eyeFx(atk || sum);
+}
+
+window.addEventListener('load', () => { try { t3GlbLoad(); } catch (err) { } });   // avvia subito la lettura del modello: le texture sono pronte prima del primo demone
+
+// =====================================================================================================================
 // OGGETTI DI SCENA HORROR (piano 1)
 // Bauli, casse, armature, rastrelliere, barili, ossa, urne e lampadari sono modelli veri: tanti piccoli pezzi (assi, borchie,
 // teschi, costole, catene...) uniti in poche mesh, con colori di vertice per lo sporco, texture procedurali con rilievo
@@ -3684,9 +3895,9 @@ function t3Burn(m, e, u, d2) {   // demone morto per ustione: il corpo annerisce
   const B = t3BloodGet(), R = Math.random, dt = T3.dt || 0.016, ti = e.deathTimer, k = Math.min(1, ti / 1.4), ks = k * k * (3 - 2 * k);
   if (!u.chr) {   // materiali propri del cadavere: quelli del modello sono condivisi con tutti gli altri demoni della stessa variante
     u.chr = [];
-    const M = (T3.mc || {})[e.type === 'demon' || e.type === 'ghoul' ? e.type + '#' + (e.v | 0) : e.type], tg = { skin: 0x17120f, bone: 0x2b2723, flesh: 0x0d0807, tongue: 0x120a08, drool: 0x000000 }, cm = new Map();
+    const M = u.glb ? (T3.mw || {})['demon#' + (e.v | 0)] : (T3.mc || {})[e.type === 'demon' || e.type === 'ghoul' ? e.type + '#' + (e.v | 0) : e.type], tg = { skin: 0x17120f, blob: 0x17120f, bone: 0x2b2723, flesh: 0x0d0807, tongue: 0x120a08, drool: 0x000000 }, cm = new Map();
     if (M) {
-      for (const n in tg) if (M[n] && M[n].emissive) { const c = M[n].clone(); cm.set(M[n], c); u.chr.push({ n, m: c, ct: new THREE.Color(tg[n]), c0: c.color.clone(), e0: c.emissive.clone(), ei0: c.emissiveIntensity, r0: c.roughness, b0: c.bumpScale || 0, o0: c.opacity }); }
+      for (const n in tg) if (M[n] && M[n].emissive) { const c = M[n].clone(); if (M[n].skinning) c.skinning = true; cm.set(M[n], c); u.chr.push({ n, m: c, ct: new THREE.Color(tg[n]), c0: c.color.clone(), e0: c.emissive.clone(), ei0: c.emissiveIntensity, r0: c.roughness, b0: c.bumpScale || 0, o0: c.opacity }); }
       m.traverse(o => { if (o.isMesh && cm.has(o.material)) o.material = cm.get(o.material); });
     }
   }
@@ -3757,7 +3968,7 @@ function t3BloodStepB(B, dt) {   // gocce, nebbiolina e crescita delle pozze, a 
 }
 
 // ---------- aggiorna la scena a ogni fotogramma ----------
-function t3Stale(map) { for (const [k, m] of map) if (m.userData.f !== T3.stamp) { T3.root.remove(m); map.delete(k); if (m.userData.brk && k.hp <= 0) t3Shatter(m, k); } }
+function t3Stale(map) { for (const [k, m] of map) if (m.userData.f !== T3.stamp) { if (m.userData.skel && m.userData.skel.dispose) m.userData.skel.dispose(); T3.root.remove(m); map.delete(k); if (m.userData.brk && k.hp <= 0) t3Shatter(m, k); } }
 function t3Get(map, key, make) { let m = map.get(key); if (!m) { m = make(); map.set(key, m); T3.root.add(m); } m.userData.f = T3.stamp; return m; }
 
 // ---------- effetti: gli stessi sprite del motore 2D (pushFxSprites), qui come sprite additivi in 3D, piu vere luci ----------
@@ -3840,7 +4051,7 @@ function t3Sync() {
     l.color.copy(q.lc || col); l.intensity = (q.k || 1) * C.torch * flick * (q.fz !== undefined && typeof l2Flick === 'function' ? l2Flick(q.fz) : 1);
   }
   T3.amb.intensity = C.ambient * powerK; T3.hand.position.copy(cam.position); T3.hand.intensity = C.hand * powerK;
-  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];
+  const fr = Math.floor(tNow * 9) % 4; for (const k in (T3.mc || {})) T3.mc[k].skin.emissiveIntensity = 0.45 + 0.2 * Math.sin(tNow * 3); for (const k in (T3.mw || {})) T3.mw[k].skin.emissiveIntensity = T3.mw[k].blob.emissiveIntensity = 0.28 + 0.12 * Math.sin(tNow * 3); for (const t of T3.torchMats) t.mat.map = t.frames[fr];
   { const hb = 0.35 + 0.6 * Math.pow(Math.max(0, Math.sin(tNow * 3.1)), 3); for (const m of HW.pulse) m.emissiveIntensity = hb; }   // le crepe incandescenti battono come un cuore   // fiamme delle torce animate; le crepe dei demoni pulsano
   if (doorAnim && T3.doorTex) T3.doorTex.needsUpdate = true;
   // mostri
@@ -3853,7 +4064,7 @@ function t3Sync() {
     m.position.set(e.x, world1H(e.x, e.y) + (T.lift ? T.lift + Math.sin(tNow * 3 + e.x) * 0.04 : 0), e.y);
     if (mv > 0.002) u.hd = Math.atan2(dx, dy);
     if (e.alive && (e.state === 'attack' || e.state === 'summon' || T.boss || e.fc)) u.hd = Math.atan2(px - e.x, py - e.y);
-    t3Anim(m, e, mv, d2);
+    (u.glb ? t3AnimW : t3Anim)(m, e, mv, d2);
     if (!e.alive && e.burned && d2 < 400) { try { t3Burn(m, e, u, d2); } catch (err) { if (!T3.blErr) { T3.blErr = 1; console.error('Carbonizzazione 3D:', err); } } }   // morto bruciato: corpo carbonizzato, brace e fumo
     // barra vita: compare solo dopo il primo colpo
     const show = e.alive && e.hp < e.mhp && d2 < 144, b = t3Get(T3.bars, e, () => { const g = new THREE.Group(), mk = (c, z) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.04), new THREE.MeshBasicMaterial({ color: c, fog: false })); o.position.z = z; g.add(o); return o; }; mk(0x000000, 0); g.userData.fg = mk(0xdd2222, 0.001); return g; });
@@ -3902,6 +4113,7 @@ function t3Sync() {
 // il modello del mostro: il ghoul ha il suo (level2-3d.js); se non si riesce a costruirlo si usa quello del demone
 function t3NewMob(e) {
   if (e.type === 'ghoul' && typeof t3Ghoul === 'function') { try { return t3Ghoul(e); } catch (err) { if (!T3.ghErr) { T3.ghErr = 1; console.error('Ghoul 3D non disponibile, uso il demone:', err); } } }
+  if (e.type === 'demon') { try { return t3MobW(e); } catch (err) { if (!T3.wErr) { T3.wErr = 1; console.error('Demone 3D (modello GLB) non disponibile, uso quello procedurale:', err); } } }
   return t3Mob(e);
 }
 

@@ -3645,7 +3645,7 @@ function t3PropShards(key) {   // spezza il modello in blocchi di pezzi vicini (
   const C = T3.ps || (T3.ps = {}); if (C[key]) return C[key];
   const cells = new Map();
   for (const k in src.B.L) {
-    if (k === 'decal') continue;
+    if (k === 'decal' || k === 'decal2') continue;   // le decalcomanie non volano via con i pezzi
     for (const it of src.B.L[k]) {
       const e = it.m.elements, id = Math.floor((e[12] + 0.4) / 0.27) + ',' + Math.floor(e[13] / 0.3) + ',' + Math.floor((e[14] + 0.4) / 0.27);
       let c = cells.get(id); if (!c) { c = { n: 0, p: [0, 0, 0], L: {} }; cells.set(id, c); }
@@ -3799,7 +3799,7 @@ function t3BloodGet(bile) {   // crea (una volta) il gruppo del sangue (o della 
 
 function t3BloodReset(B) {   // nuovo piano o nuova partita: via tutto il sangue
   B.ver = W1.ver; B.drops.length = 0; B.ns = 0; B.di.count = 0; B.sp.count = 0;
-  for (const p of B.pools) B.g.remove(p.m);
+  for (const p of B.pools) { B.g.remove(p.m); if (p.mt) p.mt.dispose(); }
   B.pools.length = 0;
   for (const s of B.mist) s.sp.visible = false;
   for (const q of B.part) q.sp.visible = false;
@@ -3871,10 +3871,11 @@ function t3BloodPool(e, u) {   // il demone e morto: pozza di sangue (di bile, s
   let r = (burn ? 0.8 + R() * 0.2 : 0.5 + R() * 0.2) * Math.min(1.5, Math.max(0.75, sc));
   const flat = (q) => { for (let i = 0; i < 8; i++) { const a = i * 0.7854; if (Math.abs(world1H(cx + Math.cos(a) * q, cz + Math.sin(a) * q) - fl) > 0.02) return false; } return true; };
   while (r > 0.22 && !flat(r)) r *= 0.8;   // niente pozza sospesa sul bordo di un gradino o del pozzo
-  const m = new THREE.Mesh(B.pg, burn ? B.sm[(R() * B.sm.length) | 0] : B.pm[(R() * B.pm.length) | 0]);
+  const bm = B.bile && !burn ? B.pm[(R() * B.pm.length) | 0].clone() : null;   // la bile ha un materiale tutto suo: col tempo si scurisce (t3BileAge)
+  const m = new THREE.Mesh(B.pg, bm || (burn ? B.sm[(R() * B.sm.length) | 0] : B.pm[(R() * B.pm.length) | 0]));
   m.rotation.x = -Math.PI / 2; m.rotation.z = R() * 6.283; m.position.set(cx, fl + 0.012, cz); m.visible = false; m.scale.set(0.001, 0.001, 1);
-  if (B.pools.length >= T3BL.pools) B.g.remove(B.pools.shift().m);
-  B.g.add(m); B.pools.push({ m, ac: !!B.bile && !burn, t: burn ? -0.1 : -0.3, k: 0, d: burn ? 1.4 : 2.6, s: r / (burn ? 0.38 : 0.3), sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio visibile e 0,3 del lato per il sangue, 0,38 per la fuliggine); d: secondi per allargarsi
+  if (B.pools.length >= T3BL.pools) { const old = B.pools.shift(); B.g.remove(old.m); if (old.mt) old.mt.dispose(); }
+  B.g.add(m); B.pools.push({ m, mt: bm, age: 0, ac: !!B.bile && !burn, t: burn ? -0.1 : -0.3, k: 0, d: burn ? 1.4 : 2.6, s: r / (burn ? 0.38 : 0.3), sx: 0.9 + R() * 0.2, sy: 0.8 + R() * 0.3 });   // s: lato del quadrato (il raggio visibile e 0,3 del lato per il sangue, 0,38 per la fuliggine); d: secondi per allargarsi
 }
 
 function t3BurnPart(B, smoke, x, y, z, vx, vy, vz, s0, s1, life, op) {   // una particella: fumo grigio (smoke) o brace arancione additiva
@@ -3920,6 +3921,12 @@ function t3Burn(m, e, u, d2) {   // demone morto per ustione: il corpo annerisce
 }
 
 function t3BloodStep(dt) { if (T3.bl) t3BloodStepB(T3.bl, dt); if (T3.bile) t3BloodStepB(T3.bile, dt); }   // sangue e bile
+function t3BileAge(p, dt) {   // la bile dei ghoul morti si scurisce e si rapprende: dopo L2CFG.bileLife secondi (20) e scura, opaca e inerte (non fa piu danno)
+  const life = (typeof L2CFG !== 'undefined' && L2CFG.bileLife) || 20; p.age += dt;
+  const f = Math.min(1, p.age / life), m = p.mt;
+  m.color.setRGB(1 - 0.62 * f, 1 - 0.66 * f, 1 - 0.78 * f); m.emissive.setRGB(0.102 * (1 - f), 0.133 * (1 - f), 0.016 * (1 - f)); m.roughness = 0.2 + 0.7 * f;   // dal giallo-verde lucido a un fango scuro e opaco
+  if (f >= 1) { p.ac = false; p.dn = true; }
+}
 function t3BloodStepB(B, dt) {   // gocce, nebbiolina e crescita delle pozze, a ogni fotogramma
   if (B.ver !== W1.ver) t3BloodReset(B);
   const D = B.drops, dm = B.dm, R = Math.random;
@@ -3950,6 +3957,7 @@ function t3BloodStepB(B, dt) {   // gocce, nebbiolina e crescita delle pozze, a 
     s.sp.position.x += s.vx * dt; s.sp.position.z += s.vz * dt; s.sp.position.y += 0.25 * dt;
   }
   for (const p of B.pools) {
+    if (p.mt && !p.dn) t3BileAge(p, dt);   // bile: si scurisce col passare dei secondi
     if (p.k >= 1) continue;
     p.t += dt; const k = Math.min(1, Math.max(0, p.t / (p.d || 2.6))); p.k = k;
     const s = p.s * (0.06 + 0.94 * (1 - Math.pow(1 - k, 3)));   // sgorga in fretta, poi rallenta

@@ -14,7 +14,7 @@
    sopra si disegnano i dettagli fini (crepe, colature, granulo). Nascono solo quando servono e restano in cache.
    ====================================================================== */
 const L2 = { mats: {}, ready: false, bile: null };
-const L2CFG = { ambient: 0.13, hand: 0.9, torch: 1.55, fog: 0.19, bile: 8 };   // bile: vita persa al secondo stando su una pozza di bile   // luminosita del piano 2: alza o abbassa questi numeri
+const L2CFG = { ambient: 0.13, hand: 0.9, torch: 1.55, fog: 0.19, bile: 1, bileLife: 20 };   // luminosita del piano 2: alza o abbassa questi numeri. bile: vita persa al secondo stando su una pozza di bile; bileLife: dopo quanti secondi la pozza diventa scura e inerte (zero danno)
 const L2S = 512, L2P = 256, L2H = 128;
 const l2Cv = () => hwCv(L2S, L2S);
 const l2Fld = (R, cells) => hwFbm(R, L2H, cells);              // campo morbido a 128 punti (si legge con l2At sulla griglia a 256)
@@ -348,21 +348,23 @@ function l2Flick(seed) {   // sfarfallio dei tubi al neon: ogni tanto si spengon
   const t = tNow * 7 + seed * 13.1;
   return hwHash(Math.floor(t), seed | 0, 5) < 0.05 ? 0.55 + 0.45 * Math.sin(t * 40) : 1;   // ronzio: la luce vibra
 }
-// La bile dei ghoul morti brucia: chi ci cammina sopra perde vita (L2CFG.bile al secondo). Si usano le pozze che si vedono (T3.bile.pools), cosi'
-// il pericolo coincide col disegno e segue la pozza mentre si allarga. I ghoul morti bruciati lasciano fuliggine, non bile: quelli non fanno danno.
-// Chiamata da update() (mechanics-ai.js), quindi a gioco in pausa non succede nulla.
+// La bile dei ghoul morti brucia: chi ci sta sopra perde L2CFG.bile punti vita al secondo (un colpo secco al secondo, con suono e lampo rosso).
+// Si usano le pozze che si vedono (T3.bile.pools), cosi' il pericolo coincide col disegno e segue la pozza mentre si allarga.
+// Dopo L2CFG.bileLife secondi la pozza si e scurita e rappresa: e inerte (p.ac = false, lo decide world-3d.js mentre la scurisce) e non fa piu danno.
+// I ghoul morti bruciati lasciano fuliggine, non bile: quelli non fanno danno. Chiamata da update() (mechanics-ai.js): a gioco in pausa non succede nulla.
 function l2BileHurt(dt) {
   const B = T3.bile; if (L2.bileMsgT > 0) L2.bileMsgT -= dt;
   if (!B || !T3.on || curFloor !== 1 || player.hp <= 0) return;
+  let on = false;
   for (const p of B.pools) {
     if (!p.ac || p.k < 0.2) continue;
     const s = p.s * (0.06 + 0.94 * (1 - Math.pow(1 - p.k, 3))), r = 0.3 * s * Math.min(p.sx, p.sy) * 0.92, dx = player.x - p.m.position.x, dy = player.y - p.m.position.z;
-    if (dx * dx + dy * dy < r * r) {
-      hurt(L2CFG.bile * dt);
-      if (!(L2.bileMsgT > 0)) { say('LA BILE BRUCIA!'); L2.bileMsgT = 4; }
-      return;
-    }
+    if (dx * dx + dy * dy < r * r) { on = true; break; }
   }
+  if (!on) { L2.bileAcc = 0.6; return; }   // fuori dalla bile il contatore si riarma: appena ci rimetti il piede il primo colpo arriva dopo 0,4 secondi
+  L2.bileAcc = (L2.bileAcc === undefined ? 0.6 : L2.bileAcc) + dt;
+  if (L2.bileAcc >= 1) { L2.bileAcc -= 1; hurt(L2CFG.bile); }
+  if (!(L2.bileMsgT > 0)) { say('LA BILE BRUCIA!'); L2.bileMsgT = 4; }
 }
 // Quanta luce manca nei dintorni: quando un tubo vicino si spegne cala davvero la luce di tutta la zona (ambiente e luce in mano),
 // non solo quella della lampada. Conta il tubo piu spento, pesato sulla distanza (da 0 = tutti accesi a 1 = tubo sopra la testa spento).
@@ -1254,89 +1256,252 @@ function t3GhoulOld(e) {
    Gli arredi del catalogo DECOR[1] (scrivania, schedario, tv, distributore, bidone, spazzatura, divano, frigorifero, rete
    del letto, carrello, armadietti, computer, distributore d'acqua, scatoloni, pianta secca, gomme, sedia, fotocopiatrice,
    materasso) e il barile esplosivo sono modelli veri, fatti di tanti pezzi uniti in poche mesh con lo stesso sistema del
-   piano 1 (t3PropGeo). Casse e bauli sono quelli del piano 1. Rottura: i pezzi del modello volano via (t3Shatter) e restano
+   piano 1 (t3PropGeo), con vernice scrostata e plastica sporca (texture a rilievo) e un atlante di decalcomanie tutto loro
+   (l2Decals2: rombo di pericolo, targa ESPLOSIVO, strisce gialle e nere, colate di ruggine, sporco, cartello FUORI SERVIZIO,
+   targhetta di serie, pozze scure). Casse e bauli sono quelli del piano 1. Rottura: i pezzi del modello volano via (t3Shatter) e restano
    macerie adatte al materiale (lamiera, vetro, legno).
    ====================================================================== */
-function l2Kit() {   // materiali in piu rispetto al piano 1: stoffa, plastica, vernice liscia, vetro
+// atlante delle decalcomanie del piano 2 (8 caselle da 128, sfondo trasparente): rombo di pericolo, targa "esplosivo", strisce gialle e nere,
+// colate di ruggine, sporco, cartello "fuori servizio", targhetta di serie, pozza scura
+function l2Decals2() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d'), R = hwRng(8821);
+  const cell = (i, f) => { g.save(); g.translate((i & 1) * 128, (i >> 1) * 128); g.beginPath(); g.rect(0, 0, 128, 128); g.clip(); g.lineCap = 'round'; g.lineJoin = 'round'; f(); g.restore(); };
+  const wear = (n, a) => {   // scheggiature (buchi nella vernice), graffi chiari e macchie di ruggine
+    g.save(); g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < n; i++) { g.fillStyle = 'rgba(0,0,0,' + (0.3 + R() * 0.5) + ')'; g.fillRect(R() * 128, R() * 128, 1 + R() * 3, 1 + R() * 2.5); } g.restore();
+    for (let i = 0; i < n / 2; i++) { const x = R() * 128, y = R() * 128, L = 4 + R() * 16, an = R() * 6.28; g.strokeStyle = 'rgba(235,225,200,' + (0.18 + R() * 0.2) + ')'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(an) * L, y + Math.sin(an) * L); g.stroke(); }
+    for (let i = 0; i < a; i++) { const x = R() * 128, y = R() * 128, r = 2 + R() * 6, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(130,56,20,.5)'); gr.addColorStop(1, 'rgba(130,56,20,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  };
+  cell(0, () => {   // rombo giallo di pericolo con una esplosione
+    g.translate(64, 64); const dia = (r) => { g.beginPath(); g.moveTo(0, -r); g.lineTo(r, 0); g.lineTo(0, r); g.lineTo(-r, 0); g.closePath(); };
+    g.fillStyle = '#14100a'; dia(62); g.fill(); g.fillStyle = '#e6b616'; dia(55); g.fill(); g.strokeStyle = '#14100a'; g.lineWidth = 2.4; dia(47); g.stroke();
+    g.fillStyle = '#14100a'; g.beginPath(); for (let i = 0; i < 18; i++) { const a = i / 18 * 6.2832 - 1.5708, r = i % 2 ? 10 : 26; g.lineTo(Math.cos(a) * r, Math.sin(a) * r - 1); } g.closePath(); g.fill();
+    g.fillStyle = '#e6b616'; g.beginPath(); g.arc(0, -1, 7, 0, 7); g.fill(); g.fillStyle = '#14100a'; g.beginPath(); g.arc(0, -1, 3.2, 0, 7); g.fill();
+    g.setTransform(1, 0, 0, 1, 0, 0); wear(40, 5);
+  });
+  cell(1, () => {   // targa di avvertimento
+    g.translate(64, 64); g.rotate(-0.012); g.fillStyle = '#e9e3cb'; g.fillRect(-61, -35, 122, 70); g.fillStyle = '#b01e1e'; g.fillRect(-61, -35, 122, 17);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#f6f0de'; g.font = 'bold 13px Arial, Helvetica, sans-serif'; g.fillText('ATTENZIONE', 0, -26.5);
+    g.fillStyle = '#1a1612'; g.font = 'bold 20px Arial, Helvetica, sans-serif'; g.fillText('ESPLOSIVO', 0, -3); g.font = 'bold 9px Arial, Helvetica, sans-serif'; g.fillText('INFIAMMABILE - TENERE', 0, 13); g.fillText('LONTANO DA FIAMME', 0, 24);
+    g.strokeStyle = '#1a1612'; g.lineWidth = 1.6; g.strokeRect(-61, -35, 122, 70);
+    for (let i = 0; i < 7; i++) { const x = R() * 120 - 60, y = R() * 66 - 33, r = 5 + R() * 12, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(110,70,30,.28)'); gr.addColorStop(1, 'rgba(110,70,30,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+    g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.moveTo(61, 35); g.lineTo(43, 35); g.lineTo(61, 21); g.closePath(); g.fill(); g.globalCompositeOperation = 'source-over';
+  });
+  cell(2, () => {   // fascia a strisce gialle e nere (periodo 62,5 px: con le UV rimpicciolite di 1,5 px per lato, vedi arc(), le caselle affiancate si saldano)
+    const y0 = 40, h = 48; g.fillStyle = '#e0b014'; g.fillRect(0, y0, 128, h); g.fillStyle = '#17130c';
+    for (let k = -2; k < 4; k++) { const x = k * 62.5 + 1.5; g.beginPath(); g.moveTo(x, y0 + h); g.lineTo(x + 31.25, y0 + h); g.lineTo(x + 31.25 + h / 0.72, y0); g.lineTo(x + h / 0.72, y0); g.closePath(); g.fill(); }
+    g.fillStyle = '#17130c'; g.fillRect(0, y0 - 1.5, 128, 3); g.fillRect(0, y0 + h - 1.5, 128, 3);
+    for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(40,24,10,' + (0.06 + R() * 0.16) + ')'; g.fillRect(R() * 128, y0 + R() * h, 2 + R() * 9, 1 + R() * 2); }   // sporco sulle strisce
+    g.globalCompositeOperation = 'destination-out'; for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(0,0,0,' + (0.4 + R() * 0.5) + ')'; g.fillRect(R() * 128, y0 + R() * h, 1 + R() * 3, 1 + R() * 2); } g.globalCompositeOperation = 'source-over';
+  });
+  cell(3, () => {   // colate di ruggine dall'alto
+    for (let i = 0; i < 10; i++) { const x = 6 + R() * 116, w = 2 + R() * 6, L = 24 + R() * 96, gr = g.createLinearGradient(0, 0, 0, L); gr.addColorStop(0, 'rgba(126,56,20,.8)'); gr.addColorStop(0.7, 'rgba(100,44,16,.35)'); gr.addColorStop(1, 'rgba(100,44,16,0)'); g.strokeStyle = gr; g.lineWidth = w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (R() - 0.5) * 5, L); g.stroke(); const r = 5 + R() * 10, rg = g.createRadialGradient(x, 2, 0, x, 2, r); rg.addColorStop(0, 'rgba(150,70,24,.7)'); rg.addColorStop(1, 'rgba(150,70,24,0)'); g.fillStyle = rg; g.fillRect(x - r, 0, r * 2, r * 2); }
+    for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(' + (110 + R() * 50 | 0) + ',50,18,' + (0.25 + R() * 0.4) + ')'; g.fillRect(R() * 128, R() * 60, 1 + R() * 2, 1 + R() * 2); }
+  });
+  cell(4, () => {   // sporco: colature scure e polvere accumulata in basso
+    for (let i = 0; i < 16; i++) { const x = R() * 128, w = 2 + R() * 13, L = 30 + R() * 98, gr = g.createLinearGradient(0, 0, 0, L); gr.addColorStop(0, 'rgba(14,10,6,' + (0.12 + R() * 0.2) + ')'); gr.addColorStop(1, 'rgba(14,10,6,0)'); g.strokeStyle = gr; g.lineWidth = w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (R() - 0.5) * 8, L); g.stroke(); }
+    const gb = g.createLinearGradient(0, 128, 0, 70); gb.addColorStop(0, 'rgba(12,9,6,.5)'); gb.addColorStop(1, 'rgba(12,9,6,0)'); g.fillStyle = gb; g.fillRect(0, 70, 128, 58);
+    for (let i = 0; i < 160; i++) { g.fillStyle = 'rgba(10,8,5,' + (0.06 + R() * 0.16) + ')'; g.fillRect(R() * 128, R() * 128, 1 + R() * 2, 1 + R() * 2); }
+  });
+  cell(5, () => {   // foglio scritto a pennarello, tenuto da due pezzi di nastro
+    g.translate(64, 64); g.rotate(-0.05); g.fillStyle = '#e7e1c6'; g.fillRect(-52, -45, 104, 90);
+    g.fillStyle = 'rgba(120,100,60,.22)'; for (let i = 0; i < 6; i++) g.fillRect(-52 + R() * 60, -45 + R() * 80, 20 + R() * 40, 3 + R() * 7);
+    g.strokeStyle = 'rgba(90,76,50,.55)'; g.lineWidth = 1.3; g.strokeRect(-52, -45, 104, 90);
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#b01616'; g.font = 'bold italic 25px "Comic Sans MS", "Segoe Print", Arial, sans-serif'; g.fillText('FUORI', 0, -14); g.font = 'bold italic 21px "Comic Sans MS", "Segoe Print", Arial, sans-serif'; g.fillText('SERVIZIO', 0, 12);
+    g.strokeStyle = '#b01616'; g.lineWidth = 2; g.beginPath(); g.moveTo(-40, 26); g.quadraticCurveTo(-20, 21, 0, 27); g.quadraticCurveTo(20, 32, 40, 25); g.stroke();
+    g.fillStyle = 'rgba(190,190,176,.7)'; g.save(); g.translate(-48, -45); g.rotate(-0.5); g.fillRect(-12, -5, 24, 10); g.restore(); g.save(); g.translate(48, -45); g.rotate(0.45); g.fillRect(-12, -5, 24, 10); g.restore();
+    g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.moveTo(52, 45); g.lineTo(36, 45); g.lineTo(52, 31); g.closePath(); g.fill(); g.globalCompositeOperation = 'source-over';
+  });
+  cell(6, () => {   // targhetta di serie in lamiera, con rivetti
+    g.translate(64, 64); g.fillStyle = '#4a4e52'; g.fillRect(-57, -30, 114, 60); g.fillStyle = '#6a6e72'; g.fillRect(-54, -27, 108, 54);
+    for (const [x, y] of [[-49, -22], [49, -22], [-49, 22], [49, 22]]) { g.fillStyle = '#2a2c2e'; g.beginPath(); g.arc(x, y, 3.2, 0, 7); g.fill(); g.fillStyle = '#9a9ea2'; g.beginPath(); g.arc(x - 0.6, y - 0.6, 1.6, 0, 7); g.fill(); }
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 15px "Courier New", Courier, monospace'; g.fillStyle = '#1e2022'; g.fillText('UN 1203', 1, -12); g.fillText('CAP. 200 L', 1, 3); g.fillText('LOTTO 17-04', 1, 18); g.fillStyle = '#cfd2d4'; g.fillText('UN 1203', 0, -13); g.fillText('CAP. 200 L', 0, 2); g.fillText('LOTTO 17-04', 0, 17);
+    for (let i = 0; i < 14; i++) { const x = R() * 100 - 50, y = R() * 50 - 25, L = 4 + R() * 14, an = R() * 6.28; g.strokeStyle = 'rgba(230,230,225,' + (0.12 + R() * 0.2) + ')'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(an) * L, y + Math.sin(an) * L); g.stroke(); }
+  });
+  cell(7, () => {   // pozza scura e lucida (olio, liquido sversato)
+    const pts = []; for (let i = 0; i < 28; i++) { const a = i / 28 * 6.2832, r = 36 + R() * 20 + 8 * Math.sin(a * 3 + 1); pts.push([64 + Math.cos(a) * r, 64 + Math.sin(a) * r * 0.82]); }
+    const gr = g.createRadialGradient(64, 64, 6, 64, 64, 62); gr.addColorStop(0, 'rgba(10,7,5,.95)'); gr.addColorStop(0.7, 'rgba(14,10,7,.88)'); gr.addColorStop(1, 'rgba(14,10,7,0)'); g.fillStyle = gr; g.beginPath(); pts.forEach((p, k) => k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.17)'; g.beginPath(); g.ellipse(50, 50, 14, 5, -0.5, 0, 7); g.fill(); g.fillStyle = 'rgba(120,150,110,.1)'; g.beginPath(); g.ellipse(72, 72, 18, 7, 0.4, 0, 7); g.fill();
+  });
+  return c;
+}
+// vernice scrostata per le lamiere (armadietti, frigoriferi, barili...): chiazze, colate di sporco, graffi, scheggiature con ruggine. Chiara: il colore vero lo danno i vertici.
+function l2PaintTex() {
+  const N = 256, mk = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; }, R = hwRng(3131), cm = mk(), cb = mk(), g = cm.getContext('2d'), h = cb.getContext('2d');
+  g.fillStyle = '#e6e6e2'; g.fillRect(0, 0, N, N); h.fillStyle = '#808080'; h.fillRect(0, 0, N, N); g.lineCap = h.lineCap = 'round';
+  const wr = (f) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { g.save(); h.save(); g.translate(ox, oy); h.translate(ox, oy); f(); h.restore(); g.restore(); } };
+  for (let i = 0; i < 46; i++) { const x = R() * N, y = R() * N, r = 14 + R() * 40, dk = R() < 0.65; wr(() => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, dk ? 'rgba(60,46,30,' + (0.07 + R() * 0.1) + ')' : 'rgba(255,255,250,' + (0.1 + R() * 0.1) + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }); }
+  for (let i = 0; i < 34; i++) { const x = R() * N, y = R() * N, L = 30 + R() * 110, w = 1.5 + R() * 5; wr(() => { const gr = g.createLinearGradient(0, y, 0, y + L); gr.addColorStop(0, 'rgba(40,28,16,' + (0.05 + R() * 0.12) + ')'); gr.addColorStop(1, 'rgba(40,28,16,0)'); g.strokeStyle = gr; g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 6, y + L); g.stroke(); }); }   // colature
+  for (let i = 0; i < 80; i++) { const x = R() * N, y = R() * N, L = 6 + R() * 30, a = R() * 6.28, lt = R() < 0.55; wr(() => { g.strokeStyle = lt ? 'rgba(255,255,255,' + (0.3 + R() * 0.3) + ')' : 'rgba(30,22,16,.3)'; g.lineWidth = 0.7 + R() * 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke(); h.strokeStyle = lt ? 'rgba(0,0,0,.45)' : 'rgba(0,0,0,.3)'; h.lineWidth = 1.4; h.beginPath(); h.moveTo(x, y); h.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); h.stroke(); }); }   // graffi
+  for (let i = 0; i < 40; i++) { const x = R() * N, y = R() * N, r = 1.5 + R() * 5, k = 5 + (R() * 3 | 0), ph = R() * 6; wr(() => { g.fillStyle = R() < 0.6 ? 'rgba(104,56,32,.85)' : 'rgba(70,64,58,.85)'; g.beginPath(); for (let j = 0; j < k; j++) { const a = j / k * 6.28 + ph, rr = r * (0.55 + 0.6 * R()); j ? g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill(); h.fillStyle = 'rgba(0,0,0,.6)'; h.beginPath(); h.arc(x, y, r * 0.9, 0, 7); h.fill(); }); }   // vernice saltata
+  for (let i = 0; i < 26; i++) { const x = R() * N, y = R() * N, r = 3 + R() * 9; wr(() => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(160,72,26,.5)'); gr.addColorStop(1, 'rgba(160,72,26,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }); }   // macchie di ruggine
+  for (let i = 0; i < 1400; i++) { const x = R() * N, y = R() * N, d = R() < 0.55; g.fillStyle = d ? 'rgba(20,14,8,' + (0.06 + R() * 0.12) + ')' : 'rgba(255,255,250,' + (0.05 + R() * 0.09) + ')'; g.fillRect(x, y, 1 + R() * 1.5, 1 + R() * 1.5); h.fillStyle = d ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.1)'; h.fillRect(x, y, 1, 1); }
+  return { c: cm, b: cb };
+}
+// plastica sporca e graffiata (televisori, distributori, fotocopiatrici...): grana fine, aloni di sporco, segni d'uso
+function l2PlasticTex() {
+  const N = 256, mk = () => { const c = document.createElement('canvas'); c.width = c.height = N; return c; }, R = hwRng(4242), cm = mk(), cb = mk(), g = cm.getContext('2d'), h = cb.getContext('2d');
+  g.fillStyle = '#e2e2e0'; g.fillRect(0, 0, N, N); h.fillStyle = '#808080'; h.fillRect(0, 0, N, N); g.lineCap = h.lineCap = 'round';
+  const wr = (f) => { for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { g.save(); h.save(); g.translate(ox, oy); h.translate(ox, oy); f(); h.restore(); g.restore(); } };
+  for (let i = 0; i < 36; i++) { const x = R() * N, y = R() * N, r = 16 + R() * 44, dk = R() < 0.7; wr(() => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, dk ? 'rgba(70,56,36,' + (0.06 + R() * 0.1) + ')' : 'rgba(255,255,255,' + (0.08 + R() * 0.08) + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }); }
+  for (let i = 0; i < 50; i++) { const x = R() * N, y = R() * N, L = 5 + R() * 24, a = R() * 6.28; wr(() => { g.strokeStyle = R() < 0.6 ? 'rgba(255,255,255,.3)' : 'rgba(40,30,20,.22)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke(); h.strokeStyle = 'rgba(0,0,0,.3)'; h.lineWidth = 1.2; h.beginPath(); h.moveTo(x, y); h.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); h.stroke(); }); }
+  for (let i = 0; i < 2600; i++) { const x = R() * N, y = R() * N, d = R() < 0.5; g.fillStyle = d ? 'rgba(20,14,8,' + (0.04 + R() * 0.08) + ')' : 'rgba(255,255,255,' + (0.05 + R() * 0.08) + ')'; g.fillRect(x, y, 1, 1); h.fillStyle = d ? 'rgba(0,0,0,.14)' : 'rgba(255,255,255,.1)'; h.fillRect(x, y, 1, 1); }
+  return { c: cm, b: cb };
+}
+function l2Kit() {   // materiali in piu rispetto al piano 1: stoffa, plastica, vernice, vetro e le decalcomanie del piano 2
   const K = t3PropKit(); if (K.l2) return K; K.l2 = true;
   const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d'), R = hwRng(55);
   for (let y = 0; y < 128; y += 2) for (let x = 0; x < 128; x += 2) { const v = 196 + R() * 44 - (((x + y) >> 1) & 1) * 16; g.fillStyle = 'rgb(' + v + ',' + v + ',' + v + ')'; g.fillRect(x, y, 2, 2); }
-  const ft = t3TexL(cv);
+  const ft = t3TexL(cv), pt = l2PaintTex(), pl = l2PlasticTex();
   K.mat.fabric = new THREE.MeshStandardMaterial({ map: ft, bumpMap: ft, bumpScale: 0.6, roughness: 1, vertexColors: true });
-  K.mat.plastic = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0, vertexColors: true });
-  K.mat.paint = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.3, vertexColors: true });
+  K.mat.plastic = new THREE.MeshStandardMaterial({ map: t3TexL(pl.c), bumpMap: t3TexL(pl.b), bumpScale: 0.5, roughness: 0.45, metalness: 0, vertexColors: true });
+  K.mat.paint = new THREE.MeshStandardMaterial({ map: t3TexL(pt.c), bumpMap: t3TexL(pt.b), bumpScale: 1.1, roughness: 0.5, metalness: 0.3, vertexColors: true });
   K.mat.glass = new THREE.MeshStandardMaterial({ roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.38, vertexColors: true, depthWrite: false });
+  K.mat.decal2 = new THREE.MeshStandardMaterial({ map: t3TexL(l2Decals2(), true), vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, roughness: 0.45 });
   return K;
 }
-function l2Keys(B) { for (const k of ['fabric', 'plastic', 'paint', 'glass']) if (!B.L[k]) B.L[k] = []; }
+function l2Keys(B) { for (const k of ['fabric', 'plastic', 'paint', 'glass', 'decal2']) if (!B.L[k]) B.L[k] = []; }
 
 // i modelli: origine al centro della cella, a terra; il davanti guarda +z
 function l2PropBuild(B, n, v) {
   const R = B.R, rn = (a, b) => a + (b - a) * R();
+  // decalcomanie (atlante del piano 2): curve su un cilindro verticale (casella, raggio, y del centro, larghezza d'arco, altezza, angolo: 0 = davanti) o piane
+  const arc = (cell, rad, y, w, h, ang, c) => {
+    if (cell === 2) w *= 1 + 2.4 / 125;   // la fascia riempie la casella fino al bordo: ogni arco si allarga un po' e si sovrappone al vicino (stesso disegno), cosi non resta nessuna cucitura
+    const g = new THREE.CylinderGeometry(rad, rad, h, Math.max(3, Math.ceil(w / rad * 3)), 1, true, ang - w / rad / 2, w / rad);
+    if (cell === 2) { const U = g.attributes.uv.array; for (let i = 0; i < U.length; i += 2) U[i] = (0.3 + U[i] * 127.4) / 128; }
+    B.add('decal2', g, [0, y, 0], c || '#ffffff', { dc: cell, ao: false });
+  };
+  const flat = (cell, w, h, p, r, c) => B.add('decal2', new THREE.PlaneGeometry(w, h), p, c || '#ffffff', { dc: cell, ao: false, r: r || [0, 0, 0] });
+  const floor = (cell, s, x, z, c) => flat(cell, s, s, [x, 0.0015, z], [-1.5708, 0, R() * 6.28], c);   // macchia a terra
+  const top = (cell, s, x, y, z, c) => flat(cell, s, s, [x, y, z], [-1.5708, 0, R() * 6.28], c);       // macchia su una superficie orizzontale
+  const drum = (rad, hgt, ribs, col, seg) => {   // fusto di lamiera: bordo rullato in basso e in alto, nervature, coperchio incassato
+    const r1 = rad + 0.0035, pts = [[0.001, 0], [rad - 0.009, 0], [r1, 0.004], [r1 + 0.0005, 0.009], [r1 + 0.0005, 0.016], [rad - 0.001, 0.021]];
+    for (const y of ribs) pts.push([rad - 0.001, y - 0.005], [r1, y - 0.0015], [r1, y + 0.0015], [rad - 0.001, y + 0.005]);
+    pts.push([rad - 0.001, hgt - 0.021], [r1 + 0.0005, hgt - 0.016], [r1 + 0.0005, hgt - 0.009], [r1, hgt - 0.004], [rad - 0.008, hgt], [rad - 0.014, hgt - 0.003], [rad - 0.014, hgt - 0.008], [0.001, hgt - 0.008]);
+    B.lat('paint', pts, [0, 0, 0], col, { w: seg || 16 });
+  };
+  const bung = (x, y, z, r, c) => {   // tappo a vite sul coperchio: ghiera esagonale, corpo e tappo
+    B.cyl('iron', [r * 1.2, r * 1.2, 0.005, 6], [x, y + 0.0025, z], '#6a6a66'); B.cyl('iron', [r, r, 0.01, 8], [x, y + 0.008, z], c || '#2a2a2c'); B.cyl('iron', [r * 0.62, r * 0.62, 0.004, 8], [x, y + 0.0145, z], '#161616');
+  };
   if (n === 'desk') {
     B.box('wood', [0.5, 0.025, 0.25], [0, 0.285, 0], '#8c6c4a'); B.box('wood', [0.2, 0.2, 0.012], [0, 0.17, -0.11], '#6a4c30');
     for (const s of [-1, 1]) {
       B.box('wood', [0.14, 0.27, 0.23], [s * 0.17, 0.135, 0], '#7a5a3a');
-      for (let i = 0; i < 3; i++) { B.box('wood', [0.125, 0.075, 0.012], [s * 0.17, 0.215 - i * 0.082, 0.118], '#86663f'); B.box('iron', [0.04, 0.008, 0.012], [s * 0.17, 0.222 - i * 0.082, 0.128], '#b8b0a0'); }
+      for (let i = 0; i < 3; i++) {
+        B.box('wood', [0.125, 0.075, 0.012], [s * 0.17, 0.215 - i * 0.082, 0.118], '#86663f'); B.box('iron', [0.04, 0.008, 0.012], [s * 0.17, 0.222 - i * 0.082, 0.128], '#b8b0a0');
+        B.box('iron', [0.012, 0.012, 0.004], [s * 0.17 + 0.045, 0.2 - i * 0.082, 0.125], '#2a2a28'); B.box('bone', [0.03, 0.012, 0.003], [s * 0.17 - 0.03, 0.2 - i * 0.082, 0.125], '#e0dcc4', { ao: false });   // serratura e cartellino
+      }
     }
     if (v === 1) B.box('wood', [0.12, 0.07, 0.13], [0.17, 0.2, 0.18], '#86663f', { r: [0, 0.1, 0] });   // un cassetto tirato fuori
-    for (let i = 0; i < 4; i++) B.box('bone', [0.07, 0.002, 0.095], [rn(-0.18, 0.05), 0.2985 + i * 0.002, rn(-0.05, 0.06)], i % 2 ? '#e6e2d2' : '#d8d2bc', { r: [0, rn(-0.5, 0.5), 0], ao: false });
-    B.cyl('plastic', [0.02, 0.02, 0.04, 8], [0.2, 0.31, -0.07], '#3a4a40'); B.box('plastic', [0.07, 0.02, 0.05], [0.09, 0.31, 0.06], '#2a2a2c', { r: [0, 0.3, 0] });
+    B.box('wood', [0.5, 0.006, 0.004], [0, 0.272, 0.126], '#a58a60', { ao: false });   // bordo consumato
+    B.box('fabric', [0.2, 0.003, 0.13], [-0.04, 0.2985, 0.035], '#2e3a32', { ao: false });   // sottomano
+    for (let i = 0; i < 4; i++) B.box('bone', [0.07, 0.002, 0.095], [rn(-0.18, 0.05), 0.3 + i * 0.002, rn(-0.05, 0.06)], i % 2 ? '#e6e2d2' : '#d8d2bc', { r: [0, rn(-0.5, 0.5), 0], ao: false });
+    B.cyl('plastic', [0.02, 0.02, 0.04, 8], [0.2, 0.31, -0.07], '#3a4a40'); for (let i = 0; i < 3; i++) B.seg('plastic', [0.2 + (i - 1) * 0.006, 0.33, -0.07], [0.205 + i * 0.01, 0.375, -0.07 + i * 0.006], 0.002, 0.002, ['#b02020', '#2a4a9a', '#1a1a1a'][i], 4);   // tazza con le penne
+    B.box('plastic', [0.07, 0.02, 0.05], [0.09, 0.31, 0.06], '#2a2a2c', { r: [0, 0.3, 0] }); B.box('plastic', [0.045, 0.01, 0.014], [0.1, 0.33, 0.12], '#2a2a2e', { r: [0, 0.2, 0] });   // telefono e pinzatrice
+    B.cyl('iron', [0.024, 0.028, 0.01, 10], [-0.2, 0.3, -0.08], '#2a2c2e'); B.seg('iron', [-0.2, 0.305, -0.08], [-0.16, 0.42, -0.06], 0.004, 0.004, '#3a3c40', 4); B.seg('iron', [-0.16, 0.42, -0.06], [-0.1, 0.44, 0.0], 0.004, 0.004, '#3a3c40', 4);   // lampada da tavolo
+    B.cone('paint', [0.04, 0.045, 10], [-0.095, 0.425, 0.0], '#2d5a3e', { r: [Math.PI + 0.35, 0, 0.5], ao: false }); B.sph('glow', 0.011, [-0.1, 0.4, 0.004], '#7a7050', { w: 6, h: 4, ao: false });
+    for (let i = 0; i < 3; i++) B.box('bone', [0.03, 0.03, 0.003], [-0.14 + i * 0.04, 0.2 + (i % 2) * 0.03, -0.1035], ['#e8da70', '#e0a0a0', '#9ac8e0'][i], { r: [0, 0, rn(-0.2, 0.2)], ao: false });   // foglietti adesivi
+    top(7, 0.09, 0.03, 0.3, 0.0, '#6a4e34');   // alone di caffe
     B.box('iron', [0.5, 0.004, 0.25], [0, 0.0, 0], '#4a3a2a', { ao: false });
   } else if (n === 'cabinet') {
     B.box('paint', [0.2, 0.44, 0.2], [0, 0.22, 0], '#6a7078');
     for (let i = 0; i < 3; i++) {
       const y = 0.075 + i * 0.14;
       if (v === 1 && i === 1) { B.box('paint', [0.18, 0.1, 0.13], [0, y, 0.15], '#5a6068'); B.box('bone', [0.15, 0.012, 0.1], [0, y + 0.056, 0.15], '#d8d2bc', { ao: false }); continue; }   // cassetto aperto con le carte
-      B.box('paint', [0.18, 0.12, 0.01], [0, y, 0.105], '#5a6068'); B.box('iron', [0.07, 0.014, 0.014], [0, y + 0.025, 0.115], '#2a2d33'); B.box('bone', [0.04, 0.016, 0.004], [0, y + 0.01, 0.112], '#e0e0d8', { ao: false });
+      B.box('paint', [0.18, 0.12, 0.01], [0, y, 0.105], '#5a6068');
+      B.box('iron', [0.07, 0.01, 0.01], [0, y + 0.028, 0.121], '#2a2d33'); for (const s of [-1, 1]) B.box('iron', [0.006, 0.01, 0.016], [s * 0.032, y + 0.028, 0.114], '#2a2d33');   // maniglia a staffa
+      B.box('iron', [0.054, 0.028, 0.004], [0, y + 0.004, 0.1115], '#8e8e88'); B.box('bone', [0.044, 0.018, 0.004], [0, y + 0.004, 0.1135], '#e0e0d8', { ao: false });   // portacartellino e cartellino
+      B.box('plastic', [0.034, 0.003, 0.004], [0, y + 0.004, 0.1155], '#1c1c1c', { ao: false });
     }
+    B.cyl('iron', [0.007, 0.007, 0.008, 8], [0.07, 0.38, 0.11], '#8a8a84', { r: [1.5708, 0, 0] }); B.box('plastic', [0.004, 0.01, 0.004], [0.07, 0.38, 0.115], '#161616', { ao: false });   // serratura
     B.box('iron', [0.12, 0.14, 0.004], [0.05, 0.12, 0.101], '#7a4a2a', { r: [0, 0, 0.3] });
+    B.box('bone', [0.13, 0.012, 0.09], [-0.01, 0.446, 0.0], '#c4b078', { r: [0, 0.2, 0] }); B.box('bone', [0.12, 0.01, 0.08], [0.02, 0.458, 0.01], '#d8d2bc', { r: [0, -0.3, 0] });   // cartelle appoggiate sopra
+    flat(3, 0.2, 0.2, [0, 0.34, 0.1105]); flat(4, 0.2, 0.2, [0, 0.1, 0.1105]);
+    B.box('iron', [0.012, 0.012, 0.012], [-0.08, 0.446, 0.07], '#2a2a2a'); 
   } else if (n === 'tv') {
     B.box('wood', [0.38, 0.02, 0.2], [0, 0.2, 0], '#6a4a2e'); for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.box('wood', [0.02, 0.2, 0.02], [sx * 0.17, 0.1, sz * 0.08], '#5a3c24');
     B.box('plastic', [0.3, 0.22, 0.22], [0, 0.32, -0.01], '#34343a'); B.box('plastic', [0.26, 0.18, 0.04], [0, 0.32, 0.12], '#2a2a30');
     B.box('glass', [0.22, 0.15, 0.008], [0, 0.325, 0.142], '#7a9a96'); B.box('glow', [0.2, 0.13, 0.004], [0, 0.325, 0.136], '#1c2e2a', { ao: false });
     B.box('plastic', [0.03, 0.14, 0.012], [0.12, 0.32, 0.14], '#1a1a1e');
+    for (const y of [0.36, 0.33]) B.cyl('plastic', [0.008, 0.008, 0.01, 8], [0.12, y, 0.15], '#c8c8c0', { r: [1.5708, 0, 0] });   // manopole
+    for (let i = 0; i < 6; i++) B.box('plastic', [0.024, 0.003, 0.004], [0.12, 0.29 - i * 0.008, 0.147], '#0c0c0e', { ao: false });   // griglia dell'altoparlante
+    B.box('iron', [0.04, 0.008, 0.004], [-0.06, 0.236, 0.141], '#9a9a98'); B.box('plastic', [0.2, 0.004, 0.08], [0, 0.432, -0.01], '#1c1c20', { ao: false });   // marchio e feritoie sopra
+    B.sph('plastic', [0.03, 0.012, 0.03], [0, 0.432, -0.02], '#2a2a30', { w: 8, h: 4 });
     B.seg('iron', [-0.04, 0.43, -0.02], [-0.14, 0.56, 0], 0.003, 0.003, '#8a8e96', 4); B.seg('iron', [0.04, 0.43, -0.02], [0.15, 0.55, 0.02], 0.003, 0.003, '#8a8e96', 4);
+    B.seg('plastic', [0.05, 0.3, -0.12], [0.07, 0.19, -0.16], 0.004, 0.004, '#101012', 4); B.seg('plastic', [0.07, 0.19, -0.16], [0.13, 0.002, -0.12], 0.004, 0.004, '#101012', 4);   // cavo che scende a terra
   } else if (n === 'vending') {
-    B.box('paint', [0.3, 0.62, 0.28], [0, 0.31, 0], '#8a2424'); B.box('plastic', [0.3, 0.05, 0.02], [0, 0.575, 0.146], '#d8d0b0');
-    B.box('glass', [0.2, 0.34, 0.008], [-0.03, 0.4, 0.145], '#8aa0a8'); B.box('plastic', [0.19, 0.33, 0.01], [-0.03, 0.4, 0.138], '#101418');
-    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (R() > 0.2) B.box('plastic', [0.028, 0.05, 0.012], [-0.1 + c * 0.047, 0.52 - r * 0.075, 0.13], ['#d8a020', '#4a8a30', '#3a5aa0', '#c8c8c0'][(r + c) % 4], { ao: false });
+    B.box('paint', [0.3, 0.62, 0.28], [0, 0.31, 0], '#8a2424'); B.box('plastic', [0.3, 0.05, 0.02], [0, 0.575, 0.146], '#d8d0b0'); B.box('plastic', [0.3, 0.008, 0.022], [0, 0.545, 0.146], '#2a4a8a');
+    B.box('plastic', [0.19, 0.33, 0.004], [-0.03, 0.4, 0.1425], '#101418', { ao: false });   // fondo scuro della vetrina
+    B.box('glass', [0.2, 0.34, 0.008], [-0.03, 0.4, 0.158], '#8aa0a8');
+    for (const [w, h, x, y] of [[0.22, 0.012, -0.03, 0.576], [0.22, 0.012, -0.03, 0.224], [0.012, 0.35, -0.14, 0.4], [0.012, 0.35, 0.08, 0.4]]) B.box('paint', [w, h, 0.012], [x, y, 0.158], '#6a1a1a');   // cornice
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) if (R() > 0.2) B.box('plastic', [0.028, 0.05, 0.012], [-0.1 + c * 0.047, 0.52 - r * 0.075, 0.148], ['#d8a020', '#4a8a30', '#3a5aa0', '#c8c8c0'][(r + c) % 4], { ao: false });
+      B.box('iron', [0.18, 0.004, 0.02], [-0.03, 0.492 - r * 0.075, 0.148], '#8a8e96', { ao: false });   // mensola a spirale
+      for (let c = 0; c < 4; c++) B.box('bone', [0.026, 0.006, 0.003], [-0.1 + c * 0.047, 0.482 - r * 0.075, 0.1525], '#e8e4d0', { ao: false });   // cartellini dei prezzi
+    }
     B.box('plastic', [0.06, 0.2, 0.014], [0.115, 0.43, 0.148], '#2a2d33'); B.box('plastic', [0.04, 0.012, 0.016], [0.115, 0.4, 0.152], '#d8d8c0', { ao: false });
-    B.box('plastic', [0.22, 0.07, 0.014], [-0.01, 0.075, 0.147], '#10141a'); B.box('iron', [0.3, 0.006, 0.28], [0, 0.003, 0], '#2a2a2c', { ao: false });
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 3; c++) B.box('plastic', [0.011, 0.011, 0.006], [0.1 + c * 0.015, 0.5 - r * 0.02, 0.157], r === 3 && c === 2 ? '#b83030' : '#c8c8c0', { ao: false });   // tastierino
+    B.box('plastic', [0.034, 0.016, 0.006], [0.115, 0.43, 0.157], '#1c3a2c', { ao: false }); B.box('iron', [0.006, 0.03, 0.006], [0.115, 0.37, 0.155], '#1a1a1a', { ao: false });   // display e gettoniera
+    B.box('plastic', [0.22, 0.07, 0.014], [-0.01, 0.075, 0.147], '#10141a'); B.box('iron', [0.24, 0.006, 0.02], [-0.01, 0.114, 0.15], '#6a6e76'); for (const sx of [-1, 1]) B.box('iron', [0.006, 0.08, 0.02], [-0.01 + sx * 0.12, 0.075, 0.15], '#6a6e76');   // sportello del prodotto
+    for (let i = 0; i < 4; i++) B.box('iron', [0.2, 0.004, 0.006], [-0.01, 0.02 + i * 0.008, 0.143], '#161616', { ao: false });   // griglia in basso
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) B.box('plastic', [0.004, 0.08, 0.012], [sx * 0.152, 0.4 + (i - 1.5) * 0.0, -0.06 + i * 0.03], '#1c1010', { ao: false });   // feritoie sui fianchi
+    B.box('iron', [0.3, 0.006, 0.28], [0, 0.003, 0], '#2a2a2c', { ao: false });
     B.box('iron', [0.012, 0.3, 0.003], [0.1, 0.35, 0.15], '#7a4a2a', { r: [0, 0, 0.1] });
+    flat(5, 0.1, 0.1, [-0.03, 0.45, 0.1635], [0, 0, 0.04]); flat(3, 0.2, 0.2, [-0.03, 0.46, 0.1625]); flat(4, 0.3, 0.3, [0, 0.15, 0.1412]);
   } else if (n === 'drum') {
-    B.cyl('paint', [0.09, 0.09, 0.33, 14], [0, 0.165, 0], '#9a5a28'); B.cyl('iron', [0.092, 0.092, 0.012, 14], [0, 0.04, 0], '#6a3a18'); B.cyl('iron', [0.092, 0.092, 0.012, 14], [0, 0.165, 0], '#6a3a18'); B.cyl('iron', [0.092, 0.092, 0.012, 14], [0, 0.29, 0], '#6a3a18');
-    B.cyl('iron', [0.088, 0.088, 0.008, 14], [0, 0.331, 0], '#4a2c14'); B.cyl('iron', [0.016, 0.016, 0.014, 8], [0.04, 0.336, 0.02], '#2a2a2a');
-    B.box('paint', [0.07, 0.06, 0.004], [0, 0.17, 0.0915], '#e8c020', { r: [0, 0, 0.78], ao: false }); B.box('plastic', [0.012, 0.03, 0.004], [0, 0.17, 0.094], '#1a1a1a', { ao: false });
-    B.box('iron', [0.03, 0.2, 0.004], [-0.06, 0.18, 0.066], '#5a2a10', { r: [0, 0.6, 0] });
+    const rr = 0.0905; drum(0.09, 0.33, [0.08, 0.165, 0.25], '#a05c2a', 14);
+    for (const y of [0.0125, 0.3175]) B.tor('iron', [0.0865, 0.0034, 4, 14], [0, y, 0], '#4a2a14', { r: [1.5708, 0, 0], ao: false });
+    bung(0.04, 0.325, 0.02, 0.016); bung(-0.04, 0.325, -0.03, 0.011);
+    B.tor('iron', [0.0825, 0.003, 3, 14], [0, 0.325, 0], '#3a2010', { r: [1.5708, 0, 0], ao: false }); B.box('iron', [0.016, 0.012, 0.012], [0, 0.3285, 0.0835], '#2a2a2c');
+    arc(0, rr, 0.208, 0.066, 0.066, 0.15); arc(6, rr, 0.122, 0.05, 0.05, -1.0); arc(3, rr, 0.285, 0.09, 0.09, 0.7); arc(3, rr, 0.285, 0.09, 0.09, 3.6);
+    for (let i = 0; i < 6; i++) arc(4, rr, 0.043, 0.0866, 0.0866, i * 1.0472 + 0.3);
+    if (v === 1) floor(7, 0.3, 0.02, 0.04);
   } else if (n === 'trash') {
-    const bag = (x, z, s, c) => { B.sph('plastic', [0.1 * s, 0.075 * s, 0.09 * s], [x, 0.06 * s, z], c, { w: 9, h: 7, r: [0, R() * 3, 0] }); B.cone('plastic', [0.015 * s, 0.04 * s, 5], [x, 0.14 * s, z], c); };
+    const bag = (x, z, s, c) => { B.sph('plastic', [0.1 * s, 0.075 * s, 0.09 * s], [x, 0.06 * s, z], c, { w: 9, h: 7, r: [0, R() * 3, 0] }); B.cone('plastic', [0.015 * s, 0.04 * s, 5], [x, 0.14 * s, z], c); B.seg('plastic', [x - 0.012 * s, 0.135 * s, z], [x + 0.016 * s, 0.15 * s, z + 0.01 * s], 0.0025, 0.0025, '#d8d0b0', 4); };
     bag(-0.08, 0, 1, '#1c1c20'); bag(0.09, 0.03, 0.9, '#2a3a50'); bag(0.0, -0.09, 0.85, '#1c1c20'); bag(0.12, -0.08, 0.7, '#a03030');
-    for (let i = 0; i < 6; i++) { const x = rn(-0.2, 0.2), z = rn(-0.15, 0.2); if (i % 3 === 0) B.cyl('iron', [0.016, 0.016, 0.04, 8], [x, 0.02, z], '#a8a8a0', { r: [1.5, R() * 3, 0] }); else if (i % 3 === 1) B.cyl('glass', [0.012, 0.016, 0.07, 8], [x, 0.01, z], '#6a8a50', { r: [1.5708, R() * 3, 0] }); else B.box('bone', [0.07, 0.003, 0.05], [x, 0.004, z], '#d8d2bc', { r: [0, R() * 3, 0], ao: false }); }
-    B.box('wood', [0.14, 0.05, 0.1], [-0.06, 0.025, 0.14], '#8a6a40', { r: [0, 0.5, 0.1] });
+    for (let i = 0; i < 6; i++) { const x = rn(-0.2, 0.2), z = rn(-0.15, 0.2); if (i % 3 === 0) { B.cyl('iron', [0.016, 0.016, 0.04, 8], [x, 0.02, z], '#a8a8a0', { r: [1.5, R() * 3, 0] }); B.cyl('plastic', [0.0165, 0.0165, 0.016, 8], [x, 0.02, z], ['#c03030', '#3070b0', '#30a050'][i % 3 + (i > 3 ? 1 : 0) & 3 ? 0 : 0] || '#c03030', { r: [1.5, 0, 0], ao: false }); } else if (i % 3 === 1) B.cyl('glass', [0.012, 0.016, 0.07, 8], [x, 0.01, z], '#6a8a50', { r: [1.5708, R() * 3, 0] }); else B.box('bone', [0.07, 0.003, 0.05], [x, 0.004, z], '#d8d2bc', { r: [0, R() * 3, 0], ao: false }); }
+    for (let i = 0; i < 5; i++) B.sph('bone', rn(0.014, 0.022), [rn(-0.2, 0.2), 0.016, rn(-0.12, 0.2)], '#d0caba', { w: 5, h: 4 });   // palline di carta
+    B.box('wood', [0.14, 0.05, 0.1], [-0.06, 0.025, 0.14], '#8a6a40', { r: [0, 0.5, 0.1] }); B.box('wood', [0.12, 0.012, 0.12], [0.14, 0.007, 0.12], '#b09060', { r: [0, 0.5, 0] }); B.box('wood', [0.12, 0.004, 0.06], [0.13, 0.03, 0.07], '#a88858', { r: [-0.8, 0.5, 0] });   // scatole di cartone e della pizza
+    floor(7, 0.2, -0.1, 0.1);
   } else if (n === 'couch') {
     const F = '#6a5238';
     B.box('fabric', [0.5, 0.11, 0.22], [0, 0.085, 0], F); B.box('fabric', [0.5, 0.2, 0.06], [0, 0.22, -0.09], '#5a4630', { r: [-0.12, 0, 0] });
-    for (const s of [-1, 1]) B.box('fabric', [0.06, 0.17, 0.22], [s * 0.26, 0.17, 0], '#5a4630');
+    for (const s of [-1, 1]) { B.box('fabric', [0.06, 0.15, 0.22], [s * 0.26, 0.16, 0], '#5a4630'); B.cyl('fabric', [0.032, 0.032, 0.22, 10], [s * 0.26, 0.235, 0], '#5a4630', { r: [1.5708, 0, 0] }); }
     B.box('fabric', [0.2, 0.05, 0.18], [-0.12, 0.165, 0.01], '#7a6248'); B.box('fabric', [0.2, 0.05, 0.18], [0.12, 0.17, 0.02], '#7a6248', { r: [0.12, 0, 0.18] });
-    for (const sx of [-1, 1]) B.box('wood', [0.025, 0.03, 0.025], [sx * 0.24, 0.015, 0.09], '#2a2018');
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.box('wood', [0.025, 0.03, 0.025], [sx * 0.24, 0.015, sz * 0.09], '#2a2018');
     B.box('fabric', [0.12, 0.04, 0.06], [-0.16, 0.2, 0.0], '#c8b878', { r: [0.4, 0.3, 0] });   // imbottitura che esce da uno strappo
     B.seg('iron', [0.2, 0.14, 0.06], [0.26, 0.22, 0.05], 0.004, 0.004, '#8a8e96', 4);
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 5; c++) B.sph('fabric', 0.007, [-0.2 + c * 0.1, 0.19 + r * 0.07, -0.059 - r * 0.004], '#3a2c1c', { w: 5, h: 4, ao: false });   // bottoni dell'imbottitura
+    for (const x of [-0.1, 0, 0.1]) B.box('fabric', [0.003, 0.18, 0.004], [x, 0.22, -0.061], '#3a2c1c', { r: [-0.12, 0, 0], ao: false });
+    B.box('fabric', [0.003, 0.05, 0.18], [0, 0.17, 0.015], '#3a2c1c', { ao: false });   // cucitura tra i cuscini
+    B.box('fabric', [0.1, 0.1, 0.03], [0.17, 0.25, 0.04], '#8a3a30', { r: [-0.35, 0.3, 0.25], nz: 1.5 });   // cuscino scucito
+    top(4, 0.14, -0.12, 0.1915, 0.01, '#8a8478'); top(7, 0.12, 0.13, 0.202, 0.03, '#6a5a44');
   } else if (n === 'fridge') {
     const C = '#b4b09a';
     B.box('paint', [0.2, 0.5, 0.2], [0, 0.25, -0.01], C); B.box('paint', [0.2, 0.17, 0.02], [0, 0.415, 0.1], C); B.box('iron', [0.012, 0.09, 0.012], [0.08, 0.42, 0.116], '#5a5648');
+    for (const y of [0.385, 0.455]) B.box('iron', [0.012, 0.012, 0.014], [0.08, y, 0.109], '#5a5648');   // staffe della maniglia
+    B.box('plastic', [0.2, 0.004, 0.004], [0, 0.327, 0.1105], '#14120e'); B.box('iron', [0.04, 0.01, 0.004], [-0.04, 0.47, 0.1105], '#c2c2ba', { ao: false });   // fessura tra le porte e marchio
     B.box('plastic', [0.17, 0.25, 0.16], [0, 0.15, -0.0], '#14120e', { ao: false });
     for (const y of [0.1, 0.19]) B.box('glass', [0.17, 0.004, 0.15], [0, y, 0.0], '#9aa090'); B.box('plastic', [0.05, 0.03, 0.04], [-0.04, 0.115, 0.03], '#5a7a3a'); B.sph('plastic', [0.04, 0.025, 0.04], [0.04, 0.2, 0.02], '#4a6a30', { w: 7, h: 5 });   // muffa
-    B.in([-0.1, 0.15, 0.09], [0, -1.3 - 0.4 * (v % 2), 0], null, () => { B.box('paint', [0.2, 0.29, 0.02], [0.1, 0, 0.01], C); B.box('iron', [0.012, 0.12, 0.012], [0.17, 0.02, 0.03], '#5a5648'); B.box('plastic', [0.17, 0.02, 0.02], [0.1, -0.05, 0.03], '#8a8678'); });
+    for (let i = 0; i < 4; i++) B.box('iron', [0.16, 0.004, 0.004], [0, 0.028 + i * 0.01, 0.0905], '#161616', { ao: false });   // griglia di aerazione
+    B.in([-0.1, 0.15, 0.09], [0, -1.3 - 0.4 * (v % 2), 0], null, () => { B.box('paint', [0.2, 0.29, 0.02], [0.1, 0, 0.01], C); B.box('iron', [0.012, 0.12, 0.012], [0.17, 0.02, 0.03], '#5a5648'); B.box('plastic', [0.17, 0.02, 0.02], [0.1, -0.05, 0.03], '#8a8678'); for (const y of [-0.09, 0.01, 0.09]) B.box('plastic', [0.17, 0.006, 0.03], [0.1, y, 0.032], '#d8d4c4', { ao: false }); B.cyl('glass', [0.012, 0.012, 0.07, 8], [0.05, 0.05, 0.04], '#6a8a50'); });
     B.box('iron', [0.012, 0.12, 0.004], [0.04, 0.4, 0.111], '#6a4a2a', { r: [0, 0, 0.2] });
+    B.box('bone', [0.03, 0.04, 0.003], [-0.06, 0.4, 0.1115], '#e8e2c8', { r: [0, 0, 0.1], ao: false }); B.box('bone', [0.035, 0.025, 0.003], [-0.03, 0.43, 0.1115], '#e0a0a0', { r: [0, 0, -0.08], ao: false }); B.sph('plastic', 0.006, [-0.06, 0.42, 0.113], '#c03030', { w: 5, h: 4, ao: false }); B.sph('plastic', 0.006, [-0.03, 0.44, 0.113], '#3070b0', { w: 5, h: 4, ao: false });   // fogli e calamite
+    flat(3, 0.2, 0.2, [0, 0.45, 0.1105]); flat(4, 0.2, 0.2, [0, 0.07, 0.0915]); floor(7, 0.26, 0.08, 0.16);
   } else if (n === 'bedframe') {
     const I = '#3a2e26';
     B.box('iron', [0.02, 0.24, 0.22], [-0.23, 0.15, 0], I); B.box('iron', [0.02, 0.14, 0.22], [0.23, 0.1, 0], I);
+    B.box('iron', [0.026, 0.012, 0.24], [-0.23, 0.275, 0], '#2e241e'); B.box('iron', [0.026, 0.012, 0.24], [0.23, 0.175, 0], '#2e241e');
+    for (const z of [-0.11, 0.11]) { B.sph('iron', 0.014, [-0.23, 0.285, z], '#4a3a2e', { w: 6, h: 5 }); B.sph('iron', 0.014, [0.23, 0.185, z], '#4a3a2e', { w: 6, h: 5 }); }
+    for (let i = 0; i < 5; i++) B.box('iron', [0.024, 0.16, 0.008], [-0.23, 0.16, -0.09 + i * 0.045], '#241c16', { ao: false });   // sbarre della testiera
     for (const z of [-0.1, 0.1]) { B.box('iron', [0.46, 0.02, 0.016], [0, 0.07, z], I); }
     for (const x of [-0.23, 0.23]) for (const z of [-0.1, 0.1]) B.box('iron', [0.016, 0.07, 0.016], [x, 0.035, z], I);
     for (let i = 0; i < 6; i++) B.box('iron', [0.012, 0.012, 0.2], [-0.19 + i * 0.076, 0.082, 0], I, { ao: false });
     B.box('fabric', [0.43, 0.045, 0.2], [0, 0.105, 0], '#a89c80', { r: [0, 0, 0.02] }); B.sph('fabric', [0.06, 0.025, 0.055], [-0.16, 0.14, 0], '#cfc7ae', { w: 8, h: 6 });
     B.box('fabric', [0.22, 0.03, 0.2], [0.1, 0.14, 0], '#5e4e3e', { r: [0.1, 0.2, 0.06], nz: 2 }); B.sph('fabric', [0.08, 0.025, 0.06], [-0.03, 0.14, 0.02], '#5e4e3e', { w: 7, h: 5 });
+    for (const [x, z] of [[0.0, 0.07], [0.04, 0.06], [0.02, 0.09]]) B.tor('iron', [0.011, 0.002, 4, 8], [x, 0.129, z], '#7a7e86', { r: [1.2, rn(0, 3), 0] });   // molle del materasso
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) B.sph('fabric', 0.005, [-0.15 + c * 0.1, 0.1285, -0.05 + r * 0.1], '#5a4a34', { w: 4, h: 3, ao: false });
+    top(7, 0.14, -0.03, 0.1285, -0.07, '#7a6a50'); top(4, 0.16, 0.12, 0.1285, 0.06, '#9a9484');
   } else if (n === 'cart') {
     const I = '#8a8e96';
     B.box('iron', [0.3, 0.008, 0.18], [0, 0.07, 0], I, { ao: false });
@@ -1345,67 +1510,113 @@ function l2PropBuild(B, n, v) {
     for (const x of [-0.15, 0.15]) B.seg('iron', [x, 0.07, -0.09], [x * 1.33, 0.26, -0.09], 0.0028, 0.0028, I, 4);
     for (let i = 1; i < 4; i++) for (const z of [-0.09, 0.09]) B.box('iron', [0.36, 0.004, 0.004], [0, 0.07 + i * 0.047, z], I, { ao: false });
     for (const z of [-0.09, 0.09]) B.seg('iron', [-0.2, 0.26, z], [-0.25, 0.34, z], 0.004, 0.004, I, 4); B.seg('iron', [-0.25, 0.34, -0.09], [-0.25, 0.34, 0.09], 0.005, 0.005, '#2a2a2c', 5);
-    for (const [x, z] of [[-0.13, -0.08], [-0.13, 0.08], [0.13, -0.08], [0.13, 0.08]]) { B.seg('iron', [x, 0.07, z], [x, 0.03, z], 0.004, 0.004, I, 4); B.cyl('plastic', [0.022, 0.022, 0.014, 8], [x, 0.022, z], '#1a1a1c', { r: [1.5708, 0, 0] }); }
-    B.box('wood', [0.14, 0.08, 0.1], [0.04, 0.115, 0], '#a8845a', { r: [0, 0.4, 0.1] }); B.sph('fabric', [0.06, 0.03, 0.05], [-0.06, 0.1, 0.02], '#5e5240', { w: 6, h: 5 });
+    for (const [x, z] of [[-0.13, -0.08], [-0.13, 0.08], [0.13, -0.08], [0.13, 0.08]]) { B.seg('iron', [x, 0.07, z], [x, 0.03, z], 0.004, 0.004, I, 4); B.cyl('plastic', [0.022, 0.022, 0.014, 8], [x, 0.022, z], '#1a1a1c', { r: [1.5708, 0, 0] }); B.cyl('iron', [0.008, 0.008, 0.017, 6], [x, 0.022, z], '#9a9ea6', { r: [1.5708, 0, 0] }); }
+    B.cyl('paint', [0.05, 0.042, 0.075, 10], [0.08, 0.11, 0.02], '#c8b030'); B.tor('iron', [0.045, 0.003, 4, 10], [0.08, 0.14, 0.02], '#6a6e76', { r: [1.5708, 0, 0], ao: false }); B.cyl('plastic', [0.044, 0.044, 0.004, 10], [0.08, 0.148, 0.02], '#2a2820', { ao: false });   // secchio
+    B.cyl('plastic', [0.012, 0.012, 0.07, 8], [-0.08, 0.105, 0.04], '#2a5aa0'); B.cone('plastic', [0.012, 0.018, 8], [-0.08, 0.15, 0.04], '#2a5aa0'); B.box('plastic', [0.012, 0.016, 0.03], [-0.08, 0.164, 0.052], '#e8e8e0'); B.box('plastic', [0.006, 0.02, 0.006], [-0.08, 0.15, 0.06], '#e8e8e0');   // spruzzino
+    B.box('wood', [0.14, 0.08, 0.1], [0.04, 0.115, -0.04], '#a8845a', { r: [0, 0.4, 0.1] }); B.sph('fabric', [0.06, 0.03, 0.05], [-0.06, 0.1, -0.04], '#5e5240', { w: 6, h: 5 });
+    B.box('fabric', [0.09, 0.012, 0.06], [-0.1, 0.28, 0.0], '#8a3a30', { r: [0, 0.3, 0.1] });   // straccio appeso
   } else if (n === 'lockers') {
     for (let i = 0; i < 3; i++) {
       const x = (i - 1) * 0.145;
       B.box('paint', [0.14, 0.5, 0.15], [x, 0.25, 0], '#4e604e');
-      if (i === 1) { B.box('plastic', [0.118, 0.46, 0.13], [x, 0.25, 0.01], '#0c100c', { ao: false }); B.in([x - 0.07, 0.25, 0.075], [0, -1.7, 0], null, () => { B.box('paint', [0.136, 0.48, 0.012], [0.068, 0, 0.0], '#5a6c5a'); for (let k = 0; k < 3; k++) B.box('plastic', [0.07, 0.006, 0.014], [0.068, 0.17 - k * 0.012, 0.0], '#1a221a'); }); continue; }
+      if (i === 1) {
+        B.box('plastic', [0.118, 0.46, 0.13], [x, 0.25, 0.01], '#0c100c', { ao: false });
+        B.box('iron', [0.11, 0.006, 0.11], [x, 0.4, 0.0], '#6a6a62'); B.box('iron', [0.045, 0.004, 0.004], [x, 0.38, -0.03], '#8a8a82'); B.box('fabric', [0.05, 0.14, 0.02], [x, 0.31, -0.04], '#3a3a44', { r: [0, 0, 0.05] });   // ripiano, gancio e giacca appesa
+        B.in([x - 0.07, 0.25, 0.075], [0, -1.7, 0], null, () => { B.box('paint', [0.136, 0.48, 0.012], [0.068, 0, 0.0], '#5a6c5a'); for (let k = 0; k < 3; k++) B.box('plastic', [0.07, 0.006, 0.014], [0.068, 0.17 - k * 0.012, 0.0], '#1a221a'); B.box('iron', [0.03, 0.016, 0.004], [0.068, 0.1, 0.008], '#c8c8c0'); });
+        continue;
+      }
       B.box('paint', [0.13, 0.47, 0.012], [x, 0.25, 0.076], '#5a6c5a');
       for (let k = 0; k < 4; k++) B.box('plastic', [0.07, 0.006, 0.014], [x, 0.43 - k * 0.014, 0.082], '#1a221a', { ao: false });
+      for (let k = 0; k < 3; k++) B.box('plastic', [0.07, 0.006, 0.014], [x, 0.09 - k * 0.014, 0.082], '#1a221a', { ao: false });   // feritoie in basso
       B.box('iron', [0.012, 0.05, 0.014], [x + 0.045, 0.22, 0.088], '#c8c8c0'); B.box('bone', [0.025, 0.012, 0.004], [x, 0.33, 0.083], '#d8d2bc', { ao: false });
+      B.box('iron', [0.034, 0.018, 0.004], [x, 0.37, 0.083], '#c0c0b8'); B.box('plastic', [0.02, 0.008, 0.003], [x, 0.37, 0.0855], '#1a1a1a', { ao: false });   // numero
+      flat(3, 0.13, 0.13, [x, 0.4, 0.0827]); flat(4, 0.13, 0.13, [x, 0.08, 0.0827]);
     }
+    B.box('iron', [0.02, 0.026, 0.012], [-0.145, 0.19, 0.09], '#9a8a40'); B.tor('iron', [0.009, 0.0025, 4, 8], [-0.145, 0.208, 0.09], '#8a8a84', { r: [0, 0, 0] });   // lucchetto
     B.box('iron', [0.12, 0.12, 0.004], [0.15, 0.1, 0.079], '#7a4a2a', { r: [0, 0, 0.5] });
+    B.box('paint', [0.05, 0.07, 0.004], [-0.19, 0.2, 0.0805], '#43524a', { r: [0.1, 0.25, 0.3] });   // ammaccatura
   } else if (n === 'computer') {
     B.box('wood', [0.44, 0.025, 0.22], [0, 0.23, 0], '#7a6040'); for (const sx of [-1, 1]) B.box('wood', [0.03, 0.22, 0.2], [sx * 0.2, 0.11, 0], '#5a4630'); B.box('wood', [0.37, 0.18, 0.012], [0, 0.12, -0.09], '#5a4630');
-    B.box('plastic', [0.2, 0.18, 0.2], [-0.07, 0.35, -0.02], '#c8c0a8'); B.box('plastic', [0.17, 0.15, 0.04], [-0.07, 0.35, 0.09], '#b8b09a');
+    B.box('plastic', [0.2, 0.18, 0.2], [-0.07, 0.35, -0.02], '#c8c0a8'); B.box('plastic', [0.17, 0.15, 0.04], [-0.07, 0.35, 0.09], '#b8b09a'); B.box('plastic', [0.14, 0.12, 0.1], [-0.07, 0.34, -0.15], '#bcb49e'); B.box('plastic', [0.1, 0.09, 0.05], [-0.07, 0.34, -0.22], '#b0a892');   // tubo catodico
     B.box('glass', [0.14, 0.11, 0.008], [-0.07, 0.355, 0.112], '#7a9a8a'); B.box('glow', [0.13, 0.1, 0.004], [-0.07, 0.355, 0.108], '#17382a', { ao: false });
-    B.box('plastic', [0.2, 0.012, 0.07], [-0.06, 0.249, 0.07], '#b8b09c'); B.box('plastic', [0.03, 0.014, 0.045], [0.07, 0.25, 0.07], '#c0b8a4');
-    B.box('plastic', [0.09, 0.24, 0.2], [0.14, 0.12, 0.0], '#b8b09c'); B.box('plastic', [0.07, 0.014, 0.01], [0.14, 0.16, 0.101], '#2a2a2c');
-    B.seg('plastic', [-0.1, 0.34, -0.12], [0.1, 0.24, -0.15], 0.004, 0.004, '#202022', 4);
+    for (let i = 0; i < 4; i++) B.cyl('plastic', [0.005, 0.005, 0.008, 6], [-0.12 + i * 0.016, 0.285, 0.112], '#8a8470', { r: [1.5708, 0, 0], ao: false }); B.sph('glow', 0.004, [-0.0, 0.285, 0.113], '#30d060', { w: 4, h: 3, ao: false });   // manopole e led
+    for (let i = 0; i < 5; i++) B.box('plastic', [0.12, 0.004, 0.006], [-0.07, 0.43, -0.05 - i * 0.012], '#2a2a28', { ao: false });   // feritoie sopra
+    B.box('plastic', [0.2, 0.012, 0.07], [-0.06, 0.249, 0.07], '#b8b09c'); for (let r = 0; r < 3; r++) B.box('plastic', [0.17, 0.004, 0.006], [-0.06, 0.2575, 0.05 + r * 0.014], '#2a2a28', { ao: false });   // tastiera
+    B.box('plastic', [0.03, 0.014, 0.045], [0.07, 0.25, 0.07], '#c0b8a4'); B.seg('plastic', [0.07, 0.25, 0.045], [0.04, 0.245, -0.02], 0.002, 0.002, '#202022', 4);   // topo e filo
+    B.box('plastic', [0.09, 0.24, 0.2], [0.14, 0.12, 0.0], '#b8b09c'); B.box('plastic', [0.07, 0.014, 0.01], [0.14, 0.16, 0.101], '#2a2a2c'); B.box('plastic', [0.05, 0.006, 0.004], [0.14, 0.2, 0.1015], '#1a1a18', { ao: false }); B.box('plastic', [0.06, 0.03, 0.004], [0.14, 0.12, 0.1015], '#a8a08c', { ao: false });
+    B.box('bone', [0.025, 0.025, 0.004], [-0.145, 0.42, 0.1], '#e8da70', { r: [0, 0, 0.12], ao: false });   // foglietto adesivo
+    B.seg('plastic', [-0.1, 0.34, -0.12], [0.1, 0.24, -0.15], 0.004, 0.004, '#202022', 4); B.seg('plastic', [-0.04, 0.3, -0.12], [0.0, 0.233, -0.19], 0.003, 0.003, '#202022', 4);
   } else if (n === 'cooler') {
     B.box('plastic', [0.15, 0.29, 0.15], [0, 0.145, 0], '#cdd2d6'); B.box('plastic', [0.15, 0.03, 0.15], [0, 0.3, 0], '#b4bac0');
-    B.box('plastic', [0.02, 0.02, 0.02], [-0.03, 0.215, 0.078], '#3a6ab0'); B.box('plastic', [0.02, 0.02, 0.02], [0.03, 0.215, 0.078], '#c03a3a'); B.box('plastic', [0.1, 0.01, 0.04], [0, 0.17, 0.08], '#8a8e96'); B.box('plastic', [0.12, 0.012, 0.012], [0, 0.04, 0.075], '#5a5e66');
-    B.cyl('glass', [0.055, 0.058, 0.17, 12], [0, 0.4, 0], '#8cc0e0'); B.cone('glass', [0.058, 0.04, 12], [0, 0.505, 0], '#8cc0e0', { r: [Math.PI, 0, 0] }); B.cyl('glass', [0.054, 0.054, 0.1, 12], [0, 0.36, 0], '#6a9a50');
+    B.box('plastic', [0.02, 0.02, 0.02], [-0.03, 0.215, 0.078], '#3a6ab0'); B.box('plastic', [0.02, 0.02, 0.02], [0.03, 0.215, 0.078], '#c03a3a'); for (const sx of [-1, 1]) B.cyl('plastic', [0.004, 0.004, 0.02, 6], [sx * 0.03, 0.202, 0.09], '#8a8e96', { r: [1.5708, 0, 0] });
+    B.box('iron', [0.11, 0.006, 0.045], [0, 0.17, 0.09], '#5a5e66'); for (let i = 0; i < 5; i++) B.box('plastic', [0.1, 0.002, 0.004], [0, 0.1735, 0.075 + i * 0.008], '#222428', { ao: false }); B.box('plastic', [0.12, 0.012, 0.012], [0, 0.04, 0.075], '#5a5e66');   // vaschetta di scolo
+    B.cyl('plastic', [0.012, 0.012, 0.1, 8], [-0.088, 0.24, 0.0], '#e8e8e4'); B.cone('plastic', [0.012, 0.015, 8], [-0.088, 0.3, 0.0], '#c8cacc'); for (let i = 0; i < 3; i++) B.cyl('plastic', [0.011, 0.009, 0.01, 8], [-0.088, 0.24 + i * 0.03, 0.0], '#d8d8d2', { ao: false });   // portabicchieri
+    B.cyl('glass', [0.055, 0.058, 0.17, 12], [0, 0.4, 0], '#8cc0e0'); B.cone('glass', [0.058, 0.04, 12], [0, 0.505, 0], '#8cc0e0', { r: [Math.PI, 0, 0] }); B.cyl('glass', [0.054, 0.054, 0.1, 12], [0, 0.36, 0], '#6a9a50'); B.cyl('plastic', [0.022, 0.022, 0.012, 10], [0, 0.528, 0], '#2a5a9a');
     B.box('plastic', [0.14, 0.008, 0.06], [0, 0.0, 0.0], '#3a3226', { ao: false });
+    flat(5, 0.09, 0.09, [0.0, 0.245, 0.0757]); flat(4, 0.15, 0.15, [0, 0.07, 0.0757]); floor(7, 0.18, 0.02, 0.12, '#5a7a8a');
   } else if (n === 'boxes') {
-    const W = '#a8845a', box = (x, y, z, w, h, d, c, ry) => { B.box('wood', [w, h, d], [x, y + h / 2, z], c, { r: [0, ry || 0, 0] }); B.box('bone', [0.02, 0.003, d * 0.9], [x, y + h + 0.001, z], '#d6c28c', { r: [0, ry || 0, 0], ao: false }); };
+    const W = '#a8845a', box = (x, y, z, w, h, d, c, ry) => { B.box('wood', [w, h, d], [x, y + h / 2, z], c, { r: [0, ry || 0, 0] }); B.box('bone', [0.02, 0.003, d * 0.9], [x, y + h + 0.001, z], '#d6c28c', { r: [0, ry || 0, 0], ao: false }); B.box('bone', [0.02, h * 0.9, 0.003], [x, y + h / 2, z + d / 2 + 0.0015], '#d6c28c', { r: [0, ry || 0, 0], ao: false }); B.box('plastic', [w * 0.3, 0.012, 0.003], [x + w * 0.25, y + h * 0.3, z + d / 2 + 0.002], '#3a2c1c', { r: [0, ry || 0, 0], ao: false }); };   // nastro adesivo e maniglia
     box(-0.08, 0, 0, 0.26, 0.2, 0.22, W, 0.05); box(0.15, 0, 0.04, 0.17, 0.15, 0.17, '#9a784e', -0.1); box(-0.05, 0.2, 0.01, 0.22, 0.16, 0.2, '#b08a5e', 0.2);
     B.box('wood', [0.2, 0.004, 0.1], [-0.15, 0.37, -0.04], '#a07c54', { r: [-0.9, 0.2, 0] }); B.box('wood', [0.2, 0.004, 0.1], [0.05, 0.37, 0.07], '#8e6c46', { r: [0.9, 0.2, 0] });
-    B.box('plastic', [0.07, 0.04, 0.003], [-0.12, 0.1, 0.116], '#e8e0c8', { ao: false });
+    B.box('plastic', [0.07, 0.04, 0.003], [-0.12, 0.1, 0.116], '#e8e0c8', { ao: false }); flat(0, 0.05, 0.05, [0.15, 0.09, 0.1259], [0, -0.1, 0]);
+    B.box('wood', [0.05, 0.05, 0.003], [0.24, 0.035, 0.1], '#8a6a46', { r: [0, 0.6, 0.3] });   // angolo schiacciato
   } else if (n === 'plant') {
     B.lat('stone', [[0.001, 0], [0.065, 0], [0.085, 0.14], [0.095, 0.15], [0.09, 0.17], [0.07, 0.17]], [0, 0, 0], '#9a5a3a', { w: 12 }); B.cyl('stone', [0.075, 0.075, 0.004, 12], [0, 0.155, 0], '#2a1a0e');
-    for (let i = 0; i < 5; i++) {
-      const a = i / 5 * 6.28 + R(), L = 0.2 + R() * 0.18, tip = [Math.cos(a) * (0.1 + R() * 0.12), 0.16 + L, Math.sin(a) * (0.1 + R() * 0.12)], mid = [tip[0] * 0.4, 0.16 + L * 0.7, tip[2] * 0.4];
+    B.cyl('stone', [0.095, 0.085, 0.012, 14], [0, 0.006, 0], '#8a4a30'); B.tor('stone', [0.093, 0.004, 4, 14], [0, 0.0125, 0], '#8a4a30', { r: [1.5708, 0, 0] });   // sottovaso
+    for (let i = 0; i < 6; i++) {
+      const a = i / 6 * 6.28 + R(), L = 0.2 + R() * 0.18, tip = [Math.cos(a) * (0.1 + R() * 0.12), 0.16 + L, Math.sin(a) * (0.1 + R() * 0.12)], mid = [tip[0] * 0.4, 0.16 + L * 0.7, tip[2] * 0.4];
       B.seg('wood', [0, 0.16, 0], mid, 0.006, 0.004, '#5a4a30', 5); B.seg('wood', mid, tip, 0.004, 0.002, '#5a4a30', 5);
       B.sph('wood', [0.04, 0.006, 0.02], [tip[0], tip[1] - 0.01, tip[2]], '#6a5230', { w: 6, h: 4, r: [0.5, a, 0.8] }); B.sph('wood', [0.035, 0.005, 0.018], [mid[0], mid[1], mid[2]], '#7a6038', { w: 6, h: 4, r: [0.3, a, 0.5] });
     }
-    B.box('wood', [0.03, 0.002, 0.018], [0.1, 0.004, 0.08], '#6a5230', { r: [0, 0.6, 0], ao: false });
+    for (let i = 0; i < 6; i++) B.box('wood', [0.04, 0.002, 0.02], [rn(-0.14, 0.14), 0.0145, rn(-0.14, 0.14)], '#6a5230', { r: [0, R() * 6, 0], ao: false });   // foglie secche nel sottovaso e a terra
+    B.seg('wood', [0.05, 0.16, 0.02], [0.065, 0.4, 0.03], 0.003, 0.003, '#8a7a50', 4); B.box('wood', [0.03, 0.002, 0.018], [0.1, 0.004, 0.08], '#6a5230', { r: [0, 0.6, 0], ao: false });
   } else if (n === 'tires') {
     const tx = [0, 0.025, -0.02], tz = [0, 0.01, -0.015];
-    for (let i = 0; i < 3; i++) B.tor('plastic', [0.085, 0.036, 8, 16], [tx[i], 0.038 + i * 0.07, tz[i]], '#1c1c20', { r: [1.5708, 0, 0], s: [1, 1, 0.9] });
-    B.tor('iron', [0.05, 0.004, 4, 12], [0.025, 0.178, 0.01], '#6a6e76', { r: [1.5708, 0, 0] });
+    for (let i = 0; i < 3; i++) B.tor('plastic', [0.085, 0.036, 7, 14], [tx[i], 0.038 + i * 0.07, tz[i]], '#303035', { r: [1.5708, 0, 0], s: [1, 1, 0.9] });
+    for (let i = 0; i < 3; i++) for (let k = 0; k < 12; k++) { const a = k / 12 * 6.2832 + i * 0.5; B.box('plastic', [0.022, 0.03, 0.009], [tx[i] + Math.cos(a) * 0.1165, 0.038 + i * 0.07, tz[i] + Math.sin(a) * 0.1165], '#1c1c20', { r: [0, -a - 1.5708, 0], ao: false }); }   // tasselli del battistrada, a filo con la gomma   // tasselli del battistrada
+    B.tor('iron', [0.05, 0.004, 4, 12], [0.025, 0.178, 0.01], '#6a6e76', { r: [1.5708, 0, 0] }); B.cyl('iron', [0.046, 0.046, 0.006, 12], [0.025, 0.172, 0.01], '#5a5e66'); for (let k = 0; k < 5; k++) { const a = k / 5 * 6.2832; B.cyl('iron', [0.005, 0.005, 0.008, 6], [0.025 + Math.cos(a) * 0.03, 0.178, 0.01 + Math.sin(a) * 0.03], '#9a9ea6'); }   // cerchio con i bulloni
+    B.tor('plastic', [0.1, 0.002, 3, 16], [0, 0.074, -0.01], '#34343a', { r: [1.5708, 0, 0], ao: false });
   } else if (n === 'chair') {
     const C = '#364450';
-    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.28 + 0.3, x = Math.cos(a) * 0.1, z = Math.sin(a) * 0.1; B.seg('plastic', [0, 0.07, 0], [x, 0.045, z], 0.01, 0.008, '#2a2a2e', 5); B.sph('plastic', 0.015, [x, 0.02, z], '#111', { w: 6, h: 4 }); }
-    B.cyl('iron', [0.012, 0.012, 0.1, 8], [0, 0.12, 0], '#2a2a2e'); B.box('fabric', [0.17, 0.03, 0.17], [0, 0.18, 0.0], C); B.box('fabric', [0.16, 0.2, 0.028], [0, 0.3, -0.085], C, { r: [-0.15, 0, 0] });
+    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.28 + 0.3, x = Math.cos(a) * 0.1, z = Math.sin(a) * 0.1; B.seg('plastic', [0, 0.07, 0], [x, 0.045, z], 0.01, 0.008, '#2a2a2e', 5); B.seg('plastic', [x, 0.045, z], [x, 0.03, z], 0.004, 0.004, '#2a2a2e', 4); B.sph('plastic', 0.015, [x, 0.02, z], '#111', { w: 6, h: 4 }); }
+    B.cyl('iron', [0.012, 0.012, 0.1, 8], [0, 0.12, 0], '#2a2a2e'); B.cyl('iron', [0.018, 0.018, 0.03, 8], [0, 0.1, 0], '#3a3a3e'); B.seg('iron', [0.012, 0.15, 0], [0.05, 0.14, 0.02], 0.003, 0.003, '#2a2a2e', 4);   // pistone e leva
+    B.box('fabric', [0.17, 0.03, 0.17], [0, 0.18, 0.0], C); B.box('fabric', [0.16, 0.2, 0.028], [0, 0.3, -0.085], C, { r: [-0.15, 0, 0] });
+    B.box('fabric', [0.172, 0.005, 0.004], [0, 0.195, 0.086], '#222c36', { ao: false }); for (let i = 0; i < 3; i++) B.box('fabric', [0.14, 0.003, 0.004], [0, 0.24 + i * 0.05, -0.0705 - i * 0.008], '#222c36', { r: [-0.15, 0, 0], ao: false });   // cuciture
     B.box('plastic', [0.02, 0.12, 0.02], [0, 0.22, -0.08], '#2a2a2e', { r: [-0.15, 0, 0] });
-    for (const s of [-1, 1]) B.box('plastic', [0.015, 0.012, 0.1], [s * 0.095, 0.24, 0.0], '#2a2a2e'); B.sph('fabric', [0.035, 0.012, 0.03], [0.03, 0.2, 0.02], '#c8c0a0', { w: 6, h: 4 });
+    for (const s of [-1, 1]) { B.box('plastic', [0.015, 0.012, 0.1], [s * 0.095, 0.24, 0.0], '#2a2a2e'); B.box('plastic', [0.012, 0.055, 0.012], [s * 0.095, 0.215, -0.03], '#2a2a2e'); }
+    B.sph('fabric', [0.035, 0.012, 0.03], [0.03, 0.2, 0.02], '#c8c0a0', { w: 6, h: 4 });
   } else if (n === 'copier') {
     B.box('paint', [0.32, 0.2, 0.22], [0, 0.12, 0], '#b4b0a0'); B.box('iron', [0.32, 0.02, 0.22], [0, 0.02, 0], '#2a2a28', { ao: false });
     B.in([0, 0.225, -0.1], [-0.6, 0, 0], null, () => { B.box('paint', [0.32, 0.03, 0.22], [0, 0.015, 0.11], '#8e8a78'); B.box('glass', [0.28, 0.004, 0.18], [0, -0.003, 0.11], '#9aa8aa'); });
+    for (const sx of [-1, 1]) B.box('iron', [0.04, 0.012, 0.012], [sx * 0.12, 0.222, -0.105], '#4a4a46');   // cerniere del coperchio
     B.box('plastic', [0.1, 0.05, 0.02], [0.09, 0.16, 0.112], '#161e20'); for (let i = 0; i < 3; i++) B.sph('glow', 0.007, [0.062 + i * 0.026, 0.12, 0.118], ['#d03030', '#30d060', '#d0b020'][i], { w: 5, h: 4, ao: false });
+    B.box('glow', [0.045, 0.02, 0.004], [0.095, 0.178, 0.1225], '#1c3a2c', { ao: false }); for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) B.box('plastic', [0.012, 0.008, 0.005], [0.068 + c * 0.016, 0.152 - r * 0.0, 0.1235 + r * 0.0], ['#d8d4c4', '#d8d4c4', '#c83030', '#3a8a40'][c], { ao: false });   // schermo e pulsanti
+    for (const [y, c] of [[0.05, '#a8a494'], [0.098, '#aaa696']]) { B.box('paint', [0.19, 0.04, 0.006], [-0.05, y, 0.113], c); B.box('iron', [0.05, 0.008, 0.01], [-0.05, y + 0.005, 0.12], '#4a4a46'); }   // cassetti della carta
+    B.box('plastic', [0.06, 0.05, 0.07], [0.19, 0.1, 0.0], '#1a1a22'); B.box('bone', [0.04, 0.02, 0.004], [0.19, 0.1, 0.037], '#e0dcc8', { ao: false });   // cartuccia del toner
     B.box('paint', [0.22, 0.04, 0.12], [-0.03, 0.08, 0.15], '#7a7666'); B.box('bone', [0.2, 0.003, 0.1], [-0.03, 0.102, 0.15], '#f0ece0', { ao: false }); B.box('bone', [0.08, 0.002, 0.1], [0.05, 0.01, 0.2], '#eae6d8', { r: [0, 0.5, 0], ao: false });
+    flat(5, 0.09, 0.09, [-0.1, 0.16, 0.1135]); top(4, 0.2, 0.0, 0.2265, 0.02);
   } else if (n === 'mattress') {
-    B.box('fabric', [0.42, 0.045, 0.22], [0, 0.0225, 0], '#a89c80', { r: [0, 0, 0.0] }); B.box('fabric', [0.43, 0.012, 0.23], [0, 0.05, 0], '#c0b498', { nz: 1.5 });
+    B.box('fabric', [0.42, 0.045, 0.22], [0, 0.0225, 0], '#a89c80'); B.box('fabric', [0.43, 0.012, 0.23], [0, 0.05, 0], '#c0b498', { nz: 1.5 });
     B.sph('fabric', [0.07, 0.003, 0.04], [-0.06, 0.057, 0.02], '#5a4024', { w: 8, h: 4, ao: false }); B.box('fabric', [0.14, 0.03, 0.1], [0.12, 0.03, 0.1], '#7a6e56', { r: [0, 0.5, 0.1], nz: 2 });
     for (let i = 0; i < 4; i++) B.seg('iron', [0.12 + i * 0.01, 0.052, -0.06], [0.14 + i * 0.012, 0.075, -0.05], 0.003, 0.003, '#6a6e76', 4);
+    for (let i = 0; i < 3; i++) B.tor('iron', [0.012, 0.002, 4, 8], [-0.1 + i * 0.045, 0.062, -0.07 + i * 0.01], '#6a6e76', { r: [1.2, rn(0, 3), 0] });   // molle che sporgono
+    for (const z of [-0.115, 0.115]) B.box('fabric', [0.43, 0.005, 0.004], [0, 0.0475, z], '#8a7e64', { ao: false }); for (const x of [-0.215, 0.215]) B.box('fabric', [0.004, 0.005, 0.23], [x, 0.0475, 0], '#8a7e64', { ao: false });   // cordonatura
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) B.sph('fabric', 0.005, [-0.15 + c * 0.1, 0.0565, -0.05 + r * 0.1], '#5a4a34', { w: 4, h: 3, ao: false });
+    B.box('bone', [0.03, 0.002, 0.02], [0.18, 0.0565, -0.09], '#e8e4d4', { ao: false }); top(4, 0.16, 0.0, 0.0575, 0.03, '#8a8068'); top(7, 0.1, -0.12, 0.0576, -0.06, '#7a6a50');
   } else if (n === 'xbarrel') {
-    B.cyl('paint', [0.085, 0.085, 0.3, 14], [0, 0.15, 0], '#9a2216'); B.cyl('iron', [0.088, 0.088, 0.012, 14], [0, 0.04, 0], '#5a1810'); B.cyl('iron', [0.088, 0.088, 0.012, 14], [0, 0.26, 0], '#5a1810');
-    B.cyl('paint', [0.087, 0.087, 0.05, 14], [0, 0.16, 0], '#e0b020'); B.cyl('iron', [0.082, 0.082, 0.008, 14], [0, 0.304, 0], '#4a1008'); B.cyl('iron', [0.016, 0.016, 0.016, 8], [0.035, 0.31, 0.02], '#2a2a2a');
-    B.cone('plastic', [0.02, 0.05, 3], [0, 0.16, 0.0875], '#1a1a1a', { r: [1.5708, 0, 0], s: [1, 0.2, 1], ao: false }); B.box('plastic', [0.07, 0.008, 0.004], [0, 0.205, 0.088], '#1a1a1a', { ao: false });
-    B.box('plastic', [0.024, 0.036, 0.004], [-0.03, 0.095, 0.083], '#e0b020', { r: [0, -0.4, 0], ao: false });
+    const col = ['#9a2216', '#86200f', '#a83a1e'][v % 3], rr = 0.0835;
+    drum(0.0825, 0.3, [0.069, 0.152, 0.229], col, 14);
+    for (const y of [0.0125, 0.2875]) B.tor('iron', [0.0845, 0.0034, 4, 14], [0, y, 0], '#46241a', { r: [1.5708, 0, 0], ao: false });   // bordo rullato: ferro scuro dove la vernice e saltata
+    for (let i = 0; i < 6; i++) arc(2, rr, 0.111, 0.0866, 0.12, i * 1.0472);   // fascia a strisce gialle e nere tra le prime due nervature
+    arc(1, rr + 0.0006, 0.111, 0.1, 0.1, 0);   // targa "ESPLOSIVO" sopra le strisce
+    arc(0, rr, 0.192, 0.062, 0.062, 0); arc(0, rr, 0.192, 0.062, 0.062, 3.1416);   // rombo di pericolo davanti e dietro
+    arc(6, rr, 0.257, 0.05, 0.05, 0.9);   // targhetta di serie
+    for (let i = 0; i < 6; i++) arc(4, rr, 0.04, 0.0866, 0.0866, i * 1.0472 + 0.3);   // sporco in basso
+    arc(3, rr, 0.24, 0.09, 0.09, -0.8); arc(3, rr, 0.24, 0.09, 0.09, 2.3); if (v === 1) { arc(3, rr + 0.0003, 0.235, 0.09, 0.09, 0.45); arc(3, rr + 0.0003, 0.235, 0.09, 0.09, -2.2); }   // colate di ruggine
+    if (v === 2) { arc(4, rr + 0.0004, 0.2, 0.0866, 0.0866, 0.0); arc(4, rr + 0.0004, 0.2, 0.0866, 0.0866, 1.05); arc(4, rr + 0.0004, 0.2, 0.0866, 0.0866, -1.05); arc(4, rr + 0.0004, 0.12, 0.0866, 0.0866, 2.1); }   // annerito dal fumo
+    bung(0.03, 0.292, 0.02, 0.016); bung(-0.04, 0.292, -0.028, 0.011);   // due tappi a vite sul coperchio
+    B.tor('iron', [0.0765, 0.0028, 3, 14], [0, 0.2965, 0], '#3a1a12', { r: [1.5708, 0, 0], ao: false }); B.box('iron', [0.018, 0.012, 0.012], [0, 0.299, 0.0775], '#2a2a2c'); B.cyl('iron', [0.004, 0.004, 0.022, 5], [0, 0.305, 0.0775], '#7a7a78', { r: [0, 0, 1.5708] });   // ghiera di chiusura con la leva
+    if (v === 1) floor(7, 0.3, 0.025, 0.035);   // perde: pozza scura a terra
   } else B.box('wood', [0.3, 0.3, 0.3], [0, 0.15, 0], '#8a6a48');
 }
 
